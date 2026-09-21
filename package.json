@@ -1,0 +1,30 @@
+{
+  "name": "basketball-royale",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "db:reset": "rm -f db/basketball_royale.db && node -e \"require('./db')\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/horatiodavey-arch/basketball-royale.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/horatiodavey-arch/basketball-royale/issues"
+  },
+  "homepage": "https://github.com/horatiodavey-arch/basketball-royale#readme",
+  "dependencies": {
+    "ejs": "^6.0.1",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0"
+  }
+}
