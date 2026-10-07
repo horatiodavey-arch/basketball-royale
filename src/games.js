@@ -148,3 +148,9 @@ function requireStatus(db, gameId, expected) {
   if (game.status !== expected) throw new Error(`game ${gameId} is '${game.status}', expected '${expected}'`);
   return game;
 }
+
+// Marks ledger rows as paid in cash. Returns how many rows changed.
+export function markSettled(db, ledgerIds) {
+  const stmt = db.prepare('UPDATE ledger SET settled = 1 WHERE id = ? AND settled = 0');
+  return transaction(db, () => ledgerIds.reduce((n, id) => n + Number(stmt.run(id).changes), 0));
+}

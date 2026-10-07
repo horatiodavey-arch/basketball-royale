@@ -4,9 +4,15 @@
   "private": true,
   "type": "module",
   "description": "Basketball Royale v1 demo mode: ladder, lobbies, games and a cash ledger.",
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "migrate": "node scripts/migrate.js",
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
   }
 }

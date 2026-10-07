@@ -3,9 +3,10 @@
 v1 "Demo Mode": the app records lobbies, games and who owes what. Cash stays physical at the run.
 
 ## Stack
-Plain Node (>= 22.13) with the built-in `node:sqlite` and `node:test`. No dependencies to install.
+Node (>= 22.13), Express 5, and SQLite via the built-in `node:sqlite`. Tests use `node:test`. Run `npm install` once.
 
 ## Commands
+- `npm start` runs the API (`PORT` default 3000, `DB_PATH` default `basketball_royale.db`, `ADMIN_PHONES` comma-separated phones that become admins on login). It migrates on boot and auto-locks lapsed games every 30s.
 - `npm run migrate [path]` creates or updates the SQLite database (default `basketball_royale.db`, or `$DB_PATH`).
 - `npm test` runs the test suite.
 
@@ -14,6 +15,27 @@ Plain Node (>= 22.13) with the built-in `node:sqlite` and `node:test`. No depend
 - `src/db.js` opens the database (foreign keys on) and runs migrations and transactions.
 - `src/games.js` is the game lifecycle: `createLobby`, `createGame`, `startGame` (writes entry fees), `reportScore`, `confirmScore`, `contestGame`, `expireGames`, `resolveContest`, `balanceCents`.
 - `src/settlement.js` has `computePayouts` (pure money math), `settleGame` and promotion.
+
+## API
+Send `Authorization: Bearer <token>` on everything except `/auth/login` and `/tiers`.
+
+| Route | Who | Does |
+|---|---|---|
+| `POST /auth/login` `{name, phone}` | anyone | log in, creating the account on first use; returns `{token}` |
+| `GET /me`, `GET /me/ledger` | player | profile, tier, balance, owed cash, ledger |
+| `GET /tiers` | anyone | the ladder rules |
+| `POST /lobbies` | admin | create a lobby (`name, startsAt, tier, stakeCents, joinCode`) |
+| `GET /lobbies`, `GET /lobbies/:code` | player | browse; one lobby with its joined players |
+| `POST /lobbies/:code/join` | player | join by code (tier must match) |
+| `POST /lobbies/:code/games` `{teams:{a:[ids],b:[ids]}}` | admin | form a game from joined players |
+| `GET /games/:id` | player | game and roster |
+| `POST /games/:id/start` | admin | writes entry fees |
+| `POST /games/:id/score` `{teamAScore, teamBScore}` | rostered player or admin | report the score |
+| `POST /games/:id/confirm`, `/contest` | rostered player | confirm (settles once both teams have) or dispute |
+| `POST /games/:id/resolve` `{winner: 'a', 'b' or null}` | admin | settle a contested game, or void it |
+| `GET /admin/balances`, `POST /admin/ledger/settle` `{ledgerIds}` | admin | who owes what; mark cash received |
+
+Errors come back as `{error}`: 401 not logged in, 403 not allowed, 404 not found, 400 any rule violation.
 
 ## Rules as implemented
 - Money is integer cents. A balance is the sum of ledger rows: negative means owed in, positive means owed out.
@@ -26,5 +48,5 @@ Plain Node (>= 22.13) with the built-in `node:sqlite` and `node:test`. No depend
 - A contested game holds its money until an admin calls `resolveContest`: name the winner (`'a'`/`'b'`) to settle it, or `null` to void it. A void game refunds entry fees (`refund` ledger rows), changes no records and ends `void`.
 
 ## Still open
-- Nothing calls `expireGames` yet; there is no scheduler or API.
-- Who counts as an admin is not modelled; `resolveContest` is unrestricted.
+- Login has no SMS verification: anyone who knows a phone number can log in as it. Fine for a demo run, not for real money.
+- No front end yet.

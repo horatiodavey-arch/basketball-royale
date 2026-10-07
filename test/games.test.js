@@ -6,7 +6,7 @@ import { freshDb, setupGame } from './helpers.js';
 
 test('migrate is idempotent and records what it applied', () => {
   const db = openDb();
-  assert.deepEqual(migrate(db), ['001_init.sql', '002_tier_rules.sql']);
+  assert.deepEqual(migrate(db), ['001_init.sql', '002_tier_rules.sql', '003_api.sql']);
   assert.deepEqual(migrate(db), []);
 });
 

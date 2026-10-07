@@ -1,0 +1,118 @@
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { createApp } from '../src/app.js';
+import { freshDb } from './helpers.js';
+
+let server, base;
+before(async () => {
+  const app = createApp(freshDb(), { adminPhones: ['000'] });
+  server = app.listen(0);
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+after(() => server.close());
+
+async function call(method, path, { token, body } = {}) {
+  const res = await fetch(base + path, {
+    method,
+    headers: { 'content-type': 'application/json', ...(token && { authorization: `Bearer ${token}` }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { status: res.status, body: await res.json() };
+}
+const login = async (name, phone) => (await call('POST', '/auth/login', { body: { name, phone } })).body.token;
+
+test('auth: login required, admin required, phone required', async () => {
+  assert.equal((await call('GET', '/me')).status, 401);
+  assert.equal((await call('POST', '/auth/login', { body: { name: 'x' } })).status, 400);
+  const t = await login('Rook', '111');
+  assert.equal((await call('POST', '/lobbies', { token: t, body: {} })).status, 403);
+  const me = await call('GET', '/me', { token: t });
+  assert.equal(me.body.player.tier, 'rookie');
+  assert.equal(me.body.user.isAdmin, false);
+});
+
+test('full run over HTTP: lobby, join, game, confirm, settle, cash out', async () => {
+  const admin = await login('Coach', '000');
+  const made = await call('POST', '/lobbies', {
+    token: admin,
+    body: { name: 'Sunday Run', startsAt: '2026-10-11T10:00', tier: 'rookie', stakeCents: 500, joinCode: 'SUN24' },
+  });
+  assert.equal(made.status, 201);
+  assert.equal((await call('POST', '/lobbies', { token: admin, body: { name: 'x', startsAt: 't', tier: 'rookie', stakeCents: 900 } })).status, 400);
+
+  const tokens = [];
+  const ids = [];
+  for (let i = 0; i < 4; i++) {
+    const t = await login(`P${i}`, `20${i}`);
+    tokens.push(t);
+    assert.equal((await call('POST', '/lobbies/sun24/join', { token: t })).status, 200);
+    ids.push((await call('GET', '/me', { token: t })).body.player.id);
+  }
+  assert.equal((await call('GET', '/lobbies/SUN24', { token: admin })).body.players.length, 4);
+
+  // The game can't include someone who never joined.
+  const stranger = await login('Stranger', '999');
+  const strangerId = (await call('GET', '/me', { token: stranger })).body.player.id;
+  const bad = await call('POST', '/lobbies/SUN24/games', { token: admin, body: { teams: { a: [ids[0], strangerId], b: [ids[2], ids[3]] } } });
+  assert.equal(bad.status, 400);
+
+  const game = await call('POST', '/lobbies/SUN24/games', { token: admin, body: { teams: { a: [ids[0], ids[1]], b: [ids[2], ids[3]] } } });
+  const gid = game.body.id;
+  assert.equal(game.body.status, 'forming');
+  assert.equal((await call('POST', `/games/${gid}/start`, { token: tokens[0] })).status, 403);
+  await call('POST', `/games/${gid}/start`, { token: admin });
+
+  assert.equal((await call('POST', `/games/${gid}/score`, { token: stranger, body: { teamAScore: 21, teamBScore: 10 } })).status, 403);
+  assert.equal((await call('POST', `/games/${gid}/score`, { token: tokens[0], body: { teamAScore: 21, teamBScore: 21 } })).status, 400);
+  await call('POST', `/games/${gid}/score`, { token: tokens[0], body: { teamAScore: 21, teamBScore: 10 } });
+
+  assert.equal((await call('POST', `/games/${gid}/confirm`, { token: stranger })).status, 403);
+  assert.equal((await call('POST', `/games/${gid}/confirm`, { token: tokens[0] })).body.settlement, null);
+  const done = await call('POST', `/games/${gid}/confirm`, { token: tokens[2] });
+  assert.equal(done.body.game.status, 'locked');
+  // pot 4 x 500 = 2000, rake 30% = 600, 1400 / 2 winners = 700 each
+  assert.equal(done.body.settlement.perWinner, 700);
+
+  assert.equal((await call('GET', '/me', { token: tokens[0] })).body.balanceCents, 200);
+  assert.equal((await call('GET', '/me', { token: tokens[2] })).body.balanceCents, -500);
+
+  // Collector sees who owes what, then marks a payment received.
+  const balances = (await call('GET', '/admin/balances', { token: admin })).body;
+  assert.equal(balances.length, 4);
+  assert.equal((await call('GET', '/admin/balances', { token: tokens[0] })).status, 403);
+  const ledger = (await call('GET', '/me/ledger', { token: tokens[2] })).body;
+  const settled = await call('POST', '/admin/ledger/settle', { token: admin, body: { ledgerIds: ledger.map((r) => r.id) } });
+  assert.equal(settled.body.settled, 1);
+  assert.equal((await call('GET', '/me', { token: tokens[2] })).body.owedCents, 0);
+});
+
+test('contest and admin resolution over HTTP', async () => {
+  const admin = await login('Coach', '000');
+  await call('POST', '/lobbies', { token: admin, body: { name: 'Run 2', startsAt: '2026-10-12T10:00', tier: 'rookie', stakeCents: 500, joinCode: 'RUN2' } });
+  const t = [], ids = [];
+  for (let i = 0; i < 2; i++) {
+    const tok = await login(`Q${i}`, `30${i}`);
+    t.push(tok);
+    await call('POST', '/lobbies/RUN2/join', { token: tok });
+    ids.push((await call('GET', '/me', { token: tok })).body.player.id);
+  }
+  const gid = (await call('POST', '/lobbies/RUN2/games', { token: admin, body: { teams: { a: [ids[0]], b: [ids[1]] } } })).body.id;
+  await call('POST', `/games/${gid}/start`, { token: admin });
+  await call('POST', `/games/${gid}/score`, { token: t[0], body: { teamAScore: 11, teamBScore: 9 } });
+  assert.equal((await call('POST', `/games/${gid}/contest`, { token: t[1] })).body.status, 'contested');
+  assert.equal((await call('POST', `/games/${gid}/resolve`, { token: t[1], body: { winner: null } })).status, 403);
+  assert.equal((await call('POST', `/games/${gid}/resolve`, { token: admin, body: {} })).status, 400);
+  const voided = await call('POST', `/games/${gid}/resolve`, { token: admin, body: { winner: null } });
+  assert.equal(voided.body.game.status, 'void');
+  assert.equal((await call('GET', '/me', { token: t[0] })).body.balanceCents, 0);
+});
+
+test('wrong-tier players cannot join, unknown routes 404', async () => {
+  const admin = await login('Coach', '000');
+  await call('POST', '/lobbies', { token: admin, body: { name: 'Starters', startsAt: '2026-10-13T10:00', tier: 'starter', stakeCents: 1000, joinCode: 'STAR1' } });
+  const t = await login('Newbie', '400');
+  const res = await call('POST', '/lobbies/STAR1/join', { token: t });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /starter/);
+  assert.equal((await call('GET', '/nope')).status, 404);
+});
