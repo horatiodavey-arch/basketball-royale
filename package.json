@@ -1,0 +1,12 @@
+{
+  "name": "basketball-royale",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Basketball Royale v1 demo mode: ladder, lobbies, games and a cash ledger.",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "migrate": "node scripts/migrate.js",
+    "test": "node --test \"test/*.test.js\""
+  }
+}
