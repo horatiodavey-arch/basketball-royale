@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computePayouts, PROMO_CREDIT_CENTS } from '../src/settlement.js';
-import { startGame, reportScore, confirmScore, contestGame, balanceCents } from '../src/games.js';
+import { computePayouts } from '../src/settlement.js';
+import { startGame, reportScore, confirmScore, contestGame, expireGames, resolveContest, balanceCents } from '../src/games.js';
 import { freshDb, setupGame } from './helpers.js';
 
 test('computePayouts matches the schema example: 10 x $5 at 30% rake', () => {
@@ -87,7 +87,7 @@ test('rookies promote after 5 wins, with a promo credit', () => {
     const p = db.prepare('SELECT * FROM players WHERE id = ?').get(id);
     assert.equal(p.tier, 'starter');
     assert.ok(p.promoted_at);
-    assert.equal(balanceCents(db, id), -500 + 700 + PROMO_CREDIT_CENTS);
+    assert.equal(balanceCents(db, id), -500 + 700 + 1000); // promo credit = starter minimum stake
   }
   // Losers had 0 wins and 1 game, so they stay rookies.
   for (const id of teams.b) {
@@ -109,15 +109,27 @@ test('rookies also promote on games played, win or lose', () => {
   }
 });
 
-test('starter has no promotion criteria yet, so never promotes', () => {
+test('starter promotes to star at 10 wins, star is capped by superstar criteria', () => {
   const db = freshDb();
   const { gameId, teams } = setupGame(db, { tier: 'starter', stakeCents: 1000 });
-  db.prepare(`UPDATE players SET wins = 99, games_played = 99`).run();
+  db.prepare(`UPDATE players SET wins = 9, games_played = 9`).run();
   startGame(db, gameId);
   reportScore(db, gameId, 21, 15);
   confirmScore(db, gameId, teams.a[0]);
   const result = confirmScore(db, gameId, teams.b[0]);
-  assert.deepEqual(result.promotions, []);
+  assert.equal(result.promotions.length, 5);
+  assert.ok(result.promotions.every((p) => p.to === 'star'));
+  assert.equal(balanceCents(db, teams.a[0]), -1000 + result.perWinner + 1500);
+});
+
+test('superstar is the top: nobody promotes past it', () => {
+  const db = freshDb();
+  const { gameId, teams } = setupGame(db, { tier: 'superstar', stakeCents: 2500 });
+  db.prepare(`UPDATE players SET wins = 99, games_played = 99`).run();
+  startGame(db, gameId);
+  reportScore(db, gameId, 21, 15);
+  confirmScore(db, gameId, teams.a[0]);
+  assert.deepEqual(confirmScore(db, gameId, teams.b[0]).promotions, []);
 });
 
 test('contested games hold their money: no payouts, no record changes', () => {
@@ -129,4 +141,54 @@ test('contested games hold their money: no payouts, no record changes', () => {
   assert.equal(db.prepare('SELECT status FROM games WHERE id = ?').get(gameId).status, 'contested');
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM ledger WHERE type = 'payout'").get().n, 0);
   assert.throws(() => confirmScore(db, gameId, teams.a[0]));
+});
+
+test('an uncontested score locks and settles when the window lapses', () => {
+  const db = freshDb();
+  const { gameId, teams } = setupGame(db);
+  startGame(db, gameId);
+  const t0 = new Date('2026-10-11T10:00:00Z');
+  reportScore(db, gameId, 21, 15, t0);
+  assert.deepEqual(expireGames(db, new Date(t0.getTime() + 19 * 60000)), []);
+  assert.deepEqual(expireGames(db, new Date(t0.getTime() + 20 * 60000)), [gameId]);
+  assert.equal(db.prepare('SELECT status FROM games WHERE id = ?').get(gameId).status, 'locked');
+  assert.equal(balanceCents(db, teams.a[0]), 200);
+  assert.deepEqual(expireGames(db, new Date(t0.getTime() + 60 * 60000)), []); // not again
+});
+
+test('a contested game is not auto-settled by the window', () => {
+  const db = freshDb();
+  const { gameId, teams } = setupGame(db);
+  startGame(db, gameId);
+  const t0 = new Date('2026-10-11T10:00:00Z');
+  reportScore(db, gameId, 21, 15, t0);
+  contestGame(db, gameId, teams.b[0]);
+  assert.deepEqual(expireGames(db, new Date(t0.getTime() + 60 * 60000)), []);
+});
+
+test('admin can resolve a contest by naming the winner', () => {
+  const db = freshDb();
+  const { gameId, teams } = setupGame(db);
+  startGame(db, gameId);
+  reportScore(db, gameId, 21, 15);
+  contestGame(db, gameId, teams.b[0]);
+  resolveContest(db, gameId, 'b'); // overturn: b actually won
+  assert.equal(balanceCents(db, teams.b[0]), 200);
+  assert.equal(balanceCents(db, teams.a[0]), -500);
+  assert.equal(db.prepare('SELECT status FROM games WHERE id = ?').get(gameId).status, 'locked');
+});
+
+test('voiding a contest refunds entry fees and leaves records alone', () => {
+  const db = freshDb();
+  const { gameId, teams } = setupGame(db);
+  startGame(db, gameId);
+  reportScore(db, gameId, 21, 15);
+  contestGame(db, gameId, teams.a[0]);
+  resolveContest(db, gameId, null);
+  for (const id of [...teams.a, ...teams.b]) {
+    assert.equal(balanceCents(db, id), 0);
+    assert.equal(db.prepare('SELECT games_played FROM players WHERE id = ?').get(id).games_played, 0);
+  }
+  assert.equal(db.prepare('SELECT status FROM games WHERE id = ?').get(gameId).status, 'void');
+  assert.throws(() => resolveContest(db, gameId, 'a'), /expected 'contested'/);
 });

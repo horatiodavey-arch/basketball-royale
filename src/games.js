@@ -103,6 +103,38 @@ export function contestGame(db, gameId, playerId) {
   });
 }
 
+// The 20-minute window is a contest window: a score nobody contests stands.
+// Locks and settles every pending game past its deadline; returns their ids.
+export function expireGames(db, now = new Date()) {
+  const due = db.prepare(
+    "SELECT id FROM games WHERE status = 'pending_confirm' AND confirm_deadline <= ?",
+  ).all(now.toISOString());
+  for (const { id } of due) settleGame(db, id, now, { requireConfirmations: false });
+  return due.map((g) => g.id);
+}
+
+// Admin resolution of a contested game. winner 'a' or 'b' settles it that way;
+// winner null voids the game: entry fees are refunded and no records change.
+export function resolveContest(db, gameId, winner, now = new Date()) {
+  if (winner !== null && winner !== 'a' && winner !== 'b') throw new Error("winner must be 'a', 'b' or null");
+  if (winner) {
+    transaction(db, () => {
+      requireStatus(db, gameId, 'contested');
+      db.prepare('UPDATE games SET winner = ? WHERE id = ?').run(winner, gameId);
+    });
+    return settleGame(db, gameId, now, { requireConfirmations: false });
+  }
+  return transaction(db, () => {
+    requireStatus(db, gameId, 'contested');
+    db.prepare(`INSERT INTO ledger (player_id, game_id, type, amount_cents)
+                SELECT player_id, game_id, 'refund', -amount_cents FROM ledger
+                WHERE game_id = ? AND type = 'entry_fee'`).run(gameId);
+    db.prepare("UPDATE games SET status = 'void', winner = NULL, locked_at = ? WHERE id = ?")
+      .run(now.toISOString(), gameId);
+    return null;
+  });
+}
+
 // A balance is just the sum of ledger rows: negative = they owe, positive = owed to them.
 export function balanceCents(db, playerId, { unsettledOnly = false } = {}) {
   const sql = `SELECT COALESCE(SUM(amount_cents), 0) AS total FROM ledger

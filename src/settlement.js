@@ -1,8 +1,5 @@
 import { transaction } from './db.js';
 
-// The free entry a player earns on promotion (see migrations/001_init.sql).
-export const PROMO_CREDIT_CENTS = 500;
-
 // Pure money math. All values are integer cents.
 //   pot        = stake * players
 //   rake       = floor(pot * rake% / 100)
@@ -33,17 +30,20 @@ export function promotionTarget(db, player) {
   return next ? next.name : null;
 }
 
-// Settles a game whose score both teams confirmed. Runs once: the game must be
-// in 'pending_confirm' with both confirmations, and ends 'locked'.
+// Settles a game. Runs once: the game must be in 'pending_confirm' (or
+// 'contested', when an admin has picked the winner) and ends 'locked'.
+// By default both teams must have confirmed; pass requireConfirmations: false
+// when the confirm window lapsed unchallenged or an admin resolved a dispute.
 // Entry fees were already written when the game started (see games.startGame).
-export function settleGame(db, gameId, now = new Date()) {
+// Promotion credit is the free entry at the new tier: that tier's minimum stake.
+export function settleGame(db, gameId, now = new Date(), { requireConfirmations = true } = {}) {
   return transaction(db, () => {
     const game = db.prepare('SELECT * FROM games WHERE id = ?').get(gameId);
     if (!game) throw new Error(`game ${gameId} not found`);
-    if (game.status !== 'pending_confirm') {
+    if (game.status !== 'pending_confirm' && game.status !== 'contested') {
       throw new Error(`game ${gameId} is '${game.status}', expected 'pending_confirm'`);
     }
-    if (!game.confirmed_by_a || !game.confirmed_by_b) {
+    if (requireConfirmations && (!game.confirmed_by_a || !game.confirmed_by_b)) {
       throw new Error(`game ${gameId} needs confirmation from both teams`);
     }
 
@@ -76,7 +76,8 @@ export function settleGame(db, gameId, now = new Date()) {
       const target = promotionTarget(db, getPlayer.get(player_id));
       if (target) {
         promote.run(target, now.toISOString(), player_id);
-        addLedger.run(player_id, gameId, 'promo_credit', PROMO_CREDIT_CENTS);
+        const credit = db.prepare('SELECT min_stake_cents FROM tiers WHERE name = ?').get(target);
+        addLedger.run(player_id, gameId, 'promo_credit', credit.min_stake_cents);
         promotions.push({ playerId: player_id, to: target });
       }
     }

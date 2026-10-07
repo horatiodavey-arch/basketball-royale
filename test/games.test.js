@@ -6,8 +6,17 @@ import { freshDb, setupGame } from './helpers.js';
 
 test('migrate is idempotent and records what it applied', () => {
   const db = openDb();
-  assert.deepEqual(migrate(db), ['001_init.sql']);
+  assert.deepEqual(migrate(db), ['001_init.sql', '002_tier_rules.sql']);
   assert.deepEqual(migrate(db), []);
+});
+
+test('tier stake ranges do not overlap and every tier below the top has promotion criteria', () => {
+  const db = freshDb();
+  const tiers = db.prepare('SELECT * FROM tiers ORDER BY rank').all();
+  for (let i = 1; i < tiers.length; i++) {
+    if (tiers[i - 1].name !== 'rookie') assert.ok(tiers[i].min_stake_cents > tiers[i - 1].max_stake_cents, tiers[i].name);
+    assert.ok(tiers[i - 1].wins_to_promote && tiers[i - 1].games_to_promote, tiers[i - 1].name);
+  }
 });
 
 test('foreign keys are enforced', () => {
