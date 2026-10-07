@@ -131,7 +131,7 @@ test('invite flow: generated code, public preview, join by link code, leave, clo
   const preview = await call('GET', `/join/${code.toLowerCase()}`);
   assert.equal(preview.status, 200);
   assert.equal(preview.body.name, 'Invite Run');
-  assert.equal(preview.body.players, undefined);
+  assert.deepEqual(preview.body.players, []);
   assert.equal((await call('GET', '/join/ZZZZZ')).status, 404);
 
   const t = await login('Joiner', '500');
@@ -145,4 +145,44 @@ test('invite flow: generated code, public preview, join by link code, leave, clo
   assert.equal((await call('POST', `/lobbies/${code}/close`, { token: admin })).body.status, 'closed');
   assert.equal((await call('POST', `/lobbies/${code}/join`, { token: t })).status, 400);
   assert.ok(!(await call('GET', '/lobbies', { token: t })).body.some((l) => l.join_code === code));
+});
+
+test('home-screen data: lobby list with roster and joined flag, my games, game names', async () => {
+  const admin = await login('Coach', '000');
+  const code = (await call('POST', '/lobbies', { token: admin, body: { name: 'Home Run', startsAt: '2026-10-15T10:00', tier: 'rookie', stakeCents: 500 } })).body.join_code;
+  const a = await login('Darius Jones', '600');
+  const b = await login('Chris Lee', '601');
+  await call('POST', `/lobbies/${code}/join`, { token: a });
+  await call('POST', `/lobbies/${code}/join`, { token: b });
+
+  const list = (await call('GET', '/lobbies', { token: a })).body.find((l) => l.join_code === code);
+  assert.equal(list.playerCount, 2);
+  assert.deepEqual(list.playerNames, ['Darius', 'Chris']);
+  assert.equal(list.joined, true);
+  assert.equal((await call('GET', '/lobbies', { token: admin })).body.find((l) => l.join_code === code).joined, false);
+
+  const ids = [(await call('GET', '/me', { token: a })).body.player.id, (await call('GET', '/me', { token: b })).body.player.id];
+  const game = (await call('POST', `/lobbies/${code}/games`, { token: admin, body: { teams: { a: [ids[0]], b: [ids[1]] } } })).body;
+  assert.deepEqual(game.players.map((p) => p.name), ['Darius Jones', 'Chris Lee']);
+
+  const mine = (await call('GET', '/me/games', { token: a })).body;
+  assert.equal(mine[0].id, game.id);
+  assert.equal(mine[0].myTeam, 'a');
+  assert.equal(mine[0].lobbyCode, code);
+  assert.equal((await call('GET', `/lobbies/${code}`, { token: a })).body.games.length, 1);
+
+  await call('POST', `/games/${game.id}/start`, { token: admin });
+  const bal = (await call('GET', '/admin/balances', { token: admin })).body.find((r) => r.name === 'Darius Jones');
+  assert.equal(bal.owedCents, -500);
+  assert.equal(bal.ledgerIds.length, 1);
+});
+
+test('the app shell is served, and invite links open it for browsers only', async () => {
+  const root = await fetch(`${base}/`);
+  assert.match(await root.text(), /Basketball Royale/);
+  const link = await fetch(`${base}/join/ANYCODE`, { headers: { accept: 'text/html,application/xhtml+xml' } });
+  assert.match(link.headers.get('content-type'), /html/);
+  const api = await fetch(`${base}/join/ANYCODE`);
+  assert.equal(api.status, 404);
+  assert.match(api.headers.get('content-type'), /json/);
 });

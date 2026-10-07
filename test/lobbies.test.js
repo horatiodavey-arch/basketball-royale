@@ -88,15 +88,15 @@ test('a lobby cannot close, and a player cannot leave, mid-game', () => {
   assert.equal(closeLobby(db, 'SUN24').status, 'closed');
 });
 
-test('invite preview exposes the lobby but not who is in it', () => {
+test('invite preview exposes the lobby and the first names of who is locked in', () => {
   const db = freshDb();
   const { joinCode } = createLobby(db, { ...lobbyArgs, location: 'Rucker Park', joinCode: 'SUN24' });
-  const { playerId } = createUser(db, { name: 'A' });
+  const { playerId } = createUser(db, { name: 'Darius Jones' });
   joinLobby(db, joinCode, playerId);
   const preview = lobbyPreview(db, 'sun24', 'https://royale.example');
   assert.deepEqual(preview, {
     name: 'Run', location: 'Rucker Park', startsAt: '2026-10-11T10:00', tier: 'rookie',
-    stakeCents: 500, status: 'open', joinCode: 'SUN24', playerCount: 1,
+    stakeCents: 500, status: 'open', joinCode: 'SUN24', playerCount: 1, players: ['Darius'],
     invitePath: '/join/SUN24', inviteUrl: 'https://royale.example/join/SUN24',
   });
   assert.equal(lobbyPreview(db, 'SUN24').inviteUrl, null);

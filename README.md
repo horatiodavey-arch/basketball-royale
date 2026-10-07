@@ -17,6 +17,11 @@ Node (>= 22.13), Express 5, and SQLite via the built-in `node:sqlite`. Tests use
 - `src/games.js` is the game lifecycle: `createGame`, `startGame` (writes entry fees), `reportScore`, `confirmScore`, `contestGame`, `expireGames`, `resolveContest`, `balanceCents`.
 - `src/settlement.js` has `computePayouts` (pure money math), `settleGame` and promotion.
 
+## Front end
+A phone-sized single-page app in `public/` (plain HTML, CSS and JS, no build step), served by the same Express server. Open `http://localhost:3000`. The home screen follows `br_rookie_home_mockup.html`; the ladder, stakes, rake, promotion progress and "win pays" amounts are read from the API rather than hard-coded.
+
+Screens: login/signup, home, invite landing (`/join/CODE` shows the run and who's locked in before any signup, then "I'm in"), lobby (roster, games, leave), game (report, confirm, dispute, result), and for admins lobby setup, forming and starting games, ruling on disputes, and collecting cash. The Invite button uses the phone's share sheet, falling back to copying the link.
+
 ## API
 Send `Authorization: Bearer <token>` on everything except `/auth/login` and `/tiers`.
 
@@ -58,4 +63,4 @@ Errors come back as `{error}`: 401 not logged in, 403 not allowed, 404 not found
 
 ## Still open
 - Login has no SMS verification: anyone who knows a phone number can log in as it. Fine for a demo run, not for real money.
-- No front end yet.
+- The front end polls every 4 seconds on the game screen; there are no push updates yet.

@@ -104,13 +104,15 @@ export function lobbyPlayers(db, lobbyId) {
                      WHERE lp.lobby_id = ? ORDER BY lp.joined_at, p.id`).all(lobbyId);
 }
 
-// What someone holding an invite link may see before logging in.
+// What someone holding an invite link may see before logging in: the run's
+// details and the first names of who is locked in (the roster is the pitch).
 export function lobbyPreview(db, code, publicUrl = '') {
   const lobby = requireLobby(db, code);
   const { n } = db.prepare('SELECT COUNT(*) AS n FROM lobby_players WHERE lobby_id = ?').get(lobby.id);
   return {
     name: lobby.name, location: lobby.location, startsAt: lobby.starts_at, tier: lobby.tier,
     stakeCents: lobby.stake_cents, status: lobby.status, joinCode: lobby.join_code,
-    playerCount: n, invitePath: `/join/${lobby.join_code}`, inviteUrl: publicUrl ? `${publicUrl}/join/${lobby.join_code}` : null,
+    playerCount: n, players: lobbyPlayers(db, lobby.id).map((p) => p.name.trim().split(/\s+/)[0]),
+    invitePath: `/join/${lobby.join_code}`, inviteUrl: publicUrl ? `${publicUrl}/join/${lobby.join_code}` : null,
   };
 }

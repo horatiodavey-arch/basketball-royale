@@ -1,10 +1,14 @@
 import express from 'express';
+import { fileURLToPath } from 'node:url';
+import { join, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createLobby, findLobbyByCode, joinLobby, leaveLobby, startLobby, closeLobby, lobbyPlayers, lobbyPreview } from './lobbies.js';
 import {
   createUser, createGame, startGame, reportScore,
   confirmScore, contestGame, resolveContest, markSettled, balanceCents,
 } from './games.js';
+
+const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -17,6 +21,7 @@ const need = (cond, status, message) => { if (!cond) throw new HttpError(status,
 export function createApp(db, { adminPhones = [], publicUrl = '' } = {}) {
   const app = express();
   app.use(express.json());
+  app.use(express.static(PUBLIC_DIR));
 
   const q = (sql, ...args) => db.prepare(sql).get(...args);
   const all = (sql, ...args) => db.prepare(sql).all(...args);
@@ -40,7 +45,9 @@ export function createApp(db, { adminPhones = [], publicUrl = '' } = {}) {
   };
   const gameView = (id) => ({
     ...loadGame(id),
-    players: all('SELECT player_id, team FROM game_players WHERE game_id = ?', id),
+    players: all(`SELECT gp.player_id, gp.team, u.name FROM game_players gp
+                  JOIN players p ON p.id = gp.player_id JOIN users u ON u.id = p.user_id
+                  WHERE gp.game_id = ? ORDER BY gp.team, u.name`, id),
   });
 
   // --- auth -------------------------------------------------------------
@@ -76,6 +83,18 @@ export function createApp(db, { adminPhones = [], publicUrl = '' } = {}) {
     res.json(all('SELECT * FROM ledger WHERE player_id = ? ORDER BY id', req.user.player_id));
   });
 
+  // Games you are in, newest first, with the lobby they belong to.
+  app.get('/me/games', auth, (req, res) => {
+    const rows = all(`SELECT g.id FROM games g JOIN game_players gp ON gp.game_id = g.id
+                      WHERE gp.player_id = ? ORDER BY g.id DESC LIMIT 20`, req.user.player_id);
+    res.json(rows.map((r) => {
+      const game = gameView(r.id);
+      const lobby = q('SELECT name, join_code FROM lobbies WHERE id = ?', game.lobby_id);
+      return { ...game, lobbyName: lobby.name, lobbyCode: lobby.join_code,
+               myTeam: game.players.find((p) => p.player_id === req.user.player_id)?.team };
+    }));
+  });
+
   // --- lobbies ----------------------------------------------------------
   app.get('/tiers', (_req, res) => res.json(all('SELECT * FROM tiers ORDER BY rank')));
 
@@ -84,7 +103,10 @@ export function createApp(db, { adminPhones = [], publicUrl = '' } = {}) {
     need(lobby, 404, 'lobby not found');
     return lobby;
   };
-  const lobbyView = (lobby) => ({ ...lobby, ...lobbyPreviewLinks(lobby), players: lobbyPlayers(db, lobby.id) });
+  const lobbyView = (lobby) => ({
+    ...lobby, ...lobbyPreviewLinks(lobby), players: lobbyPlayers(db, lobby.id),
+    games: all('SELECT id FROM games WHERE lobby_id = ? ORDER BY id', lobby.id).map((g) => gameView(g.id)),
+  });
   const lobbyPreviewLinks = (lobby) => {
     const { invitePath, inviteUrl } = lobbyPreview(db, lobby.join_code, publicUrl);
     return { invitePath, inviteUrl };
@@ -95,12 +117,25 @@ export function createApp(db, { adminPhones = [], publicUrl = '' } = {}) {
     res.status(201).json(lobbyView(q('SELECT * FROM lobbies WHERE id = ?', id)));
   });
 
-  app.get('/lobbies', auth, (_req, res) => {
-    res.json(all("SELECT * FROM lobbies WHERE status != 'closed' ORDER BY starts_at"));
+  // Open and live lobbies, each with how many are locked in, a few names, and whether you are one of them.
+  app.get('/lobbies', auth, (req, res) => {
+    const lobbies = all("SELECT * FROM lobbies WHERE status != 'closed' ORDER BY starts_at");
+    res.json(lobbies.map((l) => {
+      const players = lobbyPlayers(db, l.id);
+      return {
+        ...l, ...lobbyPreviewLinks(l), playerCount: players.length,
+        playerNames: players.map((p) => p.name.trim().split(/\s+/)[0]),
+        joined: players.some((p) => p.id === req.user.player_id),
+      };
+    }));
   });
 
   // Public: what an invite link shows before the person logs in.
-  app.get('/join/:code', (req, res) => {
+  // Browsers following an invite link get the app; API clients get the JSON.
+  app.get('/join/:code', (req, res, next) => {
+    if (req.accepts(['json', 'html']) === 'html') return res.sendFile(join(PUBLIC_DIR, 'index.html'));
+    next();
+  }, (req, res) => {
     need(findLobbyByCode(db, req.params.code), 404, 'no lobby with that code');
     res.json(lobbyPreview(db, req.params.code, publicUrl));
   });
@@ -181,9 +216,11 @@ export function createApp(db, { adminPhones = [], publicUrl = '' } = {}) {
   // --- cash -------------------------------------------------------------
   // Everyone's outstanding balances, for the person collecting at the run.
   app.get('/admin/balances', auth, admin, (_req, res) => {
-    res.json(all(`SELECT p.id AS playerId, u.name, SUM(l.amount_cents) AS owedCents
-                  FROM ledger l JOIN players p ON p.id = l.player_id JOIN users u ON u.id = p.user_id
-                  WHERE l.settled = 0 GROUP BY p.id HAVING owedCents != 0 ORDER BY owedCents`));
+    const rows = all(`SELECT p.id AS playerId, u.name, SUM(l.amount_cents) AS owedCents,
+                             GROUP_CONCAT(l.id) AS ids
+                      FROM ledger l JOIN players p ON p.id = l.player_id JOIN users u ON u.id = p.user_id
+                      WHERE l.settled = 0 GROUP BY p.id HAVING owedCents != 0 ORDER BY owedCents`);
+    res.json(rows.map(({ ids, ...r }) => ({ ...r, ledgerIds: ids.split(',').map(Number) })));
   });
 
   app.post('/admin/ledger/settle', auth, admin, (req, res) => {
