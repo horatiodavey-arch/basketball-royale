@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createLobby, createGame, createUser, findLobbyByCode, startGame, reportScore, confirmScore } from '../src/games.js';
+import { createGame, createUser, startGame, reportScore, confirmScore } from '../src/games.js';
+import { createLobby, findLobbyByCode } from '../src/lobbies.js';
 import { openDb, migrate } from '../src/db.js';
 import { freshDb, setupGame } from './helpers.js';
 
@@ -30,7 +31,7 @@ test('lobby stake must fit the tier range', () => {
   assert.throws(() => createLobby(db, { name: 'x', startsAt: 't', tier: 'nope', stakeCents: 500 }), /unknown tier/);
 });
 
-test('join codes are found case-insensitively', () => {
+test('join codes are found case-insensitively and stored uppercase', () => {
   const db = freshDb();
   const { lobbyId } = setupGame(db);
   assert.equal(findLobbyByCode(db, 'sun24').id, lobbyId);
@@ -39,7 +40,7 @@ test('join codes are found case-insensitively', () => {
 
 test('players must match the lobby tier', () => {
   const db = freshDb();
-  const lobbyId = createLobby(db, { name: 'x', startsAt: 't', tier: 'starter', stakeCents: 1000 });
+  const { id: lobbyId } = createLobby(db, { name: 'x', startsAt: 't', tier: 'starter', stakeCents: 1000 });
   const { playerId } = createUser(db, { name: 'Rook' });
   assert.throws(() => createGame(db, lobbyId, { a: [playerId], b: [] }));
   const { playerId: p2 } = createUser(db, { name: 'Rook2' });

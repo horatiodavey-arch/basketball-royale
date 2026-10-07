@@ -11,28 +11,14 @@ export function createUser(db, { name, phone = null }) {
   return { userId: Number(userId), playerId: Number(playerId) };
 }
 
-export function createLobby(db, { name, location = null, startsAt, tier, stakeCents, joinCode = null }) {
-  const t = db.prepare('SELECT * FROM tiers WHERE name = ?').get(tier);
-  if (!t) throw new Error(`unknown tier '${tier}'`);
-  if (stakeCents < t.min_stake_cents || (t.max_stake_cents != null && stakeCents > t.max_stake_cents)) {
-    throw new Error(`stake ${stakeCents} is outside the ${tier} range`);
-  }
-  const { lastInsertRowid } = db.prepare(
-    'INSERT INTO lobbies (name, location, starts_at, tier, stake_cents, join_code) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(name, location, startsAt, tier, stakeCents, joinCode);
-  return Number(lastInsertRowid);
-}
-
-export function findLobbyByCode(db, code) {
-  return db.prepare('SELECT * FROM lobbies WHERE join_code = ? COLLATE NOCASE').get(code) ?? null;
-}
-
 // Creates a game with its roster. teams = { a: [playerId...], b: [playerId...] }.
 // Players must be in the lobby's tier. Status starts 'forming'.
 export function createGame(db, lobbyId, teams) {
   return transaction(db, () => {
     const lobby = db.prepare('SELECT * FROM lobbies WHERE id = ?').get(lobbyId);
     if (!lobby) throw new Error(`lobby ${lobbyId} not found`);
+    if (lobby.status === 'closed') throw new Error('this lobby is closed');
+    if (lobby.status === 'open') db.prepare("UPDATE lobbies SET status = 'live' WHERE id = ?").run(lobbyId);
     if (!teams.a.length || !teams.b.length) throw new Error('both teams need players');
     const { lastInsertRowid } = db.prepare('INSERT INTO games (lobby_id) VALUES (?)').run(lobbyId);
     const gameId = Number(lastInsertRowid);

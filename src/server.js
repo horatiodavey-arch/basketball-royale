@@ -7,7 +7,7 @@ migrate(db);
 
 const adminPhones = (process.env.ADMIN_PHONES ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const port = Number(process.env.PORT ?? 3000);
-createApp(db, { adminPhones }).listen(port, () => console.log(`Basketball Royale listening on :${port}`));
+createApp(db, { adminPhones, publicUrl: process.env.PUBLIC_URL ?? '' }).listen(port, () => console.log(`Basketball Royale listening on :${port}`));
 
 // Uncontested scores lock when their 20-minute window lapses.
 setInterval(() => {

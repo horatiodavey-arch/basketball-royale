@@ -1,7 +1,8 @@
 import express from 'express';
 import { randomBytes } from 'node:crypto';
+import { createLobby, findLobbyByCode, joinLobby, leaveLobby, startLobby, closeLobby, lobbyPlayers, lobbyPreview } from './lobbies.js';
 import {
-  createUser, createLobby, findLobbyByCode, createGame, startGame, reportScore,
+  createUser, createGame, startGame, reportScore,
   confirmScore, contestGame, resolveContest, markSettled, balanceCents,
 } from './games.js';
 
@@ -12,7 +13,8 @@ class HttpError extends Error {
 const need = (cond, status, message) => { if (!cond) throw new HttpError(status, message); };
 
 // adminPhones: phone numbers that get admin rights when they log in.
-export function createApp(db, { adminPhones = [] } = {}) {
+// publicUrl: site root used to build shareable invite links, e.g. https://royale.example.
+export function createApp(db, { adminPhones = [], publicUrl = '' } = {}) {
   const app = express();
   app.use(express.json());
 
@@ -77,39 +79,58 @@ export function createApp(db, { adminPhones = [] } = {}) {
   // --- lobbies ----------------------------------------------------------
   app.get('/tiers', (_req, res) => res.json(all('SELECT * FROM tiers ORDER BY rank')));
 
+  const lobbyOr404 = (code) => {
+    const lobby = findLobbyByCode(db, code);
+    need(lobby, 404, 'lobby not found');
+    return lobby;
+  };
+  const lobbyView = (lobby) => ({ ...lobby, ...lobbyPreviewLinks(lobby), players: lobbyPlayers(db, lobby.id) });
+  const lobbyPreviewLinks = (lobby) => {
+    const { invitePath, inviteUrl } = lobbyPreview(db, lobby.join_code, publicUrl);
+    return { invitePath, inviteUrl };
+  };
+
   app.post('/lobbies', auth, admin, (req, res) => {
-    res.status(201).json({ id: createLobby(db, req.body ?? {}) });
+    const { id, joinCode } = createLobby(db, req.body ?? {});
+    res.status(201).json(lobbyView(q('SELECT * FROM lobbies WHERE id = ?', id)));
   });
 
   app.get('/lobbies', auth, (_req, res) => {
     res.json(all("SELECT * FROM lobbies WHERE status != 'closed' ORDER BY starts_at"));
   });
 
-  app.get('/lobbies/:code', auth, (req, res) => {
-    const lobby = findLobbyByCode(db, req.params.code);
-    need(lobby, 404, 'lobby not found');
-    res.json({
-      ...lobby,
-      players: all(`SELECT p.id, u.name, p.tier FROM lobby_players lp
-                    JOIN players p ON p.id = lp.player_id JOIN users u ON u.id = p.user_id
-                    WHERE lp.lobby_id = ?`, lobby.id),
-    });
+  // Public: what an invite link shows before the person logs in.
+  app.get('/join/:code', (req, res) => {
+    need(findLobbyByCode(db, req.params.code), 404, 'no lobby with that code');
+    res.json(lobbyPreview(db, req.params.code, publicUrl));
   });
 
+  app.get('/lobbies/:code', auth, (req, res) => res.json(lobbyView(lobbyOr404(req.params.code))));
+
   app.post('/lobbies/:code/join', auth, (req, res) => {
-    const lobby = findLobbyByCode(db, req.params.code);
-    need(lobby, 404, 'lobby not found');
-    need(lobby.status !== 'closed', 400, 'lobby is closed');
-    const player = q('SELECT * FROM players WHERE id = ?', req.user.player_id);
-    need(player.tier === lobby.tier, 400, `this lobby is for ${lobby.tier} players, you are ${player.tier}`);
-    db.prepare('INSERT OR IGNORE INTO lobby_players (lobby_id, player_id) VALUES (?, ?)').run(lobby.id, player.id);
-    res.json({ lobbyId: lobby.id });
+    lobbyOr404(req.params.code);
+    const { lobby, alreadyJoined } = joinLobby(db, req.params.code, req.user.player_id);
+    res.status(alreadyJoined ? 200 : 201).json({ alreadyJoined, lobby: lobbyView(lobby) });
+  });
+
+  app.post('/lobbies/:code/leave', auth, (req, res) => {
+    lobbyOr404(req.params.code);
+    res.json({ left: leaveLobby(db, req.params.code, req.user.player_id) });
+  });
+
+  app.post('/lobbies/:code/start', auth, admin, (req, res) => {
+    lobbyOr404(req.params.code);
+    res.json(lobbyView(startLobby(db, req.params.code)));
+  });
+
+  app.post('/lobbies/:code/close', auth, admin, (req, res) => {
+    lobbyOr404(req.params.code);
+    res.json(lobbyView(closeLobby(db, req.params.code)));
   });
 
   // --- games ------------------------------------------------------------
   app.post('/lobbies/:code/games', auth, admin, (req, res) => {
-    const lobby = findLobbyByCode(db, req.params.code);
-    need(lobby, 404, 'lobby not found');
+    const lobby = lobbyOr404(req.params.code);
     const { teams } = req.body ?? {};
     need(Array.isArray(teams?.a) && Array.isArray(teams?.b), 400, 'teams.a and teams.b are required');
     const joined = new Set(all('SELECT player_id FROM lobby_players WHERE lobby_id = ?', lobby.id).map((r) => r.player_id));

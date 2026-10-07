@@ -45,7 +45,7 @@ test('full run over HTTP: lobby, join, game, confirm, settle, cash out', async (
   for (let i = 0; i < 4; i++) {
     const t = await login(`P${i}`, `20${i}`);
     tokens.push(t);
-    assert.equal((await call('POST', '/lobbies/sun24/join', { token: t })).status, 200);
+    assert.equal((await call('POST', '/lobbies/sun24/join', { token: t })).status, 201);
     ids.push((await call('GET', '/me', { token: t })).body.player.id);
   }
   assert.equal((await call('GET', '/lobbies/SUN24', { token: admin })).body.players.length, 4);
@@ -115,4 +115,34 @@ test('wrong-tier players cannot join, unknown routes 404', async () => {
   assert.equal(res.status, 400);
   assert.match(res.body.error, /starter/);
   assert.equal((await call('GET', '/nope')).status, 404);
+});
+
+test('invite flow: generated code, public preview, join by link code, leave, close', async () => {
+  const admin = await login('Coach', '000');
+  const made = await call('POST', '/lobbies', {
+    token: admin, body: { name: 'Invite Run', startsAt: '2026-10-14T10:00', tier: 'rookie', stakeCents: 500 },
+  });
+  assert.equal(made.status, 201);
+  const code = made.body.join_code;
+  assert.match(code, /^[A-Z2-9]{5}$/);
+  assert.equal(made.body.invitePath, `/join/${code}`);
+
+  // Anyone with the link can preview, no login, no roster leak.
+  const preview = await call('GET', `/join/${code.toLowerCase()}`);
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.name, 'Invite Run');
+  assert.equal(preview.body.players, undefined);
+  assert.equal((await call('GET', '/join/ZZZZZ')).status, 404);
+
+  const t = await login('Joiner', '500');
+  assert.equal((await call('POST', `/lobbies/${code}/join`, { token: t })).status, 201);
+  assert.equal((await call('POST', `/lobbies/${code}/join`, { token: t })).status, 200);
+  assert.equal((await call('GET', `/join/${code}`)).body.playerCount, 1);
+  assert.equal((await call('POST', `/lobbies/${code}/start`, { token: t })).status, 403);
+  assert.equal((await call('POST', `/lobbies/${code}/start`, { token: admin })).body.status, 'live');
+
+  assert.equal((await call('POST', `/lobbies/${code}/leave`, { token: t })).body.left, true);
+  assert.equal((await call('POST', `/lobbies/${code}/close`, { token: admin })).body.status, 'closed');
+  assert.equal((await call('POST', `/lobbies/${code}/join`, { token: t })).status, 400);
+  assert.ok(!(await call('GET', '/lobbies', { token: t })).body.some((l) => l.join_code === code));
 });
