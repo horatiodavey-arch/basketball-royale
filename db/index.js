@@ -22,8 +22,11 @@ if (isNewDb) {
 
 // King of the Court's tables ship via CREATE TABLE IF NOT EXISTS so a
 // database created before this feature existed still picks them up on
-// its next boot, with no db:reset required.
+// its next boot, with no db:reset required. New COLUMNS on a table that
+// already exists need an explicit ALTER, since CREATE TABLE IF NOT
+// EXISTS is a no-op once the table is there.
 ensureKingOfTheCourtTables();
+migrateKingOfTheCourtColumns();
 seedKingOfTheCourtDemoData();
 
 // Reused as the lobby's shared "roster" before teams are drafted.
@@ -100,7 +103,11 @@ function ensureKingOfTheCourtTables() {
         id                     INTEGER PRIMARY KEY AUTOINCREMENT,
         name                   TEXT NOT NULL,
         location               TEXT,
-        check_in_radius_meters INTEGER NOT NULL DEFAULT 150
+        lat                    REAL,
+        lng                    REAL,
+        check_in_radius_meters INTEGER NOT NULL DEFAULT 150,
+        game_target            INTEGER NOT NULL DEFAULT 16,
+        between_games_seconds  INTEGER NOT NULL DEFAULT 180
     );
 
     CREATE TABLE IF NOT EXISTS courts (
@@ -134,7 +141,9 @@ function ensureKingOfTheCourtTables() {
         id                 INTEGER PRIMARY KEY AUTOINCREMENT,
         court_id           INTEGER NOT NULL REFERENCES courts(id),
         captain_player_id  INTEGER NOT NULL REFERENCES players(id),
-        position           INTEGER NOT NULL
+        position           INTEGER NOT NULL,
+        status             TEXT NOT NULL DEFAULT 'waiting',
+        created_at         TEXT
     );
 
     CREATE TABLE IF NOT EXISTS next_line_members (
@@ -142,18 +151,67 @@ function ensureKingOfTheCourtTables() {
         player_id     INTEGER NOT NULL REFERENCES players(id),
         PRIMARY KEY (next_line_id, player_id)
     );
+
+    CREATE TABLE IF NOT EXISTS live_games (
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        court_id           INTEGER NOT NULL REFERENCES courts(id),
+        park_id            INTEGER NOT NULL REFERENCES parks(id),
+        target             INTEGER NOT NULL,
+        status             TEXT NOT NULL CHECK (status IN ('countdown', 'in_progress', 'awaiting_confirmation', 'done')),
+        team_a_won         INTEGER,
+        confirmed_a        INTEGER NOT NULL DEFAULT 0,
+        confirmed_b        INTEGER NOT NULL DEFAULT 0,
+        countdown_seconds  INTEGER,
+        countdown_ends_at  TEXT,
+        started_at         TEXT,
+        locked_at          TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS live_game_players (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        live_game_id   INTEGER NOT NULL REFERENCES live_games(id),
+        player_id      INTEGER NOT NULL REFERENCES players(id),
+        team           TEXT NOT NULL CHECK (team IN ('a', 'b')),
+        captain        INTEGER NOT NULL DEFAULT 0,
+        time_on        TEXT,
+        time_off       TEXT
+    );
   `);
 }
 
+// SQLite's ALTER TABLE ADD COLUMN can't add a UNIQUE/PRIMARY KEY, and a
+// NOT NULL column needs a constant default — fine for everything we add.
+function addColumnIfMissing(table, column, ddl) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!columns.includes(column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
+}
+
+function migrateKingOfTheCourtColumns() {
+  addColumnIfMissing('parks', 'lat', 'REAL');
+  addColumnIfMissing('parks', 'lng', 'REAL');
+  addColumnIfMissing('parks', 'game_target', 'INTEGER NOT NULL DEFAULT 16');
+  addColumnIfMissing('parks', 'between_games_seconds', 'INTEGER NOT NULL DEFAULT 180');
+  addColumnIfMissing('next_line', 'status', "TEXT NOT NULL DEFAULT 'waiting'");
+  addColumnIfMissing('next_line', 'created_at', 'TEXT');
+}
+
 // Creates a park plus its default Court 1 "Main", unless a park with
-// that name already exists. Returns the park's id either way.
-function findOrCreatePark(name, location, radiusMeters) {
-  const existing = db.prepare('SELECT id FROM parks WHERE name = ?').get(name);
-  if (existing) return existing.id;
+// that name already exists. Returns the park's id either way — and
+// backfills lat/lng on an existing row from before check-in needed them.
+function findOrCreatePark(name, location, radiusMeters, lat, lng) {
+  const existing = db.prepare('SELECT id, lat FROM parks WHERE name = ?').get(name);
+  if (existing) {
+    if (existing.lat === null) {
+      db.prepare('UPDATE parks SET lat = ?, lng = ? WHERE id = ?').run(lat, lng, existing.id);
+    }
+    return existing.id;
+  }
 
   db.prepare(
-    'INSERT INTO parks (name, location, check_in_radius_meters) VALUES (?, ?, ?)'
-  ).run(name, location, radiusMeters);
+    'INSERT INTO parks (name, location, lat, lng, check_in_radius_meters) VALUES (?, ?, ?, ?, ?)'
+  ).run(name, location, lat, lng, radiusMeters);
   const parkId = lastId();
 
   db.prepare(
@@ -176,13 +234,13 @@ function findOrCreateCourt(parkId, number, nickname) {
 }
 
 function seedKingOfTheCourtDemoData() {
-  const lauderdaleLakesId = findOrCreatePark('Lauderdale Lakes Park', 'Lauderdale Lakes, FL', 150);
+  const lauderdaleLakesId = findOrCreatePark('Lauderdale Lakes Park', 'Lauderdale Lakes, FL', 150, 26.1611, -80.2131);
   const mainCourtId = findOrCreateCourt(lauderdaleLakesId, 1, 'Main');
   findOrCreateCourt(lauderdaleLakesId, 2, 'Side');
 
   // Second demo park, so the leaderboard has somewhere for a player to
   // earn a Double Crown (king of two parks in the same season).
-  const markhamParkId = findOrCreatePark('Markham Park', 'Sunrise, FL', 150);
+  const markhamParkId = findOrCreatePark('Markham Park', 'Sunrise, FL', 150, 26.1256, -80.3104);
   const markhamMainCourtId = findOrCreateCourt(markhamParkId, 1, 'Main');
 
   const alreadySeeded = db.prepare('SELECT 1 FROM game_results LIMIT 1').get();
@@ -249,4 +307,4 @@ function seedKingOfTheCourtDemoData() {
   playGame(markhamParkId, markhamMainCourtId, [C, M], [T, J], 60);
 }
 
-module.exports = { db, formingGameFor };
+module.exports = { db, formingGameFor, lastId };

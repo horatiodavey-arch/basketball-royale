@@ -245,3 +245,87 @@ body.kotc { background: #FFFFFF; padding: 0; }
   text-align: center; margin-top: 10px;
 }
 .coming-soon-card p { font-size: 14px; color: var(--text2); margin-bottom: 16px; }
+
+/* Runs — park list */
+.park-link {
+  display: block; background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px; margin-bottom: 10px; text-decoration: none; color: var(--text);
+}
+.park-link-name { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+.park-link-location { font-size: 12px; color: var(--text2); }
+
+/* Court screen */
+.checkin-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.checkin-pill {
+  font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 999px;
+  border: none; font-family: inherit; cursor: pointer;
+}
+.checkin-pill-in { background: var(--green-bg); color: var(--green-text); }
+.checkin-pill-out { background: var(--accent); color: #fff; }
+.checkin-pill-out:disabled { opacity: 0.6; cursor: default; }
+.checkin-status { font-size: 12px; color: var(--muted); }
+
+.court-tabs { margin-bottom: 16px; }
+
+.live-card {
+  background: var(--kotc-gray); border-radius: 14px; padding: 18px 16px;
+  margin-bottom: 16px; text-align: center;
+}
+.live-card-idle { font-size: 13px; color: var(--text2); padding: 24px 16px; }
+.live-target { font-size: 13px; color: var(--text2); font-weight: 700; margin-bottom: 10px; }
+.countdown-label { font-size: 12px; color: var(--text2); margin-bottom: 2px; }
+.countdown-big { font-size: 40px; color: var(--accent); margin-bottom: 10px; }
+
+.live-teams { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.live-team { flex: 1; text-align: left; }
+.live-team-label { font-size: 11px; font-weight: 700; color: var(--accent); margin-bottom: 4px; text-transform: uppercase; }
+.live-player { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+.live-player-empty { color: var(--muted); font-weight: 400; font-style: italic; }
+.live-vs { font-size: 12px; color: var(--muted); padding-top: 18px; }
+.cap-tag {
+  font-size: 9px; font-weight: 700; color: var(--accent); background: var(--accent-bg);
+  padding: 1px 5px; border-radius: 999px; vertical-align: middle;
+}
+
+.winners-note { font-size: 12px; color: var(--text2); font-weight: 600; margin-bottom: 10px; }
+.declare-row { display: flex; gap: 8px; }
+.declare-row form { flex: 1; }
+
+.small-btn {
+  width: 100%; background: var(--text); color: #fff; border: none;
+  padding: 9px; border-radius: 999px; font-size: 13px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+}
+.small-btn-accent { background: var(--accent); }
+
+.captain-tools { margin-top: 12px; text-align: left; font-size: 12px; }
+.captain-tools summary { cursor: pointer; font-weight: 600; color: var(--accent); margin-bottom: 8px; }
+.inline-form { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.inline-form span { flex: 1; font-size: 13px; }
+.inline-form select {
+  flex: 1; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+  font-size: 13px; font-family: inherit; background: var(--card);
+}
+.tiny-btn {
+  background: transparent; border: 1px solid var(--border); color: var(--text);
+  padding: 5px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  cursor: pointer; font-family: inherit; white-space: nowrap;
+}
+
+.queue-row { display: flex; align-items: center; gap: 10px; padding: 10px 6px; }
+.queue-rank { width: 20px; font-size: 13px; color: var(--muted); font-weight: 700; text-align: center; }
+.queue-main { flex: 1; }
+.queue-names { font-size: 14px; font-weight: 600; }
+.queue-count { font-size: 12px; color: var(--text2); }
+.queue-ready { color: var(--green-text); font-weight: 700; }
+
+.next-action-note { font-size: 13px; color: var(--text2); padding: 10px 2px; }
+
+.pick-form { margin-top: 10px; }
+.pick-form-title { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+
+.settings-details { margin-top: 18px; font-size: 13px; }
+.settings-details summary { cursor: pointer; font-weight: 600; color: var(--text2); margin-bottom: 10px; }
+.settings-form .form-group { margin-bottom: 10px; }
+
+.leave-note { margin-top: 14px; margin-bottom: 0; text-align: center; }

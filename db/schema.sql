@@ -110,7 +110,11 @@ CREATE TABLE IF NOT EXISTS parks (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
     name                   TEXT NOT NULL,
     location               TEXT,
-    check_in_radius_meters INTEGER NOT NULL DEFAULT 150
+    lat                    REAL,               -- for check-in geofencing
+    lng                    REAL,
+    check_in_radius_meters INTEGER NOT NULL DEFAULT 150,
+    game_target            INTEGER NOT NULL DEFAULT 16,   -- "first to 16"
+    between_games_seconds  INTEGER NOT NULL DEFAULT 180   -- winners-stay-on countdown
 );
 
 -- 9. COURTS — a park can have more than one court (e.g. Main, Side)
@@ -147,12 +151,14 @@ CREATE TABLE IF NOT EXISTS game_results (
     date            TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- 12. NEXT_LINE — the queue of squads waiting for a court (screen later)
+-- 12. NEXT_LINE — the queue of squads waiting for a court
 CREATE TABLE IF NOT EXISTS next_line (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     court_id           INTEGER NOT NULL REFERENCES courts(id),
     captain_player_id  INTEGER NOT NULL REFERENCES players(id),
-    position           INTEGER NOT NULL
+    position           INTEGER NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'waiting',  -- a squad leaves this table once it starts playing
+    created_at         TEXT
 );
 
 -- 13. NEXT_LINE_MEMBERS — the rest of a squad waiting in next_line
@@ -160,6 +166,36 @@ CREATE TABLE IF NOT EXISTS next_line_members (
     next_line_id  INTEGER NOT NULL REFERENCES next_line(id),
     player_id     INTEGER NOT NULL REFERENCES players(id),
     PRIMARY KEY (next_line_id, player_id)
+);
+
+-- 14. LIVE_GAMES — the game currently on a court, or the between-games
+-- countdown holding the next matchup before it starts.
+CREATE TABLE IF NOT EXISTS live_games (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    court_id           INTEGER NOT NULL REFERENCES courts(id),
+    park_id            INTEGER NOT NULL REFERENCES parks(id),
+    target             INTEGER NOT NULL,
+    status             TEXT NOT NULL CHECK (status IN ('countdown', 'in_progress', 'awaiting_confirmation', 'done')),
+    team_a_won         INTEGER,            -- NULL until a captain declares
+    confirmed_a        INTEGER NOT NULL DEFAULT 0,
+    confirmed_b        INTEGER NOT NULL DEFAULT 0,
+    countdown_seconds  INTEGER,
+    countdown_ends_at  TEXT,
+    started_at         TEXT,
+    locked_at          TEXT
+);
+
+-- 15. LIVE_GAME_PLAYERS — each player's own stint on the court. A sub
+-- adds a new row rather than overwriting the player who left, so both
+-- their time_on/time_off stay on the record.
+CREATE TABLE IF NOT EXISTS live_game_players (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    live_game_id   INTEGER NOT NULL REFERENCES live_games(id),
+    player_id      INTEGER NOT NULL REFERENCES players(id),
+    team           TEXT NOT NULL CHECK (team IN ('a', 'b')),
+    captain        INTEGER NOT NULL DEFAULT 0,
+    time_on        TEXT,              -- set when the game actually starts, not when seated for countdown
+    time_off       TEXT
 );
 
 -- ============================================================

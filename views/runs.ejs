@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Runs — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc">
+<div class="page">
+  <div class="page-title heading">Runs</div>
+  <div class="page-sub">Check in at a park to join the next line.</div>
+
+  <% if (parks.length === 0) { %>
+    <div class="empty-board">No parks yet.</div>
+  <% } else { %>
+    <% parks.forEach((park) => { %>
+      <a href="/parks/<%= park.id %>" class="park-link">
+        <div class="park-link-name"><%= park.name %></div>
+        <div class="park-link-location"><%= park.location %></div>
+      </a>
+    <% }); %>
+  <% } %>
+</div>
+<%- include('partials/bottom-nav', { active: 'runs' }) %>
+</body>
+</html>

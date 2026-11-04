@@ -17,13 +17,21 @@ const {
   getParks,
   getParkById,
   getCourtById,
-  getCourtsWithParks,
-  getAllPlayers,
-  recordGame,
+  getCourtsByPark,
   getSeasonWindow,
   getCrownLevel,
   getLeaderboard,
   CROWN_LEVELS,
+  checkIn,
+  heartbeat,
+  getCourtScreen,
+  iGotNext,
+  addSquadMembers,
+  markLeft,
+  addSub,
+  declareWinner,
+  confirmResult,
+  updateParkSettings,
 } = require('./db/queries');
 
 const app = express();
@@ -33,6 +41,7 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
 app.use(
   session({
     secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
@@ -169,71 +178,6 @@ function toArray(value) {
   return Array.isArray(value) ? value : [value];
 }
 
-// [{id, number, nickname, park_id, park_name}, ...] -> [{parkName, courts}, ...]
-// so the <select> template can emit one <optgroup> per park with plain loops.
-function groupCourtsByPark(courts) {
-  const groups = [];
-  for (const court of courts) {
-    let group = groups[groups.length - 1];
-    if (!group || group.parkId !== court.park_id) {
-      group = { parkId: court.park_id, parkName: court.park_name, courts: [] };
-      groups.push(group);
-    }
-    group.courts.push(court);
-  }
-  return groups;
-}
-
-app.get('/games/new', requireAuth, (req, res) => {
-  res.render('record-game', {
-    courtGroups: groupCourtsByPark(getCourtsWithParks()),
-    players: getAllPlayers(),
-    error: null,
-    form: { courtId: '', teamA: [], teamB: [], scoreA: '', scoreB: '', minutes: '' },
-  });
-});
-
-app.post('/games', requireAuth, (req, res) => {
-  const courtId = Number(req.body.courtId);
-  const teamA = toArray(req.body.teamA).map(Number);
-  const teamB = toArray(req.body.teamB).map(Number);
-  const scoreA = Number(req.body.scoreA);
-  const scoreB = Number(req.body.scoreB);
-  const minutes = Number(req.body.minutes);
-
-  const court = getCourtById(courtId);
-  const overlap = teamA.filter((id) => teamB.includes(id));
-
-  let error = null;
-  if (!court) error = 'Pick a court.';
-  else if (teamA.length === 0 || teamB.length === 0) error = 'Both teams need at least one player.';
-  else if (overlap.length > 0) error = 'A player can only be on one team — remove them from one side.';
-  else if (!Number.isFinite(scoreA) || !Number.isFinite(scoreB) || scoreA === scoreB) {
-    error = 'Enter a final score — ties aren’t a thing here.';
-  } else if (!Number.isInteger(minutes) || minutes <= 0) {
-    error = 'Enter how many minutes the game lasted.';
-  }
-
-  if (error) {
-    return res.render('record-game', {
-      courtGroups: groupCourtsByPark(getCourtsWithParks()),
-      players: getAllPlayers(),
-      error,
-      form: {
-        courtId: req.body.courtId || '',
-        teamA,
-        teamB,
-        scoreA: req.body.scoreA || '',
-        scoreB: req.body.scoreB || '',
-        minutes: req.body.minutes || '',
-      },
-    });
-  }
-
-  recordGame({ parkId: court.park_id, courtId, teamA, teamB, scoreA, scoreB, minutes });
-  res.redirect(`/board?park=${court.park_id}&scope=court`);
-});
-
 app.get('/board', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   const parks = getParks();
@@ -277,12 +221,99 @@ app.get('/map', requireAuth, (req, res) => {
 });
 
 app.get('/runs', requireAuth, (req, res) => {
-  res.render('coming-soon', {
-    active: 'runs',
-    title: 'Runs',
-    message: 'The next-line queue for a court is coming soon. For now, you can record a game you already played:',
-    showRecordGameLink: true,
-  });
+  res.render('runs', { active: 'runs', parks: getParks() });
+});
+
+app.get('/parks/:parkId', requireAuth, (req, res) => {
+  const courts = getCourtsByPark(Number(req.params.parkId));
+  if (courts.length === 0) return res.redirect('/runs');
+  res.redirect(`/parks/${req.params.parkId}/courts/${courts[0].id}`);
+});
+
+app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const court = getCourtById(req.params.courtId);
+  if (!court || court.park_id !== Number(req.params.parkId)) return res.redirect('/runs');
+
+  const screen = getCourtScreen(court.id, profile.player_id);
+  const countdownEndsAtIso =
+    screen.liveGame && screen.liveGame.status === 'countdown'
+      ? new Date(screen.liveGame.countdown_ends_at + 'Z').toISOString()
+      : null;
+
+  res.render('court', { ...screen, profile, active: 'runs', countdownEndsAtIso, error: req.query.error || null });
+});
+
+app.post('/parks/:parkId/check-in', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const { lat, lng } = req.body;
+  if (typeof lat !== 'number' || typeof lng !== 'number') {
+    return res.status(400).json({ ok: false, error: 'Location not available.' });
+  }
+  res.json(checkIn(profile.player_id, Number(req.params.parkId), lat, lng));
+});
+
+app.post('/parks/:parkId/heartbeat', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  res.json({ ok: heartbeat(profile.player_id, Number(req.params.parkId)) });
+});
+
+app.post('/parks/:parkId/settings', requireAuth, (req, res) => {
+  const gameTarget = Number(req.body.gameTarget);
+  const betweenGamesSeconds = Number(req.body.betweenGamesSeconds);
+  if (Number.isInteger(gameTarget) && gameTarget > 0 && Number.isInteger(betweenGamesSeconds) && betweenGamesSeconds > 0) {
+    updateParkSettings(Number(req.params.parkId), { gameTarget, betweenGamesSeconds });
+  }
+  res.redirect(req.get('Referer') || '/runs');
+});
+
+// Actions below redirect back to the referring court screen either way
+// — on failure, with ?error=... so the captain sees why nothing happened
+// instead of a silent no-op.
+function redirectWithResult(req, res, result, fallbackPath) {
+  const base = req.get('Referer') || fallbackPath;
+  if (result.ok) return res.redirect(base);
+  const url = new URL(base, `${req.protocol}://${req.get('host')}`);
+  url.searchParams.set('error', result.error || 'That action failed.');
+  res.redirect(url.pathname + url.search);
+}
+
+app.post('/courts/:courtId/next', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const court = getCourtById(req.params.courtId);
+  const result = iGotNext(Number(req.params.courtId), profile.player_id);
+  redirectWithResult(req, res, result, `/parks/${court.park_id}/courts/${court.id}`);
+});
+
+app.post('/next_line/:id/members', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const playerIds = toArray(req.body.playerIds).map(Number);
+  const result = addSquadMembers(Number(req.params.id), playerIds, profile.player_id);
+  redirectWithResult(req, res, result, '/runs');
+});
+
+app.post('/live_games/:id/left', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const result = markLeft(Number(req.params.id), Number(req.body.playerId), profile.player_id);
+  redirectWithResult(req, res, result, '/runs');
+});
+
+app.post('/live_games/:id/sub', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const result = addSub(Number(req.params.id), req.body.team, Number(req.body.playerId), profile.player_id);
+  redirectWithResult(req, res, result, '/runs');
+});
+
+app.post('/live_games/:id/declare', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const result = declareWinner(Number(req.params.id), req.body.team, profile.player_id);
+  redirectWithResult(req, res, result, '/runs');
+});
+
+app.post('/live_games/:id/confirm', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const result = confirmResult(Number(req.params.id), profile.player_id);
+  redirectWithResult(req, res, result, '/runs');
 });
 
 app.get('/profile', requireAuth, (req, res) => {
