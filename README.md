@@ -42,3 +42,22 @@ Team drafting, score confirmation, the settlement function (payouts, win/loss
 tallies, promotion), and the invite-link lobby-preview landing page are all
 described in the schema/mockup but weren't part of this build — sign up,
 view home, join a lobby.
+
+## King of the Court
+
+Record a game at a park/court, and the app tallies season points (win = 3,
+game = 1, court hour = 1), crown levels, and park "kings" on the `/board`
+leaderboard. Seasons are fixed 30-day windows; check-ins and the next-line
+queue have tables (`check_ins`, `next_line`, `next_line_members`) but no
+screens yet — that's step 2.
+
+New tables are created with `CREATE TABLE IF NOT EXISTS` on every boot, so an
+existing database picks them up automatically — no `npm run db:reset` needed.
+
+## Deploying on Railway
+
+- Mount a persistent volume at `/data`.
+- Set `DATA_DIR=/data` so the SQLite file lives on the volume instead of the
+  repo (the app creates the folder if it doesn't exist).
+- Set `SESSION_SECRET` to a fixed random string, so sessions survive restarts
+  and deploys instead of invalidating every time the random fallback changes.

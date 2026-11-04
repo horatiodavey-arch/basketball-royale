@@ -99,6 +99,70 @@ CREATE TABLE ledger (
 );
 
 -- ============================================================
+-- KING OF THE COURT — v1 additions (parks, courts, check-ins,
+-- game results, and the "next line" queue for a court).
+-- Check-ins and next-line get their own screens in step 2; for
+-- now they just need tables so later work doesn't need a migration.
+-- ============================================================
+
+-- 8. PARKS — a physical court location
+CREATE TABLE IF NOT EXISTS parks (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                   TEXT NOT NULL,
+    location               TEXT,
+    check_in_radius_meters INTEGER NOT NULL DEFAULT 150
+);
+
+-- 9. COURTS — a park can have more than one court (e.g. Main, Side)
+-- Every park gets a Court 1 "Main" by default when it's created.
+CREATE TABLE IF NOT EXISTS courts (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    park_id   INTEGER NOT NULL REFERENCES parks(id),
+    number    INTEGER NOT NULL,
+    nickname  TEXT,
+    UNIQUE (park_id, number)
+);
+
+-- 10. CHECK_INS — a player showing up at a park (screen comes later)
+CREATE TABLE IF NOT EXISTS check_ins (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id  INTEGER NOT NULL REFERENCES players(id),
+    park_id    INTEGER NOT NULL REFERENCES parks(id),
+    time_in    TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 11. GAME_RESULTS — one row per player per game.
+-- game_id links every row from the same game together; it is not
+-- a foreign key into the (lobby-based) games table above — King of
+-- the Court games are recorded directly, outside the lobby flow.
+CREATE TABLE IF NOT EXISTS game_results (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id         INTEGER NOT NULL,
+    player_id       INTEGER NOT NULL REFERENCES players(id),
+    park_id         INTEGER NOT NULL REFERENCES parks(id),
+    court_id        INTEGER NOT NULL REFERENCES courts(id),
+    result          TEXT NOT NULL CHECK (result IN ('win', 'loss')),
+    minutes_played  INTEGER NOT NULL,
+    date            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 12. NEXT_LINE — the queue of squads waiting for a court (screen later)
+CREATE TABLE IF NOT EXISTS next_line (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    court_id           INTEGER NOT NULL REFERENCES courts(id),
+    captain_player_id  INTEGER NOT NULL REFERENCES players(id),
+    position           INTEGER NOT NULL
+);
+
+-- 13. NEXT_LINE_MEMBERS — the rest of a squad waiting in next_line
+CREATE TABLE IF NOT EXISTS next_line_members (
+    next_line_id  INTEGER NOT NULL REFERENCES next_line(id),
+    player_id     INTEGER NOT NULL REFERENCES players(id),
+    PRIMARY KEY (next_line_id, player_id)
+);
+
+-- ============================================================
 -- THE SETTLEMENT FUNCTION (pseudocode — this becomes real code)
 -- Runs ONCE when a game's score is confirmed by both teams:
 --

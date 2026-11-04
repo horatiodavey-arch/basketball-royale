@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leaderboard — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc">
+<div class="page">
+  <div class="page-title heading">Leaderboard</div>
+  <div class="page-sub">King of the Court &mdash; season standings.</div>
+
+  <% if (parks.length === 0) { %>
+    <div class="empty-board">No parks yet. Record a game to get things started.</div>
+  <% } else { %>
+    <div class="board-controls">
+      <select class="park-select" onchange="location.href = '/board?scope=<%= scope %>&park=' + this.value;">
+        <% parks.forEach((park) => { %>
+          <option value="<%= park.id %>" <%= park.id === selectedPark.id ? 'selected' : '' %>><%= park.name %></option>
+        <% }); %>
+      </select>
+      <div class="tabs">
+        <a class="tab <%= scope === 'court' ? 'active' : '' %>" href="/board?scope=court&park=<%= selectedPark.id %>">Court</a>
+        <a class="tab <%= scope === 'city' ? 'active' : '' %>" href="/board?scope=city&park=<%= selectedPark.id %>">City</a>
+      </div>
+    </div>
+
+    <div class="season-note">Resets in <%= season.daysLeft %> day<%= season.daysLeft === 1 ? '' : 's' %>.</div>
+
+    <% if (rows.length === 0) { %>
+      <div class="empty-board">No games recorded yet this season.</div>
+    <% } else { %>
+      <% const king = rows[0]; %>
+      <div class="king-card">
+        <div class="king-label">KING OF THE COURT</div>
+        <div class="king-crown">
+          <%- include('partials/crown-icon', { size: 36, fill: king.crown ? king.crown.fill : 'none', stroke: king.crown ? king.crown.stroke : 'var(--muted)' }) %>
+        </div>
+        <div class="king-name heading">
+          <%= king.name %>
+          <% if (profile && king.playerId === profile.player_id) { %><span class="lb-you-tag">(You)</span><% } %>
+          <% if (king.badge) { %><span class="crown-badge <%= king.badge === 'Triple Crown' ? 'triple' : 'double' %>"><%= king.badge %></span><% } %>
+        </div>
+        <div class="king-level"><%= king.crown ? king.crown.name : (king.pointsToCrown + ' pts to a crown') %></div>
+        <div class="king-points heading"><%= king.points %> <span>pts</span></div>
+      </div>
+
+      <% rows.slice(1).forEach((row) => { %>
+        <div class="lb-row <%= profile && row.playerId === profile.player_id ? 'you' : '' %>">
+          <div class="lb-rank"><%= row.rank %></div>
+          <div class="lb-crown">
+            <%- include('partials/crown-icon', { size: 22, fill: row.crown ? row.crown.fill : 'none', stroke: row.crown ? row.crown.stroke : 'var(--muted)' }) %>
+          </div>
+          <div class="lb-main">
+            <div class="lb-name">
+              <%= row.name %>
+              <% if (profile && row.playerId === profile.player_id) { %><span class="lb-you-tag">(You)</span><% } %>
+              <% if (row.badge) { %><span class="crown-badge <%= row.badge === 'Triple Crown' ? 'triple' : 'double' %>"><%= row.badge %></span><% } %>
+            </div>
+            <div class="lb-level"><%= row.crown ? row.crown.name : (row.pointsToCrown + ' pts to a crown') %></div>
+          </div>
+          <div class="lb-points heading"><%= row.points %></div>
+        </div>
+      <% }); %>
+    <% } %>
+  <% } %>
+
+  <div class="crowns-info">
+    <h4 class="heading">How crowns work</h4>
+    <% crownLevels.slice().reverse().forEach((level) => { %>
+      <div class="crown-row">
+        <%- include('partials/crown-icon', { size: 18, fill: level.fill, stroke: level.stroke }) %>
+        <span><strong><%= level.name %></strong> &middot; <%= level.min %>+ pts</span>
+      </div>
+    <% }); %>
+    <div class="rules-line">Win = 3 pts &middot; Game = 1 pt &middot; Court hour = 1 pt. Crowns reset every 30 days.</div>
+  </div>
+</div>
+<%- include('partials/bottom-nav', { active: 'board' }) %>
+</body>
+</html>

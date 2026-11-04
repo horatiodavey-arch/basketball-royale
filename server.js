@@ -14,17 +14,28 @@ const {
   isPlayerInGame,
   joinLobby,
   getLobbyById,
+  getParks,
+  getParkById,
+  getCourtById,
+  getCourtsWithParks,
+  getAllPlayers,
+  recordGame,
+  getSeasonWindow,
+  getCrownLevel,
+  getLeaderboard,
+  CROWN_LEVELS,
 } = require('./db/queries');
 
 const app = express();
 
+app.set('trust proxy', 1);
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.urlencoded({ extended: false }));
 app.use(
   session({
-    secret: crypto.randomBytes(32).toString('hex'),
+    secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
     resave: false,
     saveUninitialized: false,
     cookie: { httpOnly: true, sameSite: 'lax' },
@@ -151,6 +162,136 @@ app.post('/lobbies/:id/join', requireAuth, (req, res) => {
 
   joinLobby(profile.player_id, lobby);
   res.redirect('/');
+});
+
+function toArray(value) {
+  if (value === undefined) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+// [{id, number, nickname, park_id, park_name}, ...] -> [{parkName, courts}, ...]
+// so the <select> template can emit one <optgroup> per park with plain loops.
+function groupCourtsByPark(courts) {
+  const groups = [];
+  for (const court of courts) {
+    let group = groups[groups.length - 1];
+    if (!group || group.parkId !== court.park_id) {
+      group = { parkId: court.park_id, parkName: court.park_name, courts: [] };
+      groups.push(group);
+    }
+    group.courts.push(court);
+  }
+  return groups;
+}
+
+app.get('/games/new', requireAuth, (req, res) => {
+  res.render('record-game', {
+    courtGroups: groupCourtsByPark(getCourtsWithParks()),
+    players: getAllPlayers(),
+    error: null,
+    form: { courtId: '', teamA: [], teamB: [], scoreA: '', scoreB: '', minutes: '' },
+  });
+});
+
+app.post('/games', requireAuth, (req, res) => {
+  const courtId = Number(req.body.courtId);
+  const teamA = toArray(req.body.teamA).map(Number);
+  const teamB = toArray(req.body.teamB).map(Number);
+  const scoreA = Number(req.body.scoreA);
+  const scoreB = Number(req.body.scoreB);
+  const minutes = Number(req.body.minutes);
+
+  const court = getCourtById(courtId);
+  const overlap = teamA.filter((id) => teamB.includes(id));
+
+  let error = null;
+  if (!court) error = 'Pick a court.';
+  else if (teamA.length === 0 || teamB.length === 0) error = 'Both teams need at least one player.';
+  else if (overlap.length > 0) error = 'A player can only be on one team — remove them from one side.';
+  else if (!Number.isFinite(scoreA) || !Number.isFinite(scoreB) || scoreA === scoreB) {
+    error = 'Enter a final score — ties aren’t a thing here.';
+  } else if (!Number.isInteger(minutes) || minutes <= 0) {
+    error = 'Enter how many minutes the game lasted.';
+  }
+
+  if (error) {
+    return res.render('record-game', {
+      courtGroups: groupCourtsByPark(getCourtsWithParks()),
+      players: getAllPlayers(),
+      error,
+      form: {
+        courtId: req.body.courtId || '',
+        teamA,
+        teamB,
+        scoreA: req.body.scoreA || '',
+        scoreB: req.body.scoreB || '',
+        minutes: req.body.minutes || '',
+      },
+    });
+  }
+
+  recordGame({ parkId: court.park_id, courtId, teamA, teamB, scoreA, scoreB, minutes });
+  res.redirect(`/board?park=${court.park_id}&scope=court`);
+});
+
+app.get('/board', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parks = getParks();
+  const season = getSeasonWindow();
+
+  if (parks.length === 0) {
+    return res.render('board', {
+      parks: [],
+      rows: [],
+      scope: 'court',
+      selectedPark: null,
+      season,
+      crownLevels: CROWN_LEVELS,
+      profile,
+    });
+  }
+
+  const scope = req.query.scope === 'city' ? 'city' : 'court';
+  const requestedParkId = Number(req.query.park);
+  const selectedPark = parks.find((p) => p.id === requestedParkId) || parks[0];
+  const rows = getLeaderboard({ scope, parkId: selectedPark.id, seasonStart: season.startSql });
+
+  res.render('board', {
+    parks,
+    rows,
+    scope,
+    selectedPark,
+    season,
+    crownLevels: CROWN_LEVELS,
+    profile,
+  });
+});
+
+app.get('/map', requireAuth, (req, res) => {
+  res.render('coming-soon', {
+    active: 'map',
+    title: 'Map',
+    message: 'Finding a run near you and checking in from the map is coming soon.',
+    showRecordGameLink: false,
+  });
+});
+
+app.get('/runs', requireAuth, (req, res) => {
+  res.render('coming-soon', {
+    active: 'runs',
+    title: 'Runs',
+    message: 'The next-line queue for a court is coming soon. For now, you can record a game you already played:',
+    showRecordGameLink: true,
+  });
+});
+
+app.get('/profile', requireAuth, (req, res) => {
+  res.render('coming-soon', {
+    active: 'profile',
+    title: 'Profile',
+    message: 'Your player profile page is coming soon.',
+    showRecordGameLink: false,
+  });
 });
 
 const PORT = process.env.PORT || 3000;
