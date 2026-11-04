@@ -306,14 +306,22 @@ app.post('/parks/:parkId/check-in', requireAuth, (req, res) => {
 
 app.post('/parks/:parkId/heartbeat', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  res.json({ ok: heartbeat(profile.player_id, Number(req.params.parkId)) });
+  const { lat, lng } = req.body;
+  res.json(heartbeat(profile.player_id, Number(req.params.parkId), lat, lng));
 });
 
 app.post('/parks/:parkId/settings', requireAuth, (req, res) => {
   const gameTarget = Number(req.body.gameTarget);
   const betweenGamesSeconds = Number(req.body.betweenGamesSeconds);
-  if (Number.isInteger(gameTarget) && gameTarget > 0 && Number.isInteger(betweenGamesSeconds) && betweenGamesSeconds > 0) {
-    updateParkSettings(Number(req.params.parkId), { gameTarget, betweenGamesSeconds });
+  const checkInRadiusMeters = Number(req.body.checkInRadiusMeters);
+  const leaveRadiusMeters = Number(req.body.leaveRadiusMeters);
+  const valid =
+    Number.isInteger(gameTarget) && gameTarget > 0 &&
+    Number.isInteger(betweenGamesSeconds) && betweenGamesSeconds > 0 &&
+    Number.isInteger(checkInRadiusMeters) && checkInRadiusMeters > 0 &&
+    Number.isInteger(leaveRadiusMeters) && leaveRadiusMeters >= checkInRadiusMeters;
+  if (valid) {
+    updateParkSettings(Number(req.params.parkId), { gameTarget, betweenGamesSeconds, checkInRadiusMeters, leaveRadiusMeters });
   }
   res.redirect(req.get('Referer') || '/runs');
 });

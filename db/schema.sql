@@ -112,7 +112,8 @@ CREATE TABLE IF NOT EXISTS parks (
     location               TEXT,
     lat                    REAL,               -- for check-in geofencing
     lng                    REAL,
-    check_in_radius_meters INTEGER NOT NULL DEFAULT 150,
+    check_in_radius_meters INTEGER NOT NULL DEFAULT 250,  -- must be within this to check in
+    leave_radius_meters    INTEGER NOT NULL DEFAULT 400,  -- must be outside this 5+ min to lose your spot
     game_target            INTEGER NOT NULL DEFAULT 16,   -- "first to 16"
     between_games_seconds  INTEGER NOT NULL DEFAULT 180   -- winners-stay-on countdown
 );
@@ -127,13 +128,14 @@ CREATE TABLE IF NOT EXISTS courts (
     UNIQUE (park_id, number)
 );
 
--- 10. CHECK_INS — a player showing up at a park (screen comes later)
+-- 10. CHECK_INS — a player showing up at a park
 CREATE TABLE IF NOT EXISTS check_ins (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    player_id  INTEGER NOT NULL REFERENCES players(id),
-    park_id    INTEGER NOT NULL REFERENCES parks(id),
-    time_in    TEXT NOT NULL DEFAULT (datetime('now')),
-    last_seen  TEXT NOT NULL DEFAULT (datetime('now'))
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id   INTEGER NOT NULL REFERENCES players(id),
+    park_id     INTEGER NOT NULL REFERENCES parks(id),
+    time_in     TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen   TEXT NOT NULL DEFAULT (datetime('now')),  -- last heartbeat received, regardless of position
+    last_inside TEXT                                      -- last heartbeat confirmed within leave_radius_meters
 );
 
 -- 11. GAME_RESULTS — one row per player per game.

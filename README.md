@@ -54,10 +54,12 @@ check in and reach its court screen (Court 1 / Court 2 tabs, same as the
 mockup):
 
 - **Check in** uses the browser's location and only succeeds within the
-  park's `check_in_radius_meters`. While the court screen is open, a
-  heartbeat updates your `last_seen` every 60 seconds; if it goes stale for
-  5+ minutes you drop out of your squad (and lose your spot as captain, if
-  you were one).
+  park's `check_in_radius_meters` (default 250m). Once in, a heartbeat
+  reports your position every 60 seconds; as long as it's within the park's
+  (wider) `leave_radius_meters` (default 400m) you stay "inside" — step
+  outside that for 5+ minutes and you drop out of your squad (and lose your
+  spot as captain, if you were one). Both radii are editable per park from
+  the court screen's "Game settings".
 - **"I got next"** makes you a squad captain in `next_line`; "Pick from
   who's here" adds up to 4 more from who's currently checked in. Once two
   squads are in line, they fill onto the court automatically — no typing
@@ -91,17 +93,28 @@ multi-user deploy.
 `/` is now the King of the Court map, not the old lobby list. It leads with
 the player's own standing (crown level or "No crown yet", season points, and
 either "X pts to \<next level\>" or a note that they've already got the top
-crown), then a stylized map of pins — one per park, showing that park's king
-crown color, how many players are active there right now (green dot), and a
-"You" marker — plus a bottom sheet for whichever park is selected: its King
-of the Court card, who's "Here now" (with their own crowns and points), how
-far the viewer is from that park's crown (or that they already hold it), and
-Check in / I got next buttons wired straight into the existing check-in and
-next-line flow. `/how-it-works` (linked from the top of the map) holds the
-point breakdown, crown levels, and the Crown Perks checklist that used to
-have no home of their own; `/profile` keeps its own personalized copy of the
-perks. The old lobby/tier-ladder screen moved to `/lobbies`, linked from the
-bottom of `/runs`.
+crown), then a real, interactive map — [Leaflet](https://leafletjs.com/) +
+[OpenStreetMap](https://www.openstreetmap.org/) tiles, loaded from a CDN, no
+API key — with one custom pin per park (the king's crown color, the
+active-now count with a green/gray dot, and the king's name) plus a "You"
+marker at the player's own location. It starts zoomed to the player's
+location if they share it (falling back to fitting all the parks in view
+otherwise), can be freely panned and zoomed, and draws a faint circle around
+the selected park showing its check-in radius. Tapping a pin selects that
+park (`/?park=ID`) and shows its bottom sheet: King of the Court card, who's
+"Here now" (with their own crowns and points), how far the viewer is from
+that park's crown (or that they already hold it), and Check in / I got next
+buttons wired straight into the existing check-in and next-line flow.
+`/how-it-works` (linked from the top of the map) holds the point breakdown,
+crown levels, and the Crown Perks checklist that used to have no home of
+their own; `/profile` keeps its own personalized copy of the perks. The old
+lobby/tier-ladder screen moved to `/lobbies`, linked from the bottom of
+`/runs`.
+
+**Known simplification**: selecting a different pin does a full page
+navigation (consistent with the rest of this server-rendered app), so the
+map's pan/zoom position resets to the new park's view rather than staying
+put — a minor rough edge, not a live client-side map update.
 
 ## Deploying on Railway
 

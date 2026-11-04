@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Basketball Royale</title>
 <%- include('partials/fonts') %>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body class="kotc">
@@ -31,27 +32,7 @@
   <% if (pins.length === 0) { %>
     <div class="empty-board">No parks yet.</div>
   <% } else { %>
-    <div class="map-area">
-      <div class="map-grid">
-        <% pins.forEach((pin) => { %>
-          <a href="/?park=<%= pin.id %>" class="map-cell <%= pin.id === selectedPark.id ? 'map-cell-selected' : '' %>">
-            <div class="pin <%= pin.id === selectedPark.id ? 'pin-selected' : '' %>">
-              <%- include('partials/crown-icon', { size: 16, fill: (pin.king && pin.king.crown) ? pin.king.crown.fill : 'none', stroke: (pin.king && pin.king.crown) ? pin.king.crown.stroke : 'var(--muted)' }) %>
-              <span class="pin-count"><%= pin.activeCount %></span>
-              <span class="pin-dot <%= pin.activeCount > 0 ? 'pin-dot-active' : 'pin-dot-idle' %>"></span>
-            </div>
-            <div class="pin-label"><%= pin.name %></div>
-          </a>
-        <% }); %>
-        <div class="map-cell map-cell-you">
-          <div class="pin pin-you">
-            <%- include('partials/crown-icon', { size: 16, fill: crown ? crown.fill : 'none', stroke: crown ? crown.stroke : 'var(--muted)' }) %>
-            <span class="pin-dot pin-dot-you"></span>
-          </div>
-          <div class="pin-label">You</div>
-        </div>
-      </div>
-    </div>
+    <div id="map" class="leaflet-map"></div>
 
     <div class="bottom-sheet">
       <div class="sheet-handle"></div>
@@ -110,11 +91,121 @@
 </div>
 <%- include('partials/bottom-nav', { active: 'map' }) %>
 
+<% if (pins.length > 0) { %>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   (function () {
-    var btn = document.getElementById('homeCheckInBtn');
-    if (!btn || btn.disabled) return;
+    var pins = <%- JSON.stringify(pins).replace(/</g, '\\u003c') %>;
+    var selectedParkData = <%- JSON.stringify({
+      id: selectedPark.id,
+      lat: selectedPark.lat,
+      lng: selectedPark.lng,
+      checkInRadiusMeters: selectedPark.check_in_radius_meters,
+    }).replace(/</g, '\\u003c') %>;
+    var viewerCrownFill = <%- JSON.stringify(crown ? crown.fill : 'none') %>;
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function crownSvg(fill, stroke, size) {
+      return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24">' +
+        '<path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 10H5L3 8z" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5" stroke-linejoin="round"/>' +
+        '<path d="M5 20.5h14" stroke="' + stroke + '" stroke-width="1.5" stroke-linecap="round" fill="none"/>' +
+        '</svg>';
+    }
+
+    function pinHtml(pin, isSelected) {
+      var fill = (pin.king && pin.king.crown) ? pin.king.crown.fill : 'none';
+      var stroke = (pin.king && pin.king.crown) ? pin.king.crown.stroke : '#9C9A92';
+      var dotClass = pin.activeCount > 0 ? 'pin-dot-active' : 'pin-dot-idle';
+      var label = pin.king ? pin.king.name : pin.name;
+      return '<div class="kotc-marker-content"><div class="pin' + (isSelected ? ' pin-selected' : '') + '">' +
+        crownSvg(fill, stroke, 16) +
+        '<span class="pin-count">' + pin.activeCount + '</span>' +
+        '<span class="pin-dot ' + dotClass + '"></span>' +
+        '</div><div class="pin-label">' + escapeHtml(label) + '</div></div>';
+    }
+
+    var map = L.map('map', { zoomControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
+
+    var bounds = [];
+    pins.forEach(function (pin) {
+      if (pin.lat == null || pin.lng == null) return;
+      bounds.push([pin.lat, pin.lng]);
+      var isSelected = pin.id === selectedParkData.id;
+      var icon = L.divIcon({ className: 'kotc-marker', html: pinHtml(pin, isSelected), iconSize: [0, 0] });
+      L.marker([pin.lat, pin.lng], { icon: icon })
+        .addTo(map)
+        .on('click', function () { window.location.href = '/?park=' + pin.id; });
+    });
+
+    if (selectedParkData.lat != null) {
+      L.circle([selectedParkData.lat, selectedParkData.lng], {
+        radius: selectedParkData.checkInRadiusMeters,
+        color: '#5B2A86',
+        fillColor: '#5B2A86',
+        fillOpacity: 0.12,
+        weight: 1,
+      }).addTo(map);
+    }
+
+    function setFallbackView() {
+      if (bounds.length > 0) {
+        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 });
+      } else {
+        map.setView([26.15, -80.25], 11);
+      }
+    }
+
+    // Show something immediately (geolocation can be slow or never
+    // resolve), then re-center on the player once/if it does.
+    setFallbackView();
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        var youIcon = L.divIcon({
+          className: 'kotc-marker',
+          html: '<div class="kotc-marker-content"><div class="pin pin-you">' + crownSvg(viewerCrownFill, '#FFFFFF', 16) + '<span class="pin-dot pin-dot-you"></span></div><div class="pin-label">You</div></div>',
+          iconSize: [0, 0],
+        });
+        L.marker([pos.coords.latitude, pos.coords.longitude], { icon: youIcon }).addTo(map);
+        map.setView([pos.coords.latitude, pos.coords.longitude], 12);
+      }, function () {
+        // Permission denied or unavailable — keep the fallback view.
+      }, { timeout: 8000 });
+    }
+  })();
+</script>
+<% } %>
+
+<script>
+  (function () {
     var parkId = <%= selectedPark ? selectedPark.id : 'null' %>;
+
+    function startHeartbeat() {
+      setInterval(function () {
+        if (!navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition(function (pos) {
+          fetch('/parks/' + parkId + '/heartbeat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          }).catch(function () {});
+        }, function () {
+          // Couldn't get a fresh position this cycle — skip.
+        });
+      }, 60000);
+    }
+
+    var btn = document.getElementById('homeCheckInBtn');
+    if (!btn || btn.disabled) {
+      <% if (sheet && sheet.checkedIn) { %>startHeartbeat();<% } %>
+      return;
+    }
     btn.addEventListener('click', function () {
       var statusEl = document.getElementById('homeCheckInStatus');
       if (!navigator.geolocation) {

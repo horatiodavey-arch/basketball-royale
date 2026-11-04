@@ -105,7 +105,8 @@ function ensureKingOfTheCourtTables() {
         location               TEXT,
         lat                    REAL,
         lng                    REAL,
-        check_in_radius_meters INTEGER NOT NULL DEFAULT 150,
+        check_in_radius_meters INTEGER NOT NULL DEFAULT 250,
+        leave_radius_meters    INTEGER NOT NULL DEFAULT 400,
         game_target            INTEGER NOT NULL DEFAULT 16,
         between_games_seconds  INTEGER NOT NULL DEFAULT 180
     );
@@ -119,11 +120,12 @@ function ensureKingOfTheCourtTables() {
     );
 
     CREATE TABLE IF NOT EXISTS check_ins (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        player_id  INTEGER NOT NULL REFERENCES players(id),
-        park_id    INTEGER NOT NULL REFERENCES parks(id),
-        time_in    TEXT NOT NULL DEFAULT (datetime('now')),
-        last_seen  TEXT NOT NULL DEFAULT (datetime('now'))
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_id   INTEGER NOT NULL REFERENCES players(id),
+        park_id     INTEGER NOT NULL REFERENCES parks(id),
+        time_in     TEXT NOT NULL DEFAULT (datetime('now')),
+        last_seen   TEXT NOT NULL DEFAULT (datetime('now')),
+        last_inside TEXT
     );
 
     CREATE TABLE IF NOT EXISTS game_results (
@@ -193,14 +195,29 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('parks', 'lng', 'REAL');
   addColumnIfMissing('parks', 'game_target', 'INTEGER NOT NULL DEFAULT 16');
   addColumnIfMissing('parks', 'between_games_seconds', 'INTEGER NOT NULL DEFAULT 180');
+  addColumnIfMissing('parks', 'check_in_radius_meters', 'INTEGER NOT NULL DEFAULT 250');
+  addColumnIfMissing('parks', 'leave_radius_meters', 'INTEGER NOT NULL DEFAULT 400');
   addColumnIfMissing('next_line', 'status', "TEXT NOT NULL DEFAULT 'waiting'");
   addColumnIfMissing('next_line', 'created_at', 'TEXT');
+  addColumnIfMissing('check_ins', 'last_inside', 'TEXT');
+
+  // The check-in radius default changed 150 -> 250. Any park still sitting
+  // at the old factory default (never customized by an organizer) picks up
+  // the new one; a deliberately-customized value is left alone.
+  db.prepare('UPDATE parks SET check_in_radius_meters = 250 WHERE check_in_radius_meters = 150').run();
+  // Backfill last_inside for existing fresh check-ins so nobody is wrongly
+  // treated as "outside" the moment this migration runs. (5 minutes here
+  // matches CHECK_IN_FRESH_MINUTES in db/queries.js — inlined since this
+  // runs at boot, before that module's constant is necessarily available.)
+  db.prepare(
+    `UPDATE check_ins SET last_inside = last_seen WHERE last_inside IS NULL AND last_seen >= datetime('now', '-5 minutes')`
+  ).run();
 }
 
 // Creates a park plus its default Court 1 "Main", unless a park with
 // that name already exists. Returns the park's id either way — and
 // backfills lat/lng on an existing row from before check-in needed them.
-function findOrCreatePark(name, location, radiusMeters, lat, lng) {
+function findOrCreatePark(name, location, checkInRadiusMeters, leaveRadiusMeters, lat, lng) {
   const existing = db.prepare('SELECT id, lat FROM parks WHERE name = ?').get(name);
   if (existing) {
     if (existing.lat === null) {
@@ -210,8 +227,8 @@ function findOrCreatePark(name, location, radiusMeters, lat, lng) {
   }
 
   db.prepare(
-    'INSERT INTO parks (name, location, lat, lng, check_in_radius_meters) VALUES (?, ?, ?, ?, ?)'
-  ).run(name, location, lat, lng, radiusMeters);
+    'INSERT INTO parks (name, location, lat, lng, check_in_radius_meters, leave_radius_meters) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(name, location, lat, lng, checkInRadiusMeters, leaveRadiusMeters);
   const parkId = lastId();
 
   db.prepare(
@@ -260,7 +277,8 @@ function seedKingOfTheCourtDemoData() {
   const lauderhillId = findOrCreatePark(
     'Lauderhill Parks & Recreation',
     '4141 NW 16th St, Lauderhill, FL 33313',
-    150,
+    250,
+    400,
     26.1466558,
     -80.206011
   );
@@ -269,7 +287,7 @@ function seedKingOfTheCourtDemoData() {
 
   // Second demo park, so the leaderboard has somewhere for a player to
   // earn a Double Crown (king of two parks in the same season).
-  const markhamParkId = findOrCreatePark('Markham Park', 'Sunrise, FL', 150, 26.1256, -80.3104);
+  const markhamParkId = findOrCreatePark('Markham Park', 'Sunrise, FL', 250, 400, 26.1256, -80.3104);
   const markhamMainCourtId = findOrCreateCourt(markhamParkId, 1, 'Main');
 
   const alreadySeeded = db.prepare('SELECT 1 FROM game_results LIMIT 1').get();
