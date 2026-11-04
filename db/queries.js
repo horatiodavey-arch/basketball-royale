@@ -329,6 +329,103 @@ function getCrownPerks(playerId, seasonStart) {
   return perks;
 }
 
+// How many more points to the next crown level, or null if already at
+// the top one. Drives the home screen's "X pts to Y" headline.
+function getNextCrownProgress(totalPoints) {
+  const next = CROWN_LEVELS.slice()
+    .reverse()
+    .find((level) => level.min > totalPoints);
+  if (!next) return null;
+  return { name: next.name, pointsNeeded: roundTenth(next.min - totalPoints) };
+}
+
+function nameInitials(name) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('');
+}
+
+// ============================================================
+// HOME / MAP — park pins and the selected-park bottom sheet
+// ============================================================
+
+function getLiveGameCountByPark(parkId) {
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM live_games lg
+       JOIN courts c ON c.id = lg.court_id
+       WHERE c.park_id = ? AND lg.status != 'done'`
+    )
+    .get(parkId).n;
+}
+
+// A park's king, with their city-wide crown (the color the pin and the
+// king card use) — not the park-scope crown, since crown LEVEL is
+// always based on total season points, same rule as everywhere else.
+function getParkKing(parkId, seasonStart) {
+  const standings = getParkStandings(parkId, seasonStart);
+  const row = standings[0];
+  if (!row) return null;
+  return {
+    playerId: row.playerId,
+    name: row.name,
+    points: row.points,
+    crown: getCrownLevel(getPlayerSeasonPoints(row.playerId, seasonStart)),
+  };
+}
+
+// One pin's worth of data per park, for the map.
+function getParkMapPins(seasonStart) {
+  return getParks().map((park) => ({
+    id: park.id,
+    name: park.name,
+    activeCount: getCheckedInPlayers(park.id).length,
+    liveCount: getLiveGameCountByPark(park.id),
+    king: getParkKing(park.id, seasonStart),
+  }));
+}
+
+// Everything the selected park's bottom sheet needs.
+function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
+  const park = getParkById(parkId);
+  const king = getParkKing(parkId, seasonStart);
+  const pointsByPlayer = new Map(getParkStandings(parkId, seasonStart).map((r) => [r.playerId, r.points]));
+
+  const hereNow = getCheckedInPlayers(parkId).map((p) => ({
+    id: p.id,
+    name: p.name,
+    initials: nameInitials(p.name),
+    points: pointsByPlayer.get(p.id) || 0,
+    crown: getCrownLevel(getPlayerSeasonPoints(p.id, seasonStart)),
+  }));
+
+  let viewerStatus;
+  if (!king) {
+    viewerStatus = 'Be the first to put points on the board.';
+  } else if (king.playerId === viewerPlayerId) {
+    viewerStatus = "You're the King of the Court here!";
+  } else {
+    const behind = roundTenth(king.points - (pointsByPlayer.get(viewerPlayerId) || 0));
+    viewerStatus = `You're ${behind} pts behind the crown`;
+  }
+
+  const firstCourt = getCourtsByPark(parkId)[0] || null;
+
+  return {
+    park,
+    activeCount: hereNow.length,
+    liveCount: getLiveGameCountByPark(parkId),
+    king,
+    hereNow,
+    viewerStatus,
+    checkedIn: !!getCheckIn(viewerPlayerId, parkId),
+    firstCourtId: firstCourt ? firstCourt.id : null,
+  };
+}
+
 // ============================================================
 // LIVE PLAY — check-ins, the next-line queue, and live games
 // ============================================================
@@ -940,6 +1037,9 @@ module.exports = {
   getLeaderboard,
   getCrownPerks,
   getPlayerSeasonPoints,
+  getNextCrownProgress,
+  getParkMapPins,
+  getParkSheetDetail,
   checkIn,
   heartbeat,
   getCheckIn,

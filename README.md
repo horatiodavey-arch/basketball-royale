@@ -26,9 +26,10 @@ To wipe and reseed: `npm run db:reset`.
 
 - **Sign up** creates a `users` row and a matching `players` row (tier
   defaults to `rookie`, per the schema).
-- **Home screen** reads real data: record, tier badge, promotion progress
+- **`/lobbies`** reads real data: record, tier badge, promotion progress
   (from `tiers.wins_to_promote` / `games_to_promote`), open lobbies at the
-  player's tier, and the ladder of locked tiers.
+  player's tier, and the ladder of locked tiers. (The home screen itself is
+  now the King of the Court map — see below.)
 - **Join a lobby**: the schema has no separate "lobby roster" table — a
   lobby's roster before teams are drafted is the `game_players` for its one
   `forming`-status game (auto-created per lobby). Joining inserts a
@@ -84,6 +85,23 @@ existing database picks them up with no `npm run db:reset` needed.
 joining) show up via a 15-second auto-refresh and your own action redirects,
 not a live push — fine for a single-court demo, worth revisiting for a real
 multi-user deploy.
+
+## Home screen (the map)
+
+`/` is now the King of the Court map, not the old lobby list. It leads with
+the player's own standing (crown level or "No crown yet", season points, and
+either "X pts to \<next level\>" or a note that they've already got the top
+crown), then a stylized map of pins — one per park, showing that park's king
+crown color, how many players are active there right now (green dot), and a
+"You" marker — plus a bottom sheet for whichever park is selected: its King
+of the Court card, who's "Here now" (with their own crowns and points), how
+far the viewer is from that park's crown (or that they already hold it), and
+Check in / I got next buttons wired straight into the existing check-in and
+next-line flow. `/how-it-works` (linked from the top of the map) holds the
+point breakdown, crown levels, and the Crown Perks checklist that used to
+have no home of their own; `/profile` keeps its own personalized copy of the
+perks. The old lobby/tier-ladder screen moved to `/lobbies`, linked from the
+bottom of `/runs`.
 
 ## Deploying on Railway
 
