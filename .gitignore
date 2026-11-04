@@ -70,6 +70,10 @@ web_modules/
 .env.*
 !.env.example
 
+# SQLite database (generated at first run from db/schema.sql)
+db/*.db
+db/*.db-journal
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

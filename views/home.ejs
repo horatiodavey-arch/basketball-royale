@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Basketball Royale</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="phone">
+
+  <div class="header">
+    <div class="avatar"><%= initials %></div>
+    <div>
+      <div class="name"><%= profile.name %></div>
+      <div class="record"><%= profile.wins %>W &ndash; <%= profile.losses %>L &middot; <%= profile.games_played %> games</div>
+    </div>
+    <div class="spacer"></div>
+    <span class="tier-badge"><%= profile.tier %></span>
+    <form method="POST" action="/logout" style="display: inline;">
+      <button type="submit" class="logout-link" style="background: none; border: none; cursor: pointer;">Log out</button>
+    </form>
+  </div>
+
+  <% if (nextTier) { %>
+    <div class="card">
+      <div class="progress-head">
+        <span class="label">Road to <%= nextTier.name[0].toUpperCase() + nextTier.name.slice(1) %></span>
+        <span class="value"><%= profile.wins %> of <%= winsNeeded %> wins</span>
+      </div>
+      <div class="bar"><div class="fill" style="width: <%= progressPercent %>%;"></div></div>
+      <div class="fine">or <%= profile.games_played %> of <%= gamesNeeded %> games played &middot; promotion pays 1 free entry</div>
+    </div>
+  <% } else { %>
+    <div class="card">
+      <div class="progress-head">
+        <span class="label">You've reached the top of the ladder</span>
+        <span class="value">&#127942;</span>
+      </div>
+    </div>
+  <% } %>
+
+  <div class="section">Your lobbies</div>
+
+  <% if (lobbies.length === 0) { %>
+    <div class="card empty-state">No open lobbies at your tier right now. Check back soon.</div>
+  <% } %>
+
+  <% lobbies.forEach(function(lobby) { %>
+    <div class="card lobby">
+      <div class="lobby-top">
+        <span class="title">&#127936; <%= lobby.name %></span>
+        <% if (lobby.joined) { %>
+          <span class="pill-joined">Joined</span>
+        <% } else { %>
+          <span class="pill-open">Open</span>
+        <% } %>
+      </div>
+      <div class="lobby-meta">
+        <%= lobby.startsLabel %> &middot;
+        <a href="https://maps.google.com/?q=<%= encodeURIComponent(lobby.location || '') %>" style="color: var(--accent); text-decoration: none;">&#128205; <%= lobby.location %> &middot; Get directions</a>
+      </div>
+      <div class="lobby-meta" style="font-weight: 600; color: var(--text);">
+        <% if (lobby.joined) { %>
+          <%= lobby.rosterCount %> locked in &middot; You<%= lobby.rosterNames.length ? ', ' + lobby.rosterNames.slice(0, 2).join(', ') : '' %><%= lobby.rosterNames.length > 2 ? ' + ' + (lobby.rosterNames.length - 2) + ' more' : '' %>
+        <% } else if (lobby.rosterCount === 0) { %>
+          Be the first one in
+        <% } else { %>
+          <%= lobby.rosterCount %> locked in &middot; <%= lobby.rosterNames.slice(0, 2).join(', ') %><%= lobby.rosterNames.length > 2 ? ' + ' + (lobby.rosterNames.length - 2) + ' more' : '' %>
+        <% } %>
+      </div>
+      <div class="lobby-foot">
+        <div>
+          <div class="entry-label">Entry &middot; win pays $<%= (lobby.winPayoutCents / 100).toFixed(0) %></div>
+          <div class="entry-amount">$<%= (lobby.stake_cents / 100).toFixed(0) %></div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="join ghost" onclick="inviteToLobby('<%= lobby.join_code %>')">Invite</button>
+          <% if (lobby.joined) { %>
+            <button class="join" disabled>Joined &#10003;</button>
+          <% } else { %>
+            <form method="POST" action="/lobbies/<%= lobby.id %>/join">
+              <button type="submit" class="join">Join</button>
+            </form>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  <% }); %>
+
+  <div class="section">The ladder</div>
+
+  <% tiers.forEach(function(tier, i) { %>
+    <% if (tier.rank <= profile.tier_rank) return; %>
+    <% var fadeClass = 'fade-' + Math.min(3, tier.rank - profile.tier_rank); %>
+    <div class="card locked <%= fadeClass %>">
+      <span class="lock"><%- tier.max_stake_cents === null ? '&#127942;' : '&#128274;' %></span>
+      <div class="info">
+        <div class="tname"><%= tier.name[0].toUpperCase() + tier.name.slice(1) %></div>
+        <div class="tdesc">
+          $<%= (tier.min_stake_cents / 100).toFixed(0) %><% if (tier.max_stake_cents && tier.max_stake_cents !== tier.min_stake_cents) { %>&ndash;<%= (tier.max_stake_cents / 100).toFixed(0) %><% } else if (!tier.max_stake_cents) { %>+<% } %> lobbies &middot; <%= tier.rake_percent %>% rake
+        </div>
+      </div>
+      <div class="req">
+        <% if (tier.max_stake_cents === null) { %>
+          The top
+        <% } else if (tier.rank === profile.tier_rank + 1) { %>
+          <% if (winsNeeded && gamesNeeded) { %>
+            <%= winsNeeded %> wins or <%= gamesNeeded %> games
+          <% } else { %>
+            Criteria TBD
+          <% } %>
+        <% } else { %>
+          Reach <%= tiers[tier.rank - 2].name[0].toUpperCase() + tiers[tier.rank - 2].name.slice(1) %> first
+        <% } %>
+      </div>
+    </div>
+  <% }); %>
+
+</div>
+
+<script>
+  function inviteToLobby(joinCode) {
+    const url = window.location.origin + '/signup?code=' + encodeURIComponent(joinCode);
+    const text = "Join my run on Basketball Royale — code " + joinCode;
+    if (navigator.share) {
+      navigator.share({ title: 'Basketball Royale', text: text, url: url }).catch(function () {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(text + ' ' + url).then(function () {
+        alert('Invite link copied to clipboard');
+      });
+    } else {
+      alert(text + ' ' + url);
+    }
+  }
+</script>
+</body>
+</html>

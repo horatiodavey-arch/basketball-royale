@@ -1,0 +1,101 @@
+:root {
+  --bg: #F5F4EF; --card: #FFFFFF; --border: #E3E1D9;
+  --text: #1A1A18; --text2: #6B6A64; --muted: #9C9A92;
+  --accent: #185FA5; --accent-bg: #E6F1FB;
+  --green: #1D9E75; --green-bg: #E1F5EE; --green-text: #085041;
+  --rookie-bg: #FAEEDA; --rookie-text: #633806;
+  --red: #C13B3B; --red-bg: #FBEAEA;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #DDDBD3; display: flex; justify-content: center;
+  padding: 24px 12px; color: var(--text);
+}
+.phone { background: var(--bg); border-radius: 24px; padding: 16px; width: 100%; max-width: 380px; }
+
+.header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.avatar {
+  width: 44px; height: 44px; border-radius: 50%; background: var(--accent-bg);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: 14px; color: var(--accent);
+}
+.header .name { font-weight: 600; font-size: 15px; }
+.header .record { font-size: 13px; color: var(--text2); }
+.spacer { flex: 1; }
+.tier-badge {
+  background: var(--rookie-bg); color: var(--rookie-text);
+  font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px;
+  text-transform: uppercase;
+}
+.logout-link {
+  font-size: 12px; color: var(--muted); text-decoration: none; margin-left: 8px;
+}
+
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 14px; margin-bottom: 12px;
+}
+.progress-head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px; }
+.progress-head .label { color: var(--text2); }
+.progress-head .value { font-weight: 600; }
+.bar { height: 6px; background: var(--bg); border-radius: 999px; overflow: hidden; margin-bottom: 6px; }
+.bar .fill { height: 100%; background: var(--green); }
+.fine { font-size: 12px; color: var(--muted); }
+
+.section { font-size: 13px; color: var(--text2); margin: 14px 0 8px; }
+
+.lobby { border: 2px solid var(--accent); }
+.lobby-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.lobby-top .title { font-weight: 600; font-size: 15px; flex: 1; }
+.pill-open {
+  background: var(--green-bg); color: var(--green-text);
+  font-size: 12px; padding: 3px 10px; border-radius: 999px;
+}
+.pill-joined {
+  background: var(--accent-bg); color: var(--accent);
+  font-size: 12px; padding: 3px 10px; border-radius: 999px;
+}
+.lobby-meta { font-size: 13px; color: var(--text2); margin-bottom: 10px; }
+.lobby-foot { display: flex; align-items: center; justify-content: space-between; }
+.entry-label { font-size: 12px; color: var(--muted); }
+.entry-amount { font-size: 20px; font-weight: 600; }
+.join {
+  background: var(--text); color: #fff; border: none;
+  padding: 8px 20px; border-radius: 999px; font-size: 14px; font-weight: 600; cursor: pointer;
+  font-family: inherit;
+}
+.join:disabled { background: var(--muted); cursor: default; }
+.join.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+
+.locked { display: flex; align-items: center; gap: 10px; }
+.locked .lock { font-size: 16px; color: var(--muted); }
+.locked .info { flex: 1; }
+.locked .info .tname { font-weight: 600; font-size: 14px; }
+.locked .info .tdesc { font-size: 12px; color: var(--text2); }
+.locked .req { font-size: 12px; color: var(--muted); text-align: right; }
+.fade-1 { opacity: 0.75; } .fade-2 { opacity: 0.6; } .fade-3 { opacity: 0.5; }
+
+.empty-state { font-size: 13px; color: var(--muted); padding: 8px 2px; }
+
+/* Signup page */
+.auth-title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+.auth-sub { font-size: 13px; color: var(--text2); margin-bottom: 20px; }
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+.field input {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 8px; font-size: 15px; font-family: inherit; background: var(--card);
+}
+.field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.error-msg {
+  background: var(--red-bg); color: var(--red); font-size: 13px;
+  padding: 8px 12px; border-radius: 8px; margin-bottom: 14px;
+}
+.submit {
+  width: 100%; background: var(--text); color: #fff; border: none;
+  padding: 12px; border-radius: 999px; font-size: 15px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+}
+.brand { font-size: 22px; font-weight: 700; margin-bottom: 2px; }
+.brand-sub { font-size: 13px; color: var(--text2); margin-bottom: 24px; }
