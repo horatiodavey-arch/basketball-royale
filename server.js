@@ -24,6 +24,9 @@ const {
   getLeaderboard,
   getCrownPerks,
   getPlayerSeasonPoints,
+  getNextCrownProgress,
+  getParkMapPins,
+  getParkSheetDetail,
   CROWN_LEVELS,
   checkIn,
   heartbeat,
@@ -123,6 +126,56 @@ app.get('/', requireAuth, (req, res) => {
     return;
   }
 
+  const season = getSeasonWindow();
+  const totalPoints = getPlayerSeasonPoints(profile.player_id, season.startSql);
+  const crown = getCrownLevel(totalPoints);
+  const nextCrown = getNextCrownProgress(totalPoints);
+  const parks = getParks();
+
+  if (parks.length === 0) {
+    return res.render('home', {
+      active: 'map',
+      profile,
+      season,
+      totalPoints,
+      crown,
+      nextCrown,
+      pins: [],
+      selectedPark: null,
+      sheet: null,
+    });
+  }
+
+  const requestedParkId = Number(req.query.park);
+  const selectedPark = parks.find((p) => p.id === requestedParkId) || parks[0];
+  const pins = getParkMapPins(season.startSql);
+  const sheet = getParkSheetDetail(selectedPark.id, season.startSql, profile.player_id);
+
+  res.render('home', {
+    active: 'map',
+    profile,
+    season,
+    totalPoints,
+    crown,
+    nextCrown,
+    pins,
+    selectedPark,
+    sheet,
+  });
+});
+
+app.get('/how-it-works', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const season = getSeasonWindow();
+  res.render('how-it-works', {
+    active: 'map',
+    crownLevels: CROWN_LEVELS,
+    perks: getCrownPerks(profile.player_id, season.startSql),
+  });
+});
+
+app.get('/lobbies', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
   const tiers = getTiers();
   const lobbies = getOpenLobbies()
     .filter((lobby) => lobby.tier === profile.tier)
@@ -153,7 +206,8 @@ app.get('/', requireAuth, (req, res) => {
   }
   const nextTier = tiers.find((t) => t.rank === profile.tier_rank + 1);
 
-  res.render('home', {
+  res.render('lobbies', {
+    active: 'runs',
     profile,
     tiers,
     lobbies,
@@ -169,11 +223,11 @@ app.post('/lobbies/:id/join', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   const lobby = getLobbyById(req.params.id);
 
-  if (!profile || !lobby) return res.redirect('/');
-  if (lobby.tier !== profile.tier) return res.redirect('/');
+  if (!profile || !lobby) return res.redirect('/lobbies');
+  if (lobby.tier !== profile.tier) return res.redirect('/lobbies');
 
   joinLobby(profile.player_id, lobby);
-  res.redirect('/');
+  res.redirect('/lobbies');
 });
 
 function toArray(value) {
@@ -214,14 +268,8 @@ app.get('/board', requireAuth, (req, res) => {
   });
 });
 
-app.get('/map', requireAuth, (req, res) => {
-  res.render('coming-soon', {
-    active: 'map',
-    title: 'Map',
-    message: 'Finding a run near you and checking in from the map is coming soon.',
-    showRecordGameLink: false,
-  });
-});
+// The home screen (/) is the map now — keep the old URL working.
+app.get('/map', requireAuth, (req, res) => res.redirect('/'));
 
 app.get('/runs', requireAuth, (req, res) => {
   res.render('runs', { active: 'runs', parks: getParks() });
@@ -258,14 +306,22 @@ app.post('/parks/:parkId/check-in', requireAuth, (req, res) => {
 
 app.post('/parks/:parkId/heartbeat', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  res.json({ ok: heartbeat(profile.player_id, Number(req.params.parkId)) });
+  const { lat, lng } = req.body;
+  res.json(heartbeat(profile.player_id, Number(req.params.parkId), lat, lng));
 });
 
 app.post('/parks/:parkId/settings', requireAuth, (req, res) => {
   const gameTarget = Number(req.body.gameTarget);
   const betweenGamesSeconds = Number(req.body.betweenGamesSeconds);
-  if (Number.isInteger(gameTarget) && gameTarget > 0 && Number.isInteger(betweenGamesSeconds) && betweenGamesSeconds > 0) {
-    updateParkSettings(Number(req.params.parkId), { gameTarget, betweenGamesSeconds });
+  const checkInRadiusMeters = Number(req.body.checkInRadiusMeters);
+  const leaveRadiusMeters = Number(req.body.leaveRadiusMeters);
+  const valid =
+    Number.isInteger(gameTarget) && gameTarget > 0 &&
+    Number.isInteger(betweenGamesSeconds) && betweenGamesSeconds > 0 &&
+    Number.isInteger(checkInRadiusMeters) && checkInRadiusMeters > 0 &&
+    Number.isInteger(leaveRadiusMeters) && leaveRadiusMeters >= checkInRadiusMeters;
+  if (valid) {
+    updateParkSettings(Number(req.params.parkId), { gameTarget, betweenGamesSeconds, checkInRadiusMeters, leaveRadiusMeters });
   }
   res.redirect(req.get('Referer') || '/runs');
 });
@@ -285,7 +341,11 @@ app.post('/courts/:courtId/next', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   const court = getCourtById(req.params.courtId);
   const result = iGotNext(Number(req.params.courtId), profile.player_id);
-  redirectWithResult(req, res, result, `/parks/${court.park_id}/courts/${court.id}`);
+  // Always lands on the court screen (not back to wherever the button was
+  // tapped from, e.g. home) — that's where squad-building continues.
+  const courtUrl = `/parks/${court.park_id}/courts/${court.id}`;
+  if (result.ok) return res.redirect(courtUrl);
+  res.redirect(`${courtUrl}?error=${encodeURIComponent(result.error || 'That action failed.')}`);
 });
 
 app.post('/next_line/:id/members', requireAuth, (req, res) => {

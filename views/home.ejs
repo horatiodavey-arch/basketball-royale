@@ -5,141 +5,240 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Basketball Royale</title>
 <%- include('partials/fonts') %>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="/style.css">
 </head>
-<body>
-<div class="phone">
+<body class="kotc">
+<div class="page map-page">
 
-  <div class="quick-links">
-    <a href="/runs" class="quick-link">Find a run</a>
-    <a href="/board" class="quick-link">Leaderboard</a>
+  <div class="royale-bar">
+    <div class="royale-brand"><span class="royale-dot"></span>ROYALE</div>
+    <div class="royale-reset">Crowns reset in <%= season.daysLeft %> day<%= season.daysLeft === 1 ? '' : 's' %>.</div>
   </div>
 
-  <div class="header">
-    <div class="avatar"><%= initials %></div>
-    <div>
-      <div class="name"><%= profile.name %></div>
-      <div class="record"><%= profile.wins %>W &ndash; <%= profile.losses %>L &middot; <%= profile.games_played %> games</div>
+  <div class="hero-standing">
+    <div class="hero-crown-level heading"><%= crown ? crown.name : 'No crown yet' %></div>
+    <div class="hero-points"><%= totalPoints %> pts this season</div>
+    <div class="hero-subline">
+      <% if (nextCrown) { %>
+        <%= nextCrown.pointsNeeded %> pts to <%= nextCrown.name %>
+      <% } else { %>
+        You've got the top crown &mdash; Best Record in the League.
+      <% } %>
     </div>
-    <div class="spacer"></div>
-    <span class="tier-badge"><%= profile.tier %></span>
-    <form method="POST" action="/logout" style="display: inline;">
-      <button type="submit" class="logout-link" style="background: none; border: none; cursor: pointer;">Log out</button>
-    </form>
+    <a href="/how-it-works" class="how-it-works-link">How it works &rsaquo;</a>
   </div>
 
-  <% if (nextTier) { %>
-    <div class="card">
-      <div class="progress-head">
-        <span class="label">Road to <%= nextTier.name[0].toUpperCase() + nextTier.name.slice(1) %></span>
-        <span class="value"><%= profile.wins %> of <%= winsNeeded %> wins</span>
-      </div>
-      <div class="bar"><div class="fill" style="width: <%= progressPercent %>%;"></div></div>
-      <div class="fine">or <%= profile.games_played %> of <%= gamesNeeded %> games played &middot; promotion pays 1 free entry</div>
-    </div>
+  <% if (pins.length === 0) { %>
+    <div class="empty-board">No parks yet.</div>
   <% } else { %>
-    <div class="card">
-      <div class="progress-head">
-        <span class="label">You've reached the top of the ladder</span>
-        <span class="value">&#127942;</span>
+    <div id="map" class="leaflet-map"></div>
+
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-park-name heading"><%= sheet.park.name %></div>
+      <div class="sheet-meta">
+        <span class="sheet-dot <%= sheet.activeCount > 0 ? 'sheet-dot-active' : 'sheet-dot-idle' %>"></span>
+        <%= sheet.activeCount %> active now &middot; <%= sheet.liveCount %> game<%= sheet.liveCount === 1 ? '' : 's' %> live
       </div>
+
+      <% if (sheet.king) { %>
+        <div class="king-card sheet-king-card">
+          <div class="king-label">KING OF THE COURT</div>
+          <div class="king-crown">
+            <%- include('partials/crown-icon', { size: 26, fill: sheet.king.crown ? sheet.king.crown.fill : 'none', stroke: sheet.king.crown ? sheet.king.crown.stroke : 'var(--muted)' }) %>
+          </div>
+          <div class="king-name heading"><%= sheet.king.name %></div>
+          <div class="king-level"><%= sheet.king.crown ? sheet.king.crown.name : 'No crown yet' %></div>
+          <div class="king-points heading"><%= sheet.king.points %> <span>pts</span></div>
+        </div>
+      <% } %>
+
+      <div class="here-now-head">
+        <span class="section" style="margin: 0;">Here now</span>
+        <% if (sheet.hereNow.length > 5) { %>
+          <a href="/parks/<%= sheet.park.id %>" class="see-all-link">See all <%= sheet.hereNow.length %></a>
+        <% } %>
+      </div>
+      <% if (sheet.hereNow.length === 0) { %>
+        <div class="next-action-note">Nobody checked in yet.</div>
+      <% } else { %>
+        <div class="here-now-row">
+          <% sheet.hereNow.slice(0, 5).forEach((p) => { %>
+            <div class="here-now-player">
+              <div class="here-now-avatar <%= p.id === profile.player_id ? 'here-now-avatar-you' : '' %>">
+                <%= p.initials %>
+                <span class="here-now-crown"><%- include('partials/crown-icon', { size: 13, fill: p.crown ? p.crown.fill : 'none', stroke: p.crown ? p.crown.stroke : 'var(--muted)' }) %></span>
+              </div>
+              <div class="here-now-name"><%= p.id === profile.player_id ? 'You' : p.name %></div>
+              <div class="here-now-pts"><%= p.points %> pts</div>
+            </div>
+          <% }); %>
+        </div>
+      <% } %>
+
+      <div class="sheet-status"><%= sheet.viewerStatus %></div>
+
+      <div class="sheet-actions">
+        <button type="button" id="homeCheckInBtn" class="check-in-btn" <%= sheet.checkedIn ? 'disabled' : '' %>><%= sheet.checkedIn ? 'Checked in' : 'Check in' %></button>
+        <form method="POST" action="/courts/<%= sheet.firstCourtId %>/next">
+          <button type="submit" class="submit-btn" <%= sheet.firstCourtId ? '' : 'disabled' %>>I got next</button>
+        </form>
+      </div>
+      <div id="homeCheckInStatus" class="checkin-status"></div>
     </div>
   <% } %>
-
-  <div class="section">Your lobbies</div>
-
-  <% if (lobbies.length === 0) { %>
-    <div class="card empty-state">No open lobbies at your tier right now. Check back soon.</div>
-  <% } %>
-
-  <% lobbies.forEach(function(lobby) { %>
-    <div class="card lobby">
-      <div class="lobby-top">
-        <span class="title">&#127936; <%= lobby.name %></span>
-        <% if (lobby.joined) { %>
-          <span class="pill-joined">Joined</span>
-        <% } else { %>
-          <span class="pill-open">Open</span>
-        <% } %>
-      </div>
-      <div class="lobby-meta">
-        <%= lobby.startsLabel %> &middot;
-        <a href="https://maps.google.com/?q=<%= encodeURIComponent(lobby.location || '') %>" style="color: var(--accent); text-decoration: none;">&#128205; <%= lobby.location %> &middot; Get directions</a>
-      </div>
-      <div class="lobby-meta" style="font-weight: 600; color: var(--text);">
-        <% if (lobby.joined) { %>
-          <%= lobby.rosterCount %> locked in &middot; You<%= lobby.rosterNames.length ? ', ' + lobby.rosterNames.slice(0, 2).join(', ') : '' %><%= lobby.rosterNames.length > 2 ? ' + ' + (lobby.rosterNames.length - 2) + ' more' : '' %>
-        <% } else if (lobby.rosterCount === 0) { %>
-          Be the first one in
-        <% } else { %>
-          <%= lobby.rosterCount %> locked in &middot; <%= lobby.rosterNames.slice(0, 2).join(', ') %><%= lobby.rosterNames.length > 2 ? ' + ' + (lobby.rosterNames.length - 2) + ' more' : '' %>
-        <% } %>
-      </div>
-      <div class="lobby-foot">
-        <div>
-          <div class="entry-label">Entry &middot; win pays $<%= (lobby.winPayoutCents / 100).toFixed(0) %></div>
-          <div class="entry-amount">$<%= (lobby.stake_cents / 100).toFixed(0) %></div>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button type="button" class="join ghost" onclick="inviteToLobby('<%= lobby.join_code %>')">Invite</button>
-          <% if (lobby.joined) { %>
-            <button class="join" disabled>Joined &#10003;</button>
-          <% } else { %>
-            <form method="POST" action="/lobbies/<%= lobby.id %>/join">
-              <button type="submit" class="join">Join</button>
-            </form>
-          <% } %>
-        </div>
-      </div>
-    </div>
-  <% }); %>
-
-  <div class="section">The ladder</div>
-
-  <% tiers.forEach(function(tier, i) { %>
-    <% if (tier.rank <= profile.tier_rank) return; %>
-    <% var fadeClass = 'fade-' + Math.min(3, tier.rank - profile.tier_rank); %>
-    <div class="card locked <%= fadeClass %>">
-      <span class="lock"><%- tier.max_stake_cents === null ? '&#127942;' : '&#128274;' %></span>
-      <div class="info">
-        <div class="tname"><%= tier.name[0].toUpperCase() + tier.name.slice(1) %></div>
-        <div class="tdesc">
-          $<%= (tier.min_stake_cents / 100).toFixed(0) %><% if (tier.max_stake_cents && tier.max_stake_cents !== tier.min_stake_cents) { %>&ndash;<%= (tier.max_stake_cents / 100).toFixed(0) %><% } else if (!tier.max_stake_cents) { %>+<% } %> lobbies &middot; <%= tier.rake_percent %>% rake
-        </div>
-      </div>
-      <div class="req">
-        <% if (tier.max_stake_cents === null) { %>
-          The top
-        <% } else if (tier.rank === profile.tier_rank + 1) { %>
-          <% if (winsNeeded && gamesNeeded) { %>
-            <%= winsNeeded %> wins or <%= gamesNeeded %> games
-          <% } else { %>
-            Criteria TBD
-          <% } %>
-        <% } else { %>
-          Reach <%= tiers[tier.rank - 2].name[0].toUpperCase() + tiers[tier.rank - 2].name.slice(1) %> first
-        <% } %>
-      </div>
-    </div>
-  <% }); %>
-
 </div>
-<%- include('partials/bottom-nav', { active: '' }) %>
+<%- include('partials/bottom-nav', { active: 'map' }) %>
+
+<% if (pins.length > 0) { %>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  (function () {
+    var pins = <%- JSON.stringify(pins).replace(/</g, '\\u003c') %>;
+    var selectedParkData = <%- JSON.stringify({
+      id: selectedPark.id,
+      lat: selectedPark.lat,
+      lng: selectedPark.lng,
+      checkInRadiusMeters: selectedPark.check_in_radius_meters,
+    }).replace(/</g, '\\u003c') %>;
+    var viewerCrownFill = <%- JSON.stringify(crown ? crown.fill : 'none') %>;
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function crownSvg(fill, stroke, size) {
+      return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24">' +
+        '<path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 10H5L3 8z" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5" stroke-linejoin="round"/>' +
+        '<path d="M5 20.5h14" stroke="' + stroke + '" stroke-width="1.5" stroke-linecap="round" fill="none"/>' +
+        '</svg>';
+    }
+
+    function pinHtml(pin, isSelected) {
+      var fill = (pin.king && pin.king.crown) ? pin.king.crown.fill : 'none';
+      var stroke = (pin.king && pin.king.crown) ? pin.king.crown.stroke : '#9C9A92';
+      var dotClass = pin.activeCount > 0 ? 'pin-dot-active' : 'pin-dot-idle';
+      var label = pin.king ? pin.king.name : pin.name;
+      return '<div class="kotc-marker-content"><div class="pin' + (isSelected ? ' pin-selected' : '') + '">' +
+        crownSvg(fill, stroke, 16) +
+        '<span class="pin-count">' + pin.activeCount + '</span>' +
+        '<span class="pin-dot ' + dotClass + '"></span>' +
+        '</div><div class="pin-label">' + escapeHtml(label) + '</div></div>';
+    }
+
+    var map = L.map('map', { zoomControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
+
+    var bounds = [];
+    pins.forEach(function (pin) {
+      if (pin.lat == null || pin.lng == null) return;
+      bounds.push([pin.lat, pin.lng]);
+      var isSelected = pin.id === selectedParkData.id;
+      var icon = L.divIcon({ className: 'kotc-marker', html: pinHtml(pin, isSelected), iconSize: [0, 0] });
+      L.marker([pin.lat, pin.lng], { icon: icon })
+        .addTo(map)
+        .on('click', function () { window.location.href = '/?park=' + pin.id; });
+    });
+
+    if (selectedParkData.lat != null) {
+      L.circle([selectedParkData.lat, selectedParkData.lng], {
+        radius: selectedParkData.checkInRadiusMeters,
+        color: '#5B2A86',
+        fillColor: '#5B2A86',
+        fillOpacity: 0.12,
+        weight: 1,
+      }).addTo(map);
+    }
+
+    function setFallbackView() {
+      if (bounds.length > 0) {
+        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 });
+      } else {
+        map.setView([26.15, -80.25], 11);
+      }
+    }
+
+    // Show something immediately (geolocation can be slow or never
+    // resolve), then re-center on the player once/if it does.
+    setFallbackView();
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        var youIcon = L.divIcon({
+          className: 'kotc-marker',
+          html: '<div class="kotc-marker-content"><div class="pin pin-you">' + crownSvg(viewerCrownFill, '#FFFFFF', 16) + '<span class="pin-dot pin-dot-you"></span></div><div class="pin-label">You</div></div>',
+          iconSize: [0, 0],
+        });
+        L.marker([pos.coords.latitude, pos.coords.longitude], { icon: youIcon }).addTo(map);
+        map.setView([pos.coords.latitude, pos.coords.longitude], 12);
+      }, function () {
+        // Permission denied or unavailable — keep the fallback view.
+      }, { timeout: 8000 });
+    }
+  })();
+</script>
+<% } %>
 
 <script>
-  function inviteToLobby(joinCode) {
-    const url = window.location.origin + '/signup?code=' + encodeURIComponent(joinCode);
-    const text = "Join my run on Basketball Royale — code " + joinCode;
-    if (navigator.share) {
-      navigator.share({ title: 'Basketball Royale', text: text, url: url }).catch(function () {});
-    } else if (navigator.clipboard) {
-      navigator.clipboard.writeText(text + ' ' + url).then(function () {
-        alert('Invite link copied to clipboard');
-      });
-    } else {
-      alert(text + ' ' + url);
+  (function () {
+    var parkId = <%= selectedPark ? selectedPark.id : 'null' %>;
+
+    function startHeartbeat() {
+      setInterval(function () {
+        if (!navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition(function (pos) {
+          fetch('/parks/' + parkId + '/heartbeat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          }).catch(function () {});
+        }, function () {
+          // Couldn't get a fresh position this cycle — skip.
+        });
+      }, 60000);
     }
-  }
+
+    var btn = document.getElementById('homeCheckInBtn');
+    if (!btn || btn.disabled) {
+      <% if (sheet && sheet.checkedIn) { %>startHeartbeat();<% } %>
+      return;
+    }
+    btn.addEventListener('click', function () {
+      var statusEl = document.getElementById('homeCheckInStatus');
+      if (!navigator.geolocation) {
+        statusEl.textContent = 'Location not available on this device.';
+        return;
+      }
+      btn.disabled = true;
+      statusEl.textContent = 'Finding you…';
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        fetch('/parks/' + parkId + '/check-in', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.ok) {
+              location.reload();
+            } else {
+              btn.disabled = false;
+              statusEl.textContent = data.error || 'Could not check in.';
+            }
+          })
+          .catch(function () {
+            btn.disabled = false;
+            statusEl.textContent = 'Could not check in.';
+          });
+      }, function () {
+        btn.disabled = false;
+        statusEl.textContent = 'Location permission denied.';
+      });
+    });
+  })();
 </script>
 </body>
 </html>

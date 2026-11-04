@@ -329,13 +329,116 @@ function getCrownPerks(playerId, seasonStart) {
   return perks;
 }
 
+// How many more points to the next crown level, or null if already at
+// the top one. Drives the home screen's "X pts to Y" headline.
+function getNextCrownProgress(totalPoints) {
+  const next = CROWN_LEVELS.slice()
+    .reverse()
+    .find((level) => level.min > totalPoints);
+  if (!next) return null;
+  return { name: next.name, pointsNeeded: roundTenth(next.min - totalPoints) };
+}
+
+function nameInitials(name) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('');
+}
+
+// ============================================================
+// HOME / MAP — park pins and the selected-park bottom sheet
+// ============================================================
+
+function getLiveGameCountByPark(parkId) {
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM live_games lg
+       JOIN courts c ON c.id = lg.court_id
+       WHERE c.park_id = ? AND lg.status != 'done'`
+    )
+    .get(parkId).n;
+}
+
+// A park's king, with their city-wide crown (the color the pin and the
+// king card use) — not the park-scope crown, since crown LEVEL is
+// always based on total season points, same rule as everywhere else.
+function getParkKing(parkId, seasonStart) {
+  const standings = getParkStandings(parkId, seasonStart);
+  const row = standings[0];
+  if (!row) return null;
+  return {
+    playerId: row.playerId,
+    name: row.name,
+    points: row.points,
+    crown: getCrownLevel(getPlayerSeasonPoints(row.playerId, seasonStart)),
+  };
+}
+
+// One pin's worth of data per park, for the map.
+function getParkMapPins(seasonStart) {
+  return getParks().map((park) => ({
+    id: park.id,
+    name: park.name,
+    lat: park.lat,
+    lng: park.lng,
+    checkInRadiusMeters: park.check_in_radius_meters,
+    activeCount: getCheckedInPlayers(park.id).length,
+    liveCount: getLiveGameCountByPark(park.id),
+    king: getParkKing(park.id, seasonStart),
+  }));
+}
+
+// Everything the selected park's bottom sheet needs.
+function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
+  const park = getParkById(parkId);
+  const king = getParkKing(parkId, seasonStart);
+  const pointsByPlayer = new Map(getParkStandings(parkId, seasonStart).map((r) => [r.playerId, r.points]));
+
+  const hereNow = getCheckedInPlayers(parkId).map((p) => ({
+    id: p.id,
+    name: p.name,
+    initials: nameInitials(p.name),
+    points: pointsByPlayer.get(p.id) || 0,
+    crown: getCrownLevel(getPlayerSeasonPoints(p.id, seasonStart)),
+  }));
+
+  let viewerStatus;
+  if (!king) {
+    viewerStatus = 'Be the first to put points on the board.';
+  } else if (king.playerId === viewerPlayerId) {
+    viewerStatus = "You're the King of the Court here!";
+  } else {
+    const behind = roundTenth(king.points - (pointsByPlayer.get(viewerPlayerId) || 0));
+    viewerStatus = `You're ${behind} pts behind the crown`;
+  }
+
+  const firstCourt = getCourtsByPark(parkId)[0] || null;
+
+  return {
+    park,
+    activeCount: hereNow.length,
+    liveCount: getLiveGameCountByPark(parkId),
+    king,
+    hereNow,
+    viewerStatus,
+    checkedIn: !!getCheckIn(viewerPlayerId, parkId),
+    firstCourtId: firstCourt ? firstCourt.id : null,
+  };
+}
+
 // ============================================================
 // LIVE PLAY — check-ins, the next-line queue, and live games
 // ============================================================
 
 const CHECK_IN_FRESH_MINUTES = 5;
 // SQLite date math on the TEXT timestamps everything else in this file
-// uses — "fresh" means last_seen is within the window, as of right now.
+// uses — "fresh" means last_inside (last heartbeat confirmed within the
+// park's leave_radius_meters) is within the window, as of right now. A
+// player pinging from outside that radius doesn't count as fresh, even
+// if their heartbeat itself is recent.
 const FRESH_SINCE_SQL = `datetime('now', '-${CHECK_IN_FRESH_MINUTES} minutes')`;
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
@@ -368,26 +471,43 @@ function checkIn(playerId, parkId, lat, lng) {
     .get(playerId, parkId);
   if (existing) {
     db.prepare(
-      "UPDATE check_ins SET time_in = datetime('now'), last_seen = datetime('now') WHERE id = ?"
+      "UPDATE check_ins SET time_in = datetime('now'), last_seen = datetime('now'), last_inside = datetime('now') WHERE id = ?"
     ).run(existing.id);
   } else {
-    db.prepare('INSERT INTO check_ins (player_id, park_id) VALUES (?, ?)').run(playerId, parkId);
+    db.prepare(
+      "INSERT INTO check_ins (player_id, park_id, last_inside) VALUES (?, ?, datetime('now'))"
+    ).run(playerId, parkId);
   }
   return { ok: true };
 }
 
-function heartbeat(playerId, parkId) {
+// last_seen always advances (we heard from the client); last_inside only
+// advances when their reported position is within the park's
+// leave_radius_meters — that's the clock that actually gates presence.
+// No position reported (geolocation failed client-side) counts the same
+// as being outside: the "inside" clock just doesn't get extended.
+function heartbeat(playerId, parkId, lat, lng) {
+  const park = getParkById(parkId);
+  if (!park) return { ok: false };
+
+  const hasPosition = typeof lat === 'number' && typeof lng === 'number' && park.lat !== null;
+  const inside = hasPosition && haversineMeters(lat, lng, park.lat, park.lng) <= park.leave_radius_meters;
+
   const result = db
-    .prepare("UPDATE check_ins SET last_seen = datetime('now') WHERE player_id = ? AND park_id = ?")
+    .prepare(
+      `UPDATE check_ins SET last_seen = datetime('now')${inside ? ", last_inside = datetime('now')" : ''}
+       WHERE player_id = ? AND park_id = ?`
+    )
     .run(playerId, parkId);
-  return result.changes > 0;
+  return { ok: result.changes > 0, inside };
 }
 
-// Fresh (within 5 min) check-in for this player at this park, or null.
+// Fresh (within 5 min, and within the leave radius) check-in for this
+// player at this park, or null.
 function getCheckIn(playerId, parkId) {
   return db
     .prepare(
-      `SELECT * FROM check_ins WHERE player_id = ? AND park_id = ? AND last_seen >= ${FRESH_SINCE_SQL}`
+      `SELECT * FROM check_ins WHERE player_id = ? AND park_id = ? AND last_inside >= ${FRESH_SINCE_SQL}`
     )
     .get(playerId, parkId);
 }
@@ -401,7 +521,7 @@ function getCheckedInPlayers(parkId) {
        FROM check_ins c
        JOIN players p ON p.id = c.player_id
        JOIN users u ON u.id = p.user_id
-       WHERE c.park_id = ? AND c.last_seen >= ${FRESH_SINCE_SQL}
+       WHERE c.park_id = ? AND c.last_inside >= ${FRESH_SINCE_SQL}
        ORDER BY u.name ASC`
     )
     .all(parkId);
@@ -440,9 +560,9 @@ function getWaitingSquads(courtId) {
   });
 }
 
-// Drops a stale player (last_seen > 5 min old) from a waiting squad. If
-// they were the captain, the next member in line is promoted; if the
-// squad is now empty, it's removed from the queue entirely.
+// Drops a stale player (outside the park's leave radius for 5+ min) from
+// a waiting squad. If they were the captain, the next member in line is
+// promoted; if the squad is now empty, it's removed from the queue entirely.
 function tickQueueForCourt(courtId) {
   const squads = db
     .prepare(`SELECT * FROM next_line WHERE court_id = ? AND status = 'waiting'`)
@@ -454,7 +574,7 @@ function tickQueueForCourt(courtId) {
         `SELECT 1 FROM check_ins ci
          JOIN next_line nl ON nl.id = ?
          WHERE ci.player_id = nl.captain_player_id AND ci.park_id = (SELECT park_id FROM courts WHERE id = nl.court_id)
-           AND ci.last_seen >= ${FRESH_SINCE_SQL}`
+           AND ci.last_inside >= ${FRESH_SINCE_SQL}`
       )
       .get(squad.id);
 
@@ -475,7 +595,7 @@ function tickQueueForCourt(courtId) {
     const staleMembers = db
       .prepare(
         `SELECT nlm.player_id FROM next_line_members nlm
-         LEFT JOIN check_ins ci ON ci.player_id = nlm.player_id AND ci.park_id = ? AND ci.last_seen >= ${FRESH_SINCE_SQL}
+         LEFT JOIN check_ins ci ON ci.player_id = nlm.player_id AND ci.park_id = ? AND ci.last_inside >= ${FRESH_SINCE_SQL}
          WHERE nlm.next_line_id = ? AND ci.id IS NULL`
       )
       .all(parkId, squad.id);
@@ -865,8 +985,10 @@ function applyGameResult(gameId, parkId, courtId, playerId, result, minutes) {
   ).run(playerId);
 }
 
-function updateParkSettings(parkId, { gameTarget, betweenGamesSeconds }) {
-  db.prepare('UPDATE parks SET game_target = ?, between_games_seconds = ? WHERE id = ?').run(gameTarget, betweenGamesSeconds, parkId);
+function updateParkSettings(parkId, { gameTarget, betweenGamesSeconds, checkInRadiusMeters, leaveRadiusMeters }) {
+  db.prepare(
+    `UPDATE parks SET game_target = ?, between_games_seconds = ?, check_in_radius_meters = ?, leave_radius_meters = ? WHERE id = ?`
+  ).run(gameTarget, betweenGamesSeconds, checkInRadiusMeters, leaveRadiusMeters, parkId);
 }
 
 // Everything the court screen needs, assembled from the pieces above.
@@ -940,6 +1062,9 @@ module.exports = {
   getLeaderboard,
   getCrownPerks,
   getPlayerSeasonPoints,
+  getNextCrownProgress,
+  getParkMapPins,
+  getParkSheetDetail,
   checkIn,
   heartbeat,
   getCheckIn,

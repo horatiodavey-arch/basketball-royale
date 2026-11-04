@@ -163,11 +163,19 @@
         <label for="betweenGamesSeconds">Between games (seconds)</label>
         <input type="number" id="betweenGamesSeconds" name="betweenGamesSeconds" min="10" value="<%= park.between_games_seconds %>">
       </div>
+      <div class="form-group">
+        <label for="checkInRadiusMeters">Check-in radius (meters)</label>
+        <input type="number" id="checkInRadiusMeters" name="checkInRadiusMeters" min="1" value="<%= park.check_in_radius_meters %>">
+      </div>
+      <div class="form-group">
+        <label for="leaveRadiusMeters">Leave radius (meters)</label>
+        <input type="number" id="leaveRadiusMeters" name="leaveRadiusMeters" min="1" value="<%= park.leave_radius_meters %>">
+      </div>
       <button type="submit" class="small-btn">Save</button>
     </form>
   </details>
 
-  <div class="season-note leave-note">Leave the park for 5+ minutes and you lose your spot.</div>
+  <div class="season-note leave-note">Leave past <%= park.leave_radius_meters %>m for 5+ minutes and you lose your spot.</div>
 </div>
 <%- include('partials/bottom-nav', { active: 'runs' }) %>
 
@@ -178,7 +186,17 @@
 
     function startHeartbeat() {
       setInterval(function () {
-        fetch('/parks/' + parkId + '/heartbeat', { method: 'POST' }).catch(function () {});
+        if (!navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition(function (pos) {
+          fetch('/parks/' + parkId + '/heartbeat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          }).catch(function () {});
+        }, function () {
+          // Couldn't get a fresh position this cycle — skip; the "inside"
+          // clock just won't be extended until the next successful one.
+        });
       }, 60000);
     }
 
