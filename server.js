@@ -8,6 +8,7 @@ const {
   getPlayerByUserId,
   createUserAndPlayer,
   getPlayerProfile,
+  getPlayerProfileByPlayerId,
   getTiers,
   getOpenLobbies,
   getLobbyRoster,
@@ -21,6 +22,8 @@ const {
   getSeasonWindow,
   getCrownLevel,
   getLeaderboard,
+  getCrownPerks,
+  getPlayerSeasonPoints,
   CROWN_LEVELS,
   checkIn,
   heartbeat,
@@ -317,11 +320,27 @@ app.post('/live_games/:id/confirm', requireAuth, (req, res) => {
 });
 
 app.get('/profile', requireAuth, (req, res) => {
-  res.render('coming-soon', {
+  const profile = getPlayerProfile(req.session.userId);
+  res.redirect(`/players/${profile.player_id}`);
+});
+
+app.get('/players/:id', requireAuth, (req, res) => {
+  const viewer = getPlayerProfile(req.session.userId);
+  const player = getPlayerProfileByPlayerId(Number(req.params.id));
+  if (!player) return res.redirect('/profile');
+
+  const season = getSeasonWindow();
+  const points = getPlayerSeasonPoints(player.player_id, season.startSql);
+
+  res.render('player-profile', {
     active: 'profile',
-    title: 'Profile',
-    message: 'Your player profile page is coming soon.',
-    showRecordGameLink: false,
+    isSelf: player.player_id === viewer.player_id,
+    player,
+    points,
+    crown: getCrownLevel(points),
+    perks: getCrownPerks(player.player_id, season.startSql),
+    season,
+    initials: initials(player.name),
   });
 });
 
