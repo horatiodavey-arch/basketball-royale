@@ -221,6 +221,22 @@ function findOrCreatePark(name, location, radiusMeters, lat, lng) {
   return parkId;
 }
 
+// One-time rename: an earlier version seeded this park under a
+// fictional name. Swaps in the real address without losing the park's
+// id, so its existing demo game history (which references park_id, not
+// the name) stays attached. No-ops once the rename has already happened.
+function renameParkIfExists(oldName, newName, newLocation, newLat, newLng) {
+  const existing = db.prepare('SELECT id FROM parks WHERE name = ?').get(oldName);
+  if (!existing) return;
+  db.prepare('UPDATE parks SET name = ?, location = ?, lat = ?, lng = ? WHERE id = ?').run(
+    newName,
+    newLocation,
+    newLat,
+    newLng,
+    existing.id
+  );
+}
+
 function findOrCreateCourt(parkId, number, nickname) {
   const existing = db
     .prepare('SELECT id FROM courts WHERE park_id = ? AND number = ?')
@@ -234,9 +250,22 @@ function findOrCreateCourt(parkId, number, nickname) {
 }
 
 function seedKingOfTheCourtDemoData() {
-  const lauderdaleLakesId = findOrCreatePark('Lauderdale Lakes Park', 'Lauderdale Lakes, FL', 150, 26.1611, -80.2131);
-  const mainCourtId = findOrCreateCourt(lauderdaleLakesId, 1, 'Main');
-  findOrCreateCourt(lauderdaleLakesId, 2, 'Side');
+  renameParkIfExists(
+    'Lauderdale Lakes Park',
+    'Lauderhill Parks & Recreation',
+    '4141 NW 16th St, Lauderhill, FL 33313',
+    26.1466558,
+    -80.206011
+  );
+  const lauderhillId = findOrCreatePark(
+    'Lauderhill Parks & Recreation',
+    '4141 NW 16th St, Lauderhill, FL 33313',
+    150,
+    26.1466558,
+    -80.206011
+  );
+  const mainCourtId = findOrCreateCourt(lauderhillId, 1, 'Main');
+  findOrCreateCourt(lauderhillId, 2, 'Side');
 
   // Second demo park, so the leaderboard has somewhere for a player to
   // earn a Double Crown (king of two parks in the same season).
@@ -286,15 +315,15 @@ function seedKingOfTheCourtDemoData() {
     }
   }
 
-  // Lauderdale Lakes, Main court — Darius plays (and mostly wins) a lot
+  // Lauderhill, Main court — Darius plays (and mostly wins) a lot
   // here, which is what makes him king of this park this season.
-  playGame(lauderdaleLakesId, mainCourtId, [D, C], [M, T], 60);
-  playGame(lauderdaleLakesId, mainCourtId, [D, M], [C, T], 60);
-  playGame(lauderdaleLakesId, mainCourtId, [D], [C], 45);
-  playGame(lauderdaleLakesId, mainCourtId, [D, T], [C, M], 60);
-  playGame(lauderdaleLakesId, mainCourtId, [D], [M], 50);
-  playGame(lauderdaleLakesId, mainCourtId, [C, M], [D, J], 55);
-  playGame(lauderdaleLakesId, mainCourtId, [D, C], [T, J], 60);
+  playGame(lauderhillId, mainCourtId, [D, C], [M, T], 60);
+  playGame(lauderhillId, mainCourtId, [D, M], [C, T], 60);
+  playGame(lauderhillId, mainCourtId, [D], [C], 45);
+  playGame(lauderhillId, mainCourtId, [D, T], [C, M], 60);
+  playGame(lauderhillId, mainCourtId, [D], [M], 50);
+  playGame(lauderhillId, mainCourtId, [C, M], [D, J], 55);
+  playGame(lauderhillId, mainCourtId, [D, C], [T, J], 60);
 
   // Markham Park, Main court — Darius shows up here too, earning him a
   // Double Crown (king of both parks in the same season).
