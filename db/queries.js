@@ -35,6 +35,23 @@ function getPlayerProfile(userId) {
     .get(userId);
 }
 
+// Same shape as getPlayerProfile, but looked up by player id instead of
+// user id — for viewing someone else's profile (from the leaderboard).
+function getPlayerProfileByPlayerId(playerId) {
+  return db
+    .prepare(
+      `SELECT u.id AS user_id, u.name, u.phone,
+              p.id AS player_id, p.tier, p.wins, p.losses, p.games_played,
+              t.rank AS tier_rank, t.wins_to_promote, t.games_to_promote,
+              t.min_stake_cents AS tier_min_stake_cents
+       FROM users u
+       JOIN players p ON p.user_id = u.id
+       JOIN tiers t ON t.name = p.tier
+       WHERE p.id = ?`
+    )
+    .get(playerId);
+}
+
 function getTiers() {
   return db.prepare('SELECT * FROM tiers ORDER BY rank ASC').all();
 }
@@ -214,6 +231,10 @@ function getTotalSeasonPointsByPlayer(seasonStart) {
   return map;
 }
 
+function getPlayerSeasonPoints(playerId, seasonStart) {
+  return getTotalSeasonPointsByPlayer(seasonStart).get(playerId) || 0;
+}
+
 // playerId -> 'Double Crown' | 'Triple Crown', for players who are king
 // of 2 or 3+ parks this season. King of a park = most points there,
 // ties broken by most court time there.
@@ -253,6 +274,59 @@ function getLeaderboard({ scope, parkId, seasonStart }) {
       badge: badges.get(row.playerId) || null,
     };
   });
+}
+
+// --- Crown perks: what each crown level (plus "king of a court") gets
+// you. Shown to every player, including a brand new player at 0 points,
+// so everyone can see the whole ladder — not just what they've reached.
+const CROWN_PERK_DESCRIPTIONS = {
+  'In the Mix': 'Your crown shows next to your name everywhere. Counts toward Starter.',
+  Contender: 'Eligible to be featured in ROYALE game content.',
+  'Playoff Bound': 'Priority captain pick on "I got next."',
+  'Best Record in the League': "Guaranteed feature in this month's ROYALE content.",
+};
+
+// A park's king is its season standings' rank 1 — same rule getCrownBadges
+// uses for Double/Triple Crown, just "at least one" instead of "2+".
+function isKingOfAnyPark(playerId, seasonStart) {
+  return getParks().some((park) => {
+    const standings = getParkStandings(park.id, seasonStart);
+    return standings.length > 0 && standings[0].playerId === playerId;
+  });
+}
+
+// Every perk, ascending, each marked earned/locked against this player's
+// current season points (and whether they're king of any park).
+function getCrownPerks(playerId, seasonStart) {
+  const totalPoints = getTotalSeasonPointsByPlayer(seasonStart).get(playerId) || 0;
+
+  const perks = CROWN_LEVELS.slice()
+    .reverse()
+    .map((level) => {
+      const earned = totalPoints >= level.min;
+      const pointsNeeded = earned ? null : roundTenth(level.min - totalPoints);
+      return {
+        name: level.name,
+        description: CROWN_PERK_DESCRIPTIONS[level.name],
+        fill: level.fill,
+        stroke: level.stroke,
+        earned,
+        pointsNeeded,
+        lockedHint: earned ? null : `${pointsNeeded} pts to unlock`,
+      };
+    });
+
+  const kingOfAny = isKingOfAnyPark(playerId, seasonStart);
+  perks.push({
+    name: 'King of a Court',
+    description: "Your name on that court's map pin. Invite to the monthly Crown Showdown.",
+    fill: '#7A45C2',
+    stroke: '#4A2580',
+    earned: kingOfAny,
+    lockedHint: kingOfAny ? null : 'Take a court to unlock',
+  });
+
+  return perks;
 }
 
 // ============================================================
@@ -847,6 +921,7 @@ module.exports = {
   getPlayerByUserId,
   createUserAndPlayer,
   getPlayerProfile,
+  getPlayerProfileByPlayerId,
   getTiers,
   getOpenLobbies,
   getLobbyRoster,
@@ -863,6 +938,8 @@ module.exports = {
   getParkStandings,
   getCityStandings,
   getLeaderboard,
+  getCrownPerks,
+  getPlayerSeasonPoints,
   checkIn,
   heartbeat,
   getCheckIn,
