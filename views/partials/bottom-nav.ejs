@@ -1,0 +1,18 @@
+<nav class="nav-bar">
+  <a href="/map" class="nav-item <%= active === 'map' ? 'active' : '' %>">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5-2V6l5-2 6 2 5-2v14l-5 2-6-2z"/><path d="M9 4v16M15 6v14"/></svg>
+    <span>Map</span>
+  </a>
+  <a href="/runs" class="nav-item <%= active === 'runs' ? 'active' : '' %>">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"/><path d="M12 7v6l-3 7M12 13l3 7M9 11l-3 2M15 11l3 2"/></svg>
+    <span>Runs</span>
+  </a>
+  <a href="/board" class="nav-item <%= active === 'board' ? 'active' : '' %>">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 10H5L3 8z"/><path d="M5 20.5h14"/></svg>
+    <span>Board</span>
+  </a>
+  <a href="/profile" class="nav-item <%= active === 'profile' ? 'active' : '' %>">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+    <span>Profile</span>
+  </a>
+</nav>

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title><%= title %> — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc">
+<div class="page">
+  <div class="page-title heading"><%= title %></div>
+  <div class="coming-soon-card">
+    <p><%= message %></p>
+    <% if (showRecordGameLink) { %>
+      <a href="/games/new" class="quick-link" style="display: inline-block;">Record a game</a>
+    <% } %>
+  </div>
+</div>
+<%- include('partials/bottom-nav', { active: active }) %>
+</body>
+</html>

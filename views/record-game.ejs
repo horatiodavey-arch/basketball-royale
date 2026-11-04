@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Record a game — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc">
+<div class="page">
+  <div class="page-title heading">Record a game</div>
+  <div class="page-sub">One row gets saved per player — everyone in the game gets the same minutes.</div>
+
+  <% if (error) { %>
+    <div class="error-msg"><%= error %></div>
+  <% } %>
+
+  <form method="POST" action="/games">
+    <div class="form-group">
+      <label for="courtId">Court</label>
+      <select id="courtId" name="courtId" required>
+        <option value="" disabled <%= !form.courtId ? 'selected' : '' %>>Pick a court</option>
+        <% courtGroups.forEach((group) => { %>
+          <optgroup label="<%= group.parkName %>">
+            <% group.courts.forEach((court) => { %>
+              <option value="<%= court.id %>" <%= String(form.courtId) === String(court.id) ? 'selected' : '' %>>
+                <%= court.nickname || ('Court ' + court.number) %>
+              </option>
+            <% }); %>
+          </optgroup>
+        <% }); %>
+      </select>
+    </div>
+
+    <div class="team-pickers">
+      <div class="team-picker">
+        <h3 class="heading">Team A</h3>
+        <% players.forEach((player) => { %>
+          <label class="player-check">
+            <input type="checkbox" name="teamA" value="<%= player.id %>"
+              <%= form.teamA.map(String).includes(String(player.id)) ? 'checked' : '' %>>
+            <%= player.name %>
+          </label>
+        <% }); %>
+      </div>
+      <div class="team-picker">
+        <h3 class="heading">Team B</h3>
+        <% players.forEach((player) => { %>
+          <label class="player-check">
+            <input type="checkbox" name="teamB" value="<%= player.id %>"
+              <%= form.teamB.map(String).includes(String(player.id)) ? 'checked' : '' %>>
+            <%= player.name %>
+          </label>
+        <% }); %>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Final score</label>
+      <div class="score-row">
+        <span class="team-label">Team A</span>
+        <input type="number" name="scoreA" min="0" value="<%= form.scoreA %>" required>
+        <span class="vs">&ndash;</span>
+        <input type="number" name="scoreB" min="0" value="<%= form.scoreB %>" required>
+        <span class="team-label">Team B</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="minutes">Game length (minutes)</label>
+      <input type="number" id="minutes" name="minutes" min="1" value="<%= form.minutes %>" required>
+    </div>
+
+    <button type="submit" class="submit-btn">Save game</button>
+  </form>
+</div>
+<%- include('partials/bottom-nav', { active: 'runs' }) %>
+</body>
+</html>
