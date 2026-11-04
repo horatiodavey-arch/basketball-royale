@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Basketball Royale</title>
 <%- include('partials/fonts') %>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body class="kotc">
@@ -92,7 +92,7 @@
 <%- include('partials/bottom-nav', { active: 'map' }) %>
 
 <% if (pins.length > 0) { %>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/vendor/leaflet/leaflet.js"></script>
 <script>
   (function () {
     var pins = <%- JSON.stringify(pins).replace(/</g, '\\u003c') %>;

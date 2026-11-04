@@ -94,17 +94,24 @@ multi-user deploy.
 the player's own standing (crown level or "No crown yet", season points, and
 either "X pts to \<next level\>" or a note that they've already got the top
 crown), then a real, interactive map — [Leaflet](https://leafletjs.com/) +
-[OpenStreetMap](https://www.openstreetmap.org/) tiles, loaded from a CDN, no
-API key — with one custom pin per park (the king's crown color, the
-active-now count with a green/gray dot, and the king's name) plus a "You"
-marker at the player's own location. It starts zoomed to the player's
-location if they share it (falling back to fitting all the parks in view
-otherwise), can be freely panned and zoomed, and draws a faint circle around
-the selected park showing its check-in radius. Tapping a pin selects that
-park (`/?park=ID`) and shows its bottom sheet: King of the Court card, who's
-"Here now" (with their own crowns and points), how far the viewer is from
-that park's crown (or that they already hold it), and Check in / I got next
-buttons wired straight into the existing check-in and next-line flow.
+[OpenStreetMap](https://www.openstreetmap.org/) tiles, no API key — with one
+custom pin per park (the king's crown color, the active-now count with a
+green/gray dot, and the king's name) plus a "You" marker at the player's own
+location. It starts zoomed to the player's location if they share it
+(falling back to fitting all the parks in view otherwise), can be freely
+panned and zoomed, and draws a faint circle around the selected park showing
+its check-in radius. Tapping a pin selects that park (`/?park=ID`) and shows
+its bottom sheet: King of the Court card, who's "Here now" (with their own
+crowns and points), how far the viewer is from that park's crown (or that
+they already hold it), and Check in / I got next buttons wired straight into
+the existing check-in and next-line flow.
+
+The Leaflet *library* is vendored into `public/vendor/leaflet/` (served by
+this app, not pulled from a CDN at runtime), so it isn't a point of failure
+in network-restricted environments. The OSM tile *imagery* itself still
+loads live from `tile.openstreetmap.org` and needs normal outbound internet
+access — in a sandboxed/offline environment the map renders and is fully
+interactive, just without street imagery (a plain background instead).
 `/how-it-works` (linked from the top of the map) holds the point breakdown,
 crown levels, and the Crown Perks checklist that used to have no home of
 their own; `/profile` keeps its own personalized copy of the perks. The old
