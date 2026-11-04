@@ -128,6 +128,18 @@
     }
 
     var map = L.map('map', { zoomControl: true });
+
+    // If the container's layout isn't fully settled yet when Leaflet
+    // measures it (e.g. web fonts still loading and about to reflow the
+    // page), it caches the wrong size and the map renders small/cramped
+    // inside the correctly-sized box. Re-measure once things settle.
+    function refreshMapSize() { map.invalidateSize(); }
+    window.addEventListener('resize', refreshMapSize);
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(refreshMapSize).catch(function () {});
+    }
+    setTimeout(refreshMapSize, 300);
+    setTimeout(refreshMapSize, 1000);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',

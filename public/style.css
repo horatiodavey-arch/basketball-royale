@@ -455,3 +455,24 @@ body.kotc { background: #FFFFFF; padding: 0; }
   cursor: pointer; font-family: inherit;
 }
 .check-in-btn:disabled { border-color: var(--green); color: var(--green-text); background: var(--green-bg); cursor: default; }
+
+/* ============================================================
+   RESPONSIVE — every screen is one centered column (the .phone /
+   .page / .nav-bar trio), not an adaptive multi-pane desktop layout.
+   "Responsive" here means that column tastefully widens at larger
+   viewports instead of staying pinned to phone width everywhere, not
+   a different layout per breakpoint. These rules must come after
+   every other rule that sets max-width on these classes, since at
+   equal specificity plain source order (not whether a rule sits in a
+   media query) decides which one wins.
+   ============================================================ */
+@media (min-width: 640px) {
+  .phone, .page, .nav-bar { max-width: 560px; }
+  .page { padding: 28px 24px 110px; }
+  .leaflet-map { height: 420px; }
+}
+@media (min-width: 1024px) {
+  .phone, .page, .nav-bar { max-width: 880px; }
+  .page { padding: 36px 32px 120px; }
+  .leaflet-map { height: 520px; }
+}
