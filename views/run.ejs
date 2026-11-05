@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title><%= run.courtName %> run — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc">
+<div class="page">
+  <div class="page-title heading"><%= run.parkName %></div>
+  <div class="page-sub"><%= run.courtName %><% if (run.parkLocation) { %> &middot; <%= run.parkLocation %><% } %></div>
+
+  <div class="live-card">
+    <div class="run-time heading"><%= formatRunTime(run.scheduledAt) %></div>
+    <% if (run.note) { %><div class="run-note"><%= run.note %></div><% } %>
+    <div class="run-organizer">Started by <%= run.organizerName %></div>
+  </div>
+
+  <div class="here-now-head">
+    <span class="section" style="margin: 0;"><%= run.rsvpCount %> coming</span>
+  </div>
+  <% if (run.rsvps.length === 0) { %>
+    <div class="next-action-note">Nobody's said they're coming yet &mdash; be the first.</div>
+  <% } else { %>
+    <div class="here-now-row">
+      <% run.rsvps.forEach((p) => { %>
+        <div class="here-now-player">
+          <div class="here-now-avatar"><%= p.initials %></div>
+          <div class="here-now-name"><%= p.name %></div>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+
+  <div class="sheet-actions" style="margin-top: 18px;">
+    <% if (!profile) { %>
+      <a href="/signup?returnTo=<%= encodeURIComponent('/runs/' + run.id) %>" class="submit-btn" style="text-align: center; text-decoration: none; display: block;">Sign up to say you're coming</a>
+    <% } else if (run.viewerComing) { %>
+      <button type="button" class="check-in-btn" disabled>You're coming!</button>
+    <% } else { %>
+      <form method="POST" action="/runs/<%= run.id %>/coming" style="flex: 1;">
+        <button type="submit" class="submit-btn">I'm coming</button>
+      </form>
+    <% } %>
+  </div>
+
+  <button type="button" id="inviteBtn" class="small-btn" style="margin-top: 10px;">Invite friends</button>
+
+  <div class="season-note" style="text-align: center; margin-top: 18px;">
+    <a href="/parks/<%= run.parkId %>" class="player-link" style="color: var(--accent); font-weight: 600;">View court &rsaquo;</a>
+  </div>
+</div>
+<%- include('partials/bottom-nav', { active: 'runs' }) %>
+
+<script>
+  (function () {
+    var courtName = <%- JSON.stringify(run.courtName).replace(/</g, '\\u003c') %>;
+    var timeLabel = <%- JSON.stringify(formatRunTime(run.scheduledAt)).replace(/</g, '\\u003c') %>;
+    document.getElementById('inviteBtn').addEventListener('click', function () {
+      var url = window.location.origin + '/runs/<%= run.id %>';
+      var text = 'Pull up to ' + courtName + ' ' + timeLabel + ". Let's see who takes the crown.";
+      if (navigator.share) {
+        navigator.share({ title: 'Basketball Royale', text: text, url: url }).catch(function () {});
+      } else if (navigator.clipboard) {
+        navigator.clipboard.writeText(text + ' ' + url).then(function () {
+          alert('Invite link copied to clipboard');
+        });
+      } else {
+        alert(text + ' ' + url);
+      }
+    });
+  })();
+</script>
+</body>
+</html>

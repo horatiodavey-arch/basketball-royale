@@ -404,6 +404,20 @@ function getParkKing(parkId, seasonStart) {
 }
 
 // One pin's worth of data per park, for the map.
+// The soonest upcoming run across any of a park's courts — for the map
+// pin's "Sat 10am · 6 coming" label and the "nearest court with activity"
+// pick on the home screen.
+function getParkNextRun(parkId) {
+  let soonest = null;
+  for (const court of getCourtsByPark(parkId)) {
+    const runs = getUpcomingRunsForCourt(court.id, 1);
+    if (runs.length > 0 && (!soonest || runs[0].scheduledAt < soonest.scheduledAt)) {
+      soonest = runs[0];
+    }
+  }
+  return soonest;
+}
+
 function getParkMapPins(seasonStart) {
   return getParks().map((park) => ({
     id: park.id,
@@ -414,6 +428,7 @@ function getParkMapPins(seasonStart) {
     activeCount: getCheckedInPlayers(park.id).length,
     liveCount: getLiveGameCountByPark(park.id),
     king: getParkKing(park.id, seasonStart),
+    nextRun: getParkNextRun(park.id),
   }));
 }
 
@@ -442,6 +457,7 @@ function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
   }
 
   const firstCourt = getCourtsByPark(parkId)[0] || null;
+  const upcomingRuns = firstCourt ? getUpcomingRunsForCourt(firstCourt.id, 3) : [];
 
   return {
     park,
@@ -452,6 +468,8 @@ function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
     viewerStatus,
     checkedIn: !!getCheckIn(viewerPlayerId, parkId),
     firstCourtId: firstCourt ? firstCourt.id : null,
+    upcomingRuns,
+    isFollowing: firstCourt ? isFollowingCourt(viewerPlayerId, firstCourt.id) : false,
   };
 }
 
@@ -1061,6 +1079,8 @@ function getCourtScreen(courtId, viewerPlayerId) {
     viewerIsCaptain,
     viewerPlaying,
     availablePlayers,
+    upcomingRuns: getUpcomingRunsForCourt(courtId),
+    isFollowing: isFollowingCourt(viewerPlayerId, courtId),
   };
 }
 
@@ -1232,18 +1252,15 @@ async function getNearbyOpenCourts(lat, lng) {
     .filter((c) => c && !claimedOsmIds.has(c.osmId) && haversineMeters(lat, lng, c.lat, c.lng) <= OVERPASS_RADIUS_METERS);
 }
 
-// First check-in at an Overpass-sourced court creates a real park for it
-// (idempotent on osm_id — a second player's first check-in reuses the
-// park the first player's created), then checks the player in normally.
-function checkInAtOpenCourt(playerId, osmId, name, lat, lng, playerLat, playerLng) {
-  if (typeof lat !== 'number' || typeof lng !== 'number') {
-    return { ok: false, error: 'This court has no location.' };
-  }
-
-  let park = db.prepare('SELECT id FROM parks WHERE osm_id = ?').get(osmId);
+// Materializes a real park + "Main" court from an Overpass court the first
+// time anyone interacts with it (check in, start a run, or follow it) —
+// idempotent on osm_id, so a second player's first interaction reuses the
+// park the first player's created instead of duplicating it.
+function findOrCreateParkAndCourtFromOsm(osmId, name, lat, lng) {
+  const existingPark = db.prepare('SELECT id FROM parks WHERE osm_id = ?').get(osmId);
   let parkId;
-  if (park) {
-    parkId = park.id;
+  if (existingPark) {
+    parkId = existingPark.id;
   } else {
     db.prepare('INSERT INTO parks (name, lat, lng, osm_id) VALUES (?, ?, ?, ?)').run(
       name || 'Open court',
@@ -1254,7 +1271,17 @@ function checkInAtOpenCourt(playerId, osmId, name, lat, lng, playerLat, playerLn
     parkId = lastId();
     db.prepare("INSERT INTO courts (park_id, number, nickname) VALUES (?, 1, 'Main')").run(parkId);
   }
+  const court = db.prepare('SELECT id FROM courts WHERE park_id = ? ORDER BY number ASC LIMIT 1').get(parkId);
+  return { parkId, courtId: court.id };
+}
 
+// First check-in at an Overpass-sourced court creates a real park for it,
+// then checks the player in normally.
+function checkInAtOpenCourt(playerId, osmId, name, lat, lng, playerLat, playerLng) {
+  if (typeof lat !== 'number' || typeof lng !== 'number') {
+    return { ok: false, error: 'This court has no location.' };
+  }
+  const { parkId } = findOrCreateParkAndCourtFromOsm(osmId, name, lat, lng);
   return { ...checkIn(playerId, parkId, playerLat, playerLng), parkId };
 }
 
@@ -1312,6 +1339,208 @@ function rejectCourtSuggestion(suggestionId, organizerPlayerId) {
   return { ok: result.changes > 0 };
 }
 
+// ============================================================
+// RUNS — scheduled pickup games, "I'm coming", and following a court.
+// Everything here works from anywhere; only check-in/next-line/live-game
+// (above) are gated to being physically at the court.
+// ============================================================
+
+// A <input type="datetime-local"> value ("YYYY-MM-DDTHH:MM") stored as
+// the organizer's own local wall-clock time — no timezone conversion,
+// same demo-mode simplicity as the rest of this schema.
+function parseScheduledAt(value) {
+  if (!value || typeof value !== 'string') return null;
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/);
+  if (!match) return null;
+  return `${match[1]} ${match[2]}:00`;
+}
+
+function createRun(courtId, organizerPlayerId, scheduledAt, note) {
+  db.prepare(
+    'INSERT INTO runs (court_id, organizer_player_id, scheduled_at, note) VALUES (?, ?, ?, ?)'
+  ).run(courtId, organizerPlayerId, scheduledAt, (note || '').trim() || null);
+  return lastId();
+}
+
+function getRunById(runId, viewerPlayerId) {
+  const run = db
+    .prepare(
+      `SELECT r.id, r.scheduled_at, r.note, r.court_id, r.organizer_player_id,
+              c.number AS court_number, c.nickname AS court_nickname,
+              p.id AS park_id, p.name AS park_name, p.location AS park_location,
+              u.name AS organizer_name
+       FROM runs r
+       JOIN courts c ON c.id = r.court_id
+       JOIN parks p ON p.id = c.park_id
+       JOIN players pl ON pl.id = r.organizer_player_id
+       JOIN users u ON u.id = pl.user_id
+       WHERE r.id = ?`
+    )
+    .get(runId);
+  if (!run) return null;
+
+  const rsvps = db
+    .prepare(
+      `SELECT pl.id, u.name, rr.created_at
+       FROM run_rsvps rr
+       JOIN players pl ON pl.id = rr.player_id
+       JOIN users u ON u.id = pl.user_id
+       WHERE rr.run_id = ?
+       ORDER BY rr.created_at ASC`
+    )
+    .all(runId)
+    .map((r) => ({ id: r.id, name: r.name, initials: nameInitials(r.name) }));
+
+  return {
+    id: run.id,
+    scheduledAt: run.scheduled_at,
+    note: run.note,
+    courtId: run.court_id,
+    courtName: run.court_nickname || `Court ${run.court_number}`,
+    parkId: run.park_id,
+    parkName: run.park_name,
+    parkLocation: run.park_location,
+    organizerName: run.organizer_name,
+    rsvps,
+    rsvpCount: rsvps.length,
+    viewerComing: viewerPlayerId ? rsvps.some((r) => r.id === viewerPlayerId) : false,
+  };
+}
+
+// Soonest-first upcoming runs at one court — court pin labels, the court
+// screen, and the "too far to check in" empty state.
+function getUpcomingRunsForCourt(courtId, limit = 5) {
+  const runs = db
+    .prepare(
+      `SELECT r.id, r.scheduled_at, r.note
+       FROM runs r
+       WHERE r.court_id = ? AND r.scheduled_at >= datetime('now', 'localtime')
+       ORDER BY r.scheduled_at ASC
+       LIMIT ?`
+    )
+    .all(courtId, limit);
+  const rsvpCount = db.prepare('SELECT COUNT(*) AS c FROM run_rsvps WHERE run_id = ?');
+  return runs.map((r) => ({
+    id: r.id,
+    scheduledAt: r.scheduled_at,
+    note: r.note,
+    rsvpCount: rsvpCount.get(r.id).c,
+  }));
+}
+
+function rsvpToRun(runId, playerId) {
+  const run = db.prepare('SELECT id FROM runs WHERE id = ?').get(runId);
+  if (!run) return { ok: false, error: 'Run not found.' };
+  db.prepare('INSERT OR IGNORE INTO run_rsvps (run_id, player_id) VALUES (?, ?)').run(runId, playerId);
+  return { ok: true };
+}
+
+function isFollowingCourt(playerId, courtId) {
+  return !!db.prepare('SELECT 1 FROM court_follows WHERE player_id = ? AND court_id = ?').get(playerId, courtId);
+}
+
+// Toggles follow for a real court, returning the new state.
+function toggleFollowCourt(playerId, courtId) {
+  if (isFollowingCourt(playerId, courtId)) {
+    db.prepare('DELETE FROM court_follows WHERE player_id = ? AND court_id = ?').run(playerId, courtId);
+    return { ok: true, following: false };
+  }
+  db.prepare('INSERT INTO court_follows (player_id, court_id) VALUES (?, ?)').run(playerId, courtId);
+  return { ok: true, following: true };
+}
+
+// Always follows (never unfollows) — for the map's "open court" panel,
+// where materializing the court and following it is one action.
+function followCourt(playerId, courtId) {
+  db.prepare('INSERT OR IGNORE INTO court_follows (player_id, court_id) VALUES (?, ?)').run(playerId, courtId);
+  return { ok: true };
+}
+
+// Followed courts for the top of the Runs tab: park/court name, current
+// king, and the soonest upcoming run (if any).
+function getFollowedCourtsForPlayer(playerId, seasonStart) {
+  const courts = db
+    .prepare(
+      `SELECT c.id AS court_id, c.number, c.nickname, p.id AS park_id, p.name AS park_name
+       FROM court_follows cf
+       JOIN courts c ON c.id = cf.court_id
+       JOIN parks p ON p.id = c.park_id
+       WHERE cf.player_id = ?
+       ORDER BY cf.created_at DESC`
+    )
+    .all(playerId);
+
+  return courts.map((c) => {
+    const nextRun = db
+      .prepare(
+        `SELECT id, scheduled_at FROM runs
+         WHERE court_id = ? AND scheduled_at >= datetime('now', 'localtime')
+         ORDER BY scheduled_at ASC LIMIT 1`
+      )
+      .get(c.court_id);
+    return {
+      courtId: c.court_id,
+      courtName: c.nickname || `Court ${c.number}`,
+      parkId: c.park_id,
+      parkName: c.park_name,
+      king: getParkKing(c.park_id, seasonStart),
+      nextRun: nextRun ? { id: nextRun.id, scheduledAt: nextRun.scheduled_at } : null,
+    };
+  });
+}
+
+// Upcoming runs within radiusMeters of (lat, lng), soonest first, plus
+// the single nearest park/court overall (for the "No runs near you yet —
+// be the first King of X" empty state) regardless of whether it has a run.
+function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
+  const candidates = db
+    .prepare(
+      `SELECT r.id, r.scheduled_at, r.note, c.id AS court_id, c.number, c.nickname,
+              p.id AS park_id, p.name AS park_name, p.lat, p.lng
+       FROM runs r
+       JOIN courts c ON c.id = r.court_id
+       JOIN parks p ON p.id = c.park_id
+       WHERE r.scheduled_at >= datetime('now', 'localtime') AND p.lat IS NOT NULL`
+    )
+    .all();
+  const rsvpCount = db.prepare('SELECT COUNT(*) AS c FROM run_rsvps WHERE run_id = ?');
+
+  const runs = candidates
+    .map((r) => ({
+      id: r.id,
+      scheduledAt: r.scheduled_at,
+      note: r.note,
+      courtId: r.court_id,
+      courtName: r.nickname || `Court ${r.number}`,
+      parkId: r.park_id,
+      parkName: r.park_name,
+      distanceMeters: haversineMeters(lat, lng, r.lat, r.lng),
+      rsvpCount: rsvpCount.get(r.id).c,
+    }))
+    .filter((r) => r.distanceMeters <= radiusMeters)
+    .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+
+  const parks = getParks().filter((p) => p.lat !== null);
+  let nearestPark = null;
+  for (const p of parks) {
+    const d = haversineMeters(lat, lng, p.lat, p.lng);
+    if (!nearestPark || d < nearestPark.distanceMeters) nearestPark = { park: p, distanceMeters: d };
+  }
+  let nearestCourt = null;
+  if (nearestPark) {
+    const court = getCourtsByPark(nearestPark.park.id)[0];
+    if (court) {
+      nearestCourt = {
+        id: court.id,
+        name: court.nickname || `Court ${court.number}`,
+        parkName: nearestPark.park.name,
+      };
+    }
+  }
+
+  return { runs, nearestCourt };
+}
+
 module.exports = {
   getUserByPhone,
   getPlayerByUserId,
@@ -1362,4 +1591,16 @@ module.exports = {
   getCourtSuggestions,
   approveCourtSuggestion,
   rejectCourtSuggestion,
+  findOrCreateParkAndCourtFromOsm,
+  parseScheduledAt,
+  createRun,
+  getRunById,
+  getUpcomingRunsForCourt,
+  rsvpToRun,
+  isFollowingCourt,
+  toggleFollowCourt,
+  followCourt,
+  getFollowedCourtsForPlayer,
+  getNearbyUpcomingRuns,
+  OVERPASS_RADIUS_METERS,
 };

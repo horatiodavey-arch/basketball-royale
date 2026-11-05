@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Start a run — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc">
+<div class="page">
+  <div class="page-title heading">Start a run</div>
+  <div class="page-sub">
+    <% if (courtName) { %>
+      <%= parkName %> &middot; <%= courtName %>
+    <% } else { %>
+      <%= osmName %>
+    <% } %>
+  </div>
+
+  <% if (error) { %>
+    <div class="error-msg"><%= error %></div>
+  <% } %>
+
+  <form method="POST" action="/runs" class="settings-form">
+    <% if (courtId) { %>
+      <input type="hidden" name="courtId" value="<%= courtId %>">
+    <% } else { %>
+      <input type="hidden" name="osmId" value="<%= osmId %>">
+      <input type="hidden" name="name" value="<%= osmName %>">
+      <input type="hidden" name="lat" value="<%= osmLat %>">
+      <input type="hidden" name="lng" value="<%= osmLng %>">
+    <% } %>
+    <div class="form-group">
+      <label for="scheduledAt">Date and time</label>
+      <input type="datetime-local" id="scheduledAt" name="scheduledAt" required>
+    </div>
+    <div class="form-group">
+      <label for="note">Note (optional)</label>
+      <input type="text" id="note" name="note" maxlength="140" placeholder="Bring a ball, runs to 16">
+    </div>
+    <button type="submit" class="submit-btn">Create run</button>
+  </form>
+</div>
+<%- include('partials/bottom-nav', { active: 'runs' }) %>
+</body>
+</html>

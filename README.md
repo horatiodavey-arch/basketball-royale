@@ -98,16 +98,22 @@ crown), then a real, interactive map — [Leaflet](https://leafletjs.com/) +
 custom pin per park (the king's crown color, the active-now count with a
 green/gray dot, and the king's name) plus a blue dot at the player's own
 real location. It asks for that location on load, centers there and opens
-the bottom sheet on the *nearest* park (falling back to a fixed Fort
-Lauderdale center and a "Turn on location to see courts near you." banner
-if location is denied), can be freely panned and zoomed, and draws a faint
-circle around the selected park showing its check-in radius. Every pin —
-and the bottom sheet — shows the player's distance to it once their
-location is known (e.g. "1.2 mi away"). Tapping a pin selects that park
-(`/?park=ID`) and shows its bottom sheet: King of the Court card, who's
-"Here now" (with their own crowns and points), how far the viewer is from
-that park's crown (or that they already hold it), and Check in / I got
-next buttons wired straight into the existing check-in and next-line flow.
+the bottom sheet on the nearest park *with current activity* — checked-in
+players or a live game — falling back to the nearest park overall if none
+have any (and to a fixed Fort Lauderdale center plus a "Turn on location to
+see courts near you." banner if location is denied). Before location
+resolves, the server's own blind guess for which park to render first is
+the same activity-aware pick, not a fixed park — see
+[Runs](#runs-from-anywhere) below for why "anywhere" matters here. The map
+can be freely panned and zoomed, and draws a faint circle around the
+selected park showing its check-in radius. Every pin — and the bottom
+sheet — shows the player's distance to it once their location is known
+(e.g. "1.2 mi away"), and a pin with an upcoming run shows it too ("Sat
+10am · 6 coming"). Tapping a pin selects that park (`/?park=ID`) and shows
+its bottom sheet: King of the Court card, who's "Here now" (with their own
+crowns and points), how far the viewer is from that park's crown (or that
+they already hold it), and Check in / I got next buttons wired straight
+into the existing check-in and next-line flow.
 
 The Leaflet *library* is vendored into `public/vendor/leaflet/` (served by
 this app, not pulled from a CDN at runtime), so it isn't a point of failure
@@ -128,6 +134,52 @@ lobby/tier-ladder screen moved to `/lobbies`, linked from the bottom of
 navigation (consistent with the rest of this server-rendered app), so the
 map's pan/zoom position resets to the new park's view rather than staying
 put — a minor rough edge, not a live client-side map update.
+
+## Runs, from anywhere
+
+Check-in, the next-line queue, and live games still require being
+physically at the court — that's the geofenced part of this app and stays
+that way. Everything else now works from anywhere, no location needed:
+
+- **Start a run.** Tap a court (a real park's, or an OSM "Open court" pin —
+  tapping Start a run there materializes the real park first, the same as
+  an open-court check-in does) and pick a date/time plus an optional note.
+  `GET /runs/new` renders the form, `POST /runs` creates it (`runs` table)
+  and redirects to the run's own page.
+- **Its own shareable link.** `GET /runs/:id` works for anyone, signed in
+  or not — it shows the court, time, note, who's coming, and an "I'm
+  coming" button. Signed out, that button becomes "Sign up to say you're
+  coming" instead, carrying a `returnTo` back to the run (validated as a
+  same-site relative path only, so it can't be turned into an open
+  redirect) so finishing signup lands back on the run, not the home map.
+- **"I'm coming."** `POST /runs/:id/coming` RSVPs (`run_rsvps`, one row
+  per player per run). The run's own page, the court screen, the map's
+  bottom sheet, and a court's map pin all show the count; the run's own
+  page also shows initials for who's coming.
+- **Follow a court.** `POST /courts/:courtId/follow` toggles it
+  (`court_follows`); for an OSM-only court, `POST /open-courts/follow`
+  materializes the park first, then follows (always follows, not a
+  toggle — unfollowing happens from the now-real court's own screen).
+  Followed courts show at the top of `/runs`, each with its current king
+  and soonest upcoming run.
+- **Invite friends.** A button on the map (shares the selected park) and
+  on every run's own page (shares that run) — [Web Share
+  API](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/share)
+  with a clipboard-copy fallback, the same pattern `/lobbies` already
+  used for its own invite link.
+- **Empty states.** `/runs` fetches `GET /api/nearby-runs?lat=&lng=`
+  client-side once it has the player's location; with nothing nearby it
+  shows "No runs near you yet. Start one and be the first King of
+  \<nearest park\>." with a Start a run button pointed at that park.
+  Outside a park's own check-in radius, its Check in button is replaced
+  with "You're X mi away. Check in opens when you get to the court." plus
+  I'm coming (if a run's already scheduled there) — computed client-side
+  from the same geolocation the map already has, so there's no extra
+  round trip just to learn you're too far away.
+
+**Known simplification**: a run's time is stored as the organizer's own
+local wall-clock text, not a timezone-aware instant — fine for this app's
+single-area usage, not something that would hold up across timezones.
 
 ## Nearby courts, from OpenStreetMap
 

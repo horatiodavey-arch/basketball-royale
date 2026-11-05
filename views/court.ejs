@@ -22,10 +22,37 @@
     <% if (checkedIn) { %>
       <span class="checkin-pill checkin-pill-in">Checked in</span>
     <% } else { %>
-      <button type="button" id="checkInBtn" class="checkin-pill checkin-pill-out">Check in</button>
-      <span id="checkInStatus" class="checkin-status"></span>
+      <div id="checkInNormal">
+        <button type="button" id="checkInBtn" class="checkin-pill checkin-pill-out">Check in</button>
+        <span id="checkInStatus" class="checkin-status"></span>
+      </div>
+      <div id="checkInTooFar" class="too-far-box" style="display: none;">
+        <div class="too-far-msg" id="tooFarMsg"></div>
+        <% if (upcomingRuns.length > 0) { %>
+          <form method="POST" action="/runs/<%= upcomingRuns[0].id %>/coming" style="margin-top: 8px;">
+            <button type="submit" class="small-btn">I'm coming</button>
+          </form>
+        <% } %>
+      </div>
     <% } %>
   </div>
+
+  <div class="court-actions-row">
+    <a href="/runs/new?courtId=<%= court.id %>" class="small-btn link-btn">Start run</a>
+    <form method="POST" action="/courts/<%= court.id %>/follow">
+      <button type="submit" class="small-btn <%= isFollowing ? 'small-btn-accent' : '' %>"><%= isFollowing ? 'Following ✓' : 'Follow' %></button>
+    </form>
+  </div>
+
+  <% if (upcomingRuns.length > 0) { %>
+    <div class="section">Upcoming runs</div>
+    <% upcomingRuns.forEach((run) => { %>
+      <a href="/runs/<%= run.id %>" class="park-link run-card">
+        <div class="park-link-name"><%= formatRunTime(run.scheduledAt) %></div>
+        <div class="park-link-location"><%= run.rsvpCount %> coming<% if (run.note) { %> &middot; <%= run.note %><% } %></div>
+      </a>
+    <% }); %>
+  <% } %>
 
   <div class="tabs court-tabs">
     <% courts.forEach((c) => { %>
@@ -239,6 +266,34 @@
       });
     } else if (checkedIn) {
       startHeartbeat();
+    }
+
+    // Proactively swap the Check-in button for a distance message when
+    // we're confident the player is outside the radius — rather than
+    // waiting for them to tap Check in and hit the server-side error.
+    var parkLat = <%- park.lat != null ? park.lat : 'null' %>;
+    var parkLng = <%- park.lng != null ? park.lng : 'null' %>;
+    var checkInRadiusMeters = <%= park.check_in_radius_meters %>;
+    if (checkInBtn && parkLat != null && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        var R = 3958.8;
+        var toRad = function (d) { return (d * Math.PI) / 180; };
+        var dLat = toRad(parkLat - pos.coords.latitude);
+        var dLng = toRad(parkLng - pos.coords.longitude);
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(toRad(pos.coords.latitude)) * Math.cos(toRad(parkLat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        var miles = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        if (miles * 1609.34 > checkInRadiusMeters) {
+          document.getElementById('checkInNormal').style.display = 'none';
+          var tooFar = document.getElementById('checkInTooFar');
+          document.getElementById('tooFarMsg').textContent =
+            "You're " + miles.toFixed(1) + ' mi away. Check in opens when you get to the court.';
+          tooFar.style.display = 'block';
+        }
+      }, function () {
+        // Denied/unavailable — leave the normal Check in button as is;
+        // tapping it still falls back to the server-side distance check.
+      }, { timeout: 8000 });
     }
 
     var countdownEl = document.getElementById('countdown');

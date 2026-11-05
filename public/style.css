@@ -507,6 +507,7 @@ body.kotc { background: #FFFFFF; padding: 0; }
   box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.3), 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 .pin-distance { font-size: 9px; font-weight: 700; color: var(--muted); margin-top: 1px; }
+.pin-run { font-size: 9px; font-weight: 700; color: var(--accent); margin-top: 1px; }
 .sheet-distance { font-weight: 600; color: var(--text2); }
 
 .pin-open { background: #FFFFFF; opacity: 0.9; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); }
@@ -532,6 +533,24 @@ body.kotc { background: #FFFFFF; padding: 0; }
   border: 1px solid var(--border); font-size: 14px; margin-bottom: 8px; font-family: inherit;
 }
 .suggest-court-panel .declare-row form { flex: 1; }
+
+/* Runs — start/view a run, follow a court, "too far to check in" */
+.run-card { border-left: 3px solid var(--accent); }
+.run-time { font-size: 20px; margin-bottom: 4px; }
+.run-note { font-size: 13px; color: var(--text2); margin-bottom: 6px; }
+.run-organizer { font-size: 12px; color: var(--muted); }
+
+.court-actions-row { display: flex; gap: 6px; margin-bottom: 14px; }
+.court-actions-row > * { flex: 1; min-width: 0; }
+.court-actions-row .small-btn, .court-actions-row .link-btn { padding: 9px 4px; font-size: 12px; }
+.link-btn {
+  display: block; text-align: center; text-decoration: none; box-sizing: border-box;
+}
+
+.too-far-box {
+  background: var(--accent-bg); border-radius: 12px; padding: 12px; margin-bottom: 14px;
+}
+.too-far-msg { font-size: 13px; font-weight: 600; color: var(--accent); }
 
 /* ============================================================
    RESPONSIVE — every screen is one centered column (the .phone /

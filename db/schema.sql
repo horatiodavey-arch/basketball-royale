@@ -236,6 +236,37 @@ CREATE TABLE IF NOT EXISTS overpass_cache (
     fetched_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 19. RUNS — a scheduled pickup run at a court, open to anyone with the
+-- link. scheduled_at is stored as the organizer's own local wall-clock
+-- time (no timezone math) — fine for this app's single-area usage, same
+-- demo-mode simplicity as the rest of this schema.
+CREATE TABLE IF NOT EXISTS runs (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    court_id             INTEGER NOT NULL REFERENCES courts(id),
+    organizer_player_id  INTEGER NOT NULL REFERENCES players(id),
+    scheduled_at         TEXT NOT NULL,
+    note                 TEXT,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 20. RUN_RSVPS — "I'm coming" taps on a run, one row per player
+CREATE TABLE IF NOT EXISTS run_rsvps (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id     INTEGER NOT NULL REFERENCES runs(id),
+    player_id  INTEGER NOT NULL REFERENCES players(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (run_id, player_id)
+);
+
+-- 21. COURT_FOLLOWS — a player following a court for its runs and king
+CREATE TABLE IF NOT EXISTS court_follows (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id  INTEGER NOT NULL REFERENCES players(id),
+    court_id   INTEGER NOT NULL REFERENCES courts(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (player_id, court_id)
+);
+
 -- ============================================================
 -- THE SETTLEMENT FUNCTION (pseudocode — this becomes real code)
 -- Runs ONCE when a game's score is confirmed by both teams:

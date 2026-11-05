@@ -48,6 +48,16 @@ const {
   getCourtSuggestions,
   approveCourtSuggestion,
   rejectCourtSuggestion,
+  findOrCreateParkAndCourtFromOsm,
+  parseScheduledAt,
+  createRun,
+  getRunById,
+  rsvpToRun,
+  toggleFollowCourt,
+  followCourt,
+  getFollowedCourtsForPlayer,
+  getNearbyUpcomingRuns,
+  OVERPASS_RADIUS_METERS,
 } = require('./db/queries');
 
 const app = express();
@@ -107,6 +117,20 @@ function formatLobbyTime(iso) {
   return `${weekday} ${time}`;
 }
 
+// A run's scheduled_at is stored "YYYY-MM-DD HH:MM:00", not full ISO —
+// parse it as a local wall-clock time, same as formatLobbyTime above.
+function formatRunTime(scheduledAt) {
+  return formatLobbyTime(scheduledAt.replace(' ', 'T'));
+}
+
+// Only a same-site relative path is ever followed after signup — never an
+// absolute/protocol-relative URL, so a crafted returnTo can't redirect
+// off this app.
+function safeReturnTo(value) {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) return null;
+  return value;
+}
+
 // Standard 5v5 pot math from the schema's settlement pseudocode:
 // pot = stake x 10 players, rake per tier, split across 5 winners.
 function winPayoutCents(stakeCents, rakePercent) {
@@ -116,19 +140,22 @@ function winPayoutCents(stakeCents, rakePercent) {
 }
 
 app.get('/signup', (req, res) => {
-  if (req.session.userId) return res.redirect('/');
-  res.render('signup', { error: null, name: '', phone: '' });
+  const returnTo = safeReturnTo(req.query.returnTo);
+  if (req.session.userId) return res.redirect(returnTo || '/');
+  res.render('signup', { error: null, name: '', phone: '', returnTo });
 });
 
 app.post('/signup', (req, res) => {
   const name = (req.body.name || '').trim();
   const phone = (req.body.phone || '').trim();
+  const returnTo = safeReturnTo(req.body.returnTo);
 
   if (!name || !phone) {
     return res.render('signup', {
       error: 'Enter your name and phone number.',
       name,
       phone,
+      returnTo,
     });
   }
 
@@ -137,13 +164,13 @@ app.post('/signup', (req, res) => {
     // Phone already known — courtside sign-up doubles as sign-in.
     req.session.userId = user.id;
     syncOrganizerFlag(phone);
-    return res.redirect('/');
+    return res.redirect(returnTo || '/');
   }
 
   const { userId } = createUserAndPlayer(name, phone);
   req.session.userId = userId;
   syncOrganizerFlag(phone);
-  res.redirect('/');
+  res.redirect(returnTo || '/');
 });
 
 app.post('/logout', (req, res) => {
@@ -177,9 +204,17 @@ app.get('/', requireAuth, (req, res) => {
     });
   }
 
-  const requestedParkId = Number(req.query.park);
-  const selectedPark = parks.find((p) => p.id === requestedParkId) || parks[0];
   const pins = getParkMapPins(season.startSql);
+  const requestedParkId = Number(req.query.park);
+  let selectedPark = parks.find((p) => p.id === requestedParkId);
+  if (!selectedPark) {
+    // No explicit pick (or an invalid one) — until the client's own
+    // geolocation can jump to the true nearest park, guess the most
+    // useful one: whichever has people on it right now, not a fixed
+    // park picked some other way.
+    const mostActive = pins.slice().sort((a, b) => (b.activeCount + b.liveCount) - (a.activeCount + a.liveCount))[0];
+    selectedPark = parks.find((p) => p.id === mostActive.id) || parks[0];
+  }
   const sheet = getParkSheetDetail(selectedPark.id, season.startSql, profile.player_id);
 
   res.render('home', {
@@ -192,6 +227,7 @@ app.get('/', requireAuth, (req, res) => {
     pins,
     selectedPark,
     sheet,
+    formatRunTime,
   });
 });
 
@@ -306,7 +342,102 @@ app.get('/map', requireAuth, (req, res) => res.redirect('/'));
 
 app.get('/runs', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  res.render('runs', { active: 'runs', parks: getParks(), profile });
+  const season = getSeasonWindow();
+  res.render('runs', {
+    active: 'runs',
+    parks: getParks(),
+    profile,
+    followedCourts: getFollowedCourtsForPlayer(profile.player_id, season.startSql),
+    formatRunTime,
+  });
+});
+
+// Must come before /runs/:id so "new" isn't swallowed as a run id.
+app.get('/runs/new', requireAuth, (req, res) => {
+  const courtId = req.query.courtId ? Number(req.query.courtId) : null;
+  const osmId = req.query.osmId || null;
+  let courtName = null;
+  let parkName = null;
+
+  if (courtId) {
+    const court = getCourtById(courtId);
+    if (!court) return res.redirect('/runs');
+    const park = getParkById(court.park_id);
+    courtName = court.nickname || `Court ${court.number}`;
+    parkName = park.name;
+  } else if (!osmId) {
+    return res.redirect('/runs');
+  }
+
+  res.render('run-new', {
+    active: 'runs',
+    courtId,
+    courtName,
+    parkName,
+    osmId,
+    osmName: req.query.name || '',
+    osmLat: req.query.lat || '',
+    osmLng: req.query.lng || '',
+    error: req.query.error || null,
+  });
+});
+
+app.post('/runs', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  let courtId = req.body.courtId ? Number(req.body.courtId) : null;
+
+  if (!courtId && req.body.osmId) {
+    const lat = Number(req.body.lat);
+    const lng = Number(req.body.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.redirect('/runs');
+    courtId = findOrCreateParkAndCourtFromOsm(String(req.body.osmId), req.body.name, lat, lng).courtId;
+  }
+  if (!courtId) return res.redirect('/runs');
+
+  const scheduledAt = parseScheduledAt(req.body.scheduledAt);
+  if (!scheduledAt) {
+    const back = `/runs/new?courtId=${courtId}&error=${encodeURIComponent('Pick a date and time.')}`;
+    return res.redirect(back);
+  }
+
+  const runId = createRun(courtId, profile.player_id, scheduledAt, req.body.note);
+  res.redirect(`/runs/${runId}`);
+});
+
+// Deliberately not requireAuth — a shared run link has to work for
+// someone who isn't signed in yet; they get a "sign up to RSVP" prompt
+// instead of a bounce straight to /signup with no way back.
+app.get('/runs/:id', (req, res) => {
+  const profile = req.session.userId ? getPlayerProfile(req.session.userId) : null;
+  const run = getRunById(Number(req.params.id), profile ? profile.player_id : null);
+  if (!run) return res.redirect('/runs');
+  res.render('run', { active: 'runs', run, profile, formatRunTime });
+});
+
+app.post('/runs/:id/coming', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  rsvpToRun(Number(req.params.id), profile.player_id);
+  res.redirect(`/runs/${req.params.id}`);
+});
+
+app.post('/courts/:courtId/follow', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  toggleFollowCourt(profile.player_id, Number(req.params.courtId));
+  res.redirect(req.get('Referer') || '/runs');
+});
+
+app.get('/api/nearby-runs', requireAuth, (req, res) => {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ ok: false, error: 'lat/lng required.' });
+  }
+  const { runs, nearestCourt } = getNearbyUpcomingRuns(lat, lng, OVERPASS_RADIUS_METERS);
+  res.json({
+    ok: true,
+    runs: runs.map((r) => ({ ...r, timeLabel: formatRunTime(r.scheduledAt) })),
+    nearestCourt,
+  });
 });
 
 app.get('/parks/:parkId', requireAuth, (req, res) => {
@@ -326,7 +457,7 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
       ? new Date(screen.liveGame.countdown_ends_at + 'Z').toISOString()
       : null;
 
-  res.render('court', { ...screen, profile, active: 'runs', countdownEndsAtIso, error: req.query.error || null });
+  res.render('court', { ...screen, profile, active: 'runs', countdownEndsAtIso, error: req.query.error || null, formatRunTime });
 });
 
 app.post('/parks/:parkId/check-in', requireAuth, (req, res) => {
@@ -367,6 +498,19 @@ app.post('/open-courts/check-in', requireAuth, (req, res) => {
     return res.status(400).json({ ok: false, error: 'Missing court location.' });
   }
   res.json(checkInAtOpenCourt(profile.player_id, String(osmId), name, lat, lng, playerLat, playerLng));
+});
+
+// Following an OSM-sourced court materializes it the same way check-in
+// does, then always follows (not a toggle — unfollowing an already-real
+// court happens from its own court screen instead).
+app.post('/open-courts/follow', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const { osmId, name, lat, lng } = req.body;
+  if (!osmId || typeof lat !== 'number' || typeof lng !== 'number') {
+    return res.status(400).json({ ok: false, error: 'Missing court location.' });
+  }
+  const { courtId, parkId } = findOrCreateParkAndCourtFromOsm(String(osmId), name, lat, lng);
+  res.json({ ...followCourt(profile.player_id, courtId), courtId, parkId });
 });
 
 app.post('/court-suggestions', requireAuth, (req, res) => {
