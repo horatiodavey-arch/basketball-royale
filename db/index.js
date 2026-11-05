@@ -28,6 +28,7 @@ if (isNewDb) {
 ensureKingOfTheCourtTables();
 migrateKingOfTheCourtColumns();
 seedKingOfTheCourtDemoData();
+applyOrganizerPhones();
 
 // Reused as the lobby's shared "roster" before teams are drafted.
 // Joining a lobby = joining this forming game with team left unassigned.
@@ -178,6 +179,35 @@ function ensureKingOfTheCourtTables() {
         time_on        TEXT,
         time_off       TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS events (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_id   INTEGER NOT NULL REFERENCES players(id),
+        event_name  TEXT NOT NULL,
+        page        TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS court_suggestions (
+        id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_id             INTEGER NOT NULL REFERENCES players(id),
+        name                  TEXT NOT NULL,
+        lat                   REAL NOT NULL,
+        lng                   REAL NOT NULL,
+        status                TEXT NOT NULL DEFAULT 'pending',
+        park_id               INTEGER REFERENCES parks(id),
+        reviewed_by_player_id INTEGER REFERENCES players(id),
+        created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+        reviewed_at           TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS overpass_cache (
+        bucket_key    TEXT PRIMARY KEY,
+        lat           REAL NOT NULL,
+        lng           REAL NOT NULL,
+        response_json TEXT NOT NULL,
+        fetched_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
@@ -200,6 +230,10 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('next_line', 'status', "TEXT NOT NULL DEFAULT 'waiting'");
   addColumnIfMissing('next_line', 'created_at', 'TEXT');
   addColumnIfMissing('check_ins', 'last_inside', 'TEXT');
+  addColumnIfMissing('players', 'is_organizer', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing('parks', 'osm_id', 'TEXT');
+  addColumnIfMissing('parks', 'added_by_player_id', 'INTEGER REFERENCES players(id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_parks_osm_id ON parks(osm_id)');
 
   // The check-in radius default changed 150 -> 250. Any park still sitting
   // at the old factory default (never customized by an organizer) picks up
@@ -254,6 +288,25 @@ function renameParkIfExists(oldName, newName, newLocation, newLat, newLng) {
   );
 }
 
+// Flags any account whose phone is in ORGANIZER_PHONES (comma-separated)
+// as an organizer. Runs at boot, so a phone added to the env var after an
+// account already exists still takes effect on the next restart — and
+// again from server.js on every signup/login, for the common case of an
+// account that's created or logged into fresh after the env var is set.
+function applyOrganizerPhones() {
+  const phones = (process.env.ORGANIZER_PHONES || '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (phones.length === 0) return;
+
+  const flag = db.prepare(
+    `UPDATE players SET is_organizer = 1
+     WHERE user_id IN (SELECT id FROM users WHERE phone = ?)`
+  );
+  for (const phone of phones) flag.run(phone);
+}
+
 function findOrCreateCourt(parkId, number, nickname) {
   const existing = db
     .prepare('SELECT id FROM courts WHERE park_id = ? AND number = ?')
@@ -284,6 +337,18 @@ function seedKingOfTheCourtDemoData() {
   );
   const mainCourtId = findOrCreateCourt(lauderhillId, 1, 'Main');
   findOrCreateCourt(lauderhillId, 2, 'Side');
+
+  // A second always-on preset park — distinct from Lauderhill Parks &
+  // Recreation above, a few miles away in the neighboring city.
+  const lauderdaleLakesId = findOrCreatePark(
+    'Lauderdale Lakes Recreation',
+    '4331 NW 36th St, Lauderdale Lakes, FL 33319',
+    250,
+    400,
+    26.17172,
+    -80.20678
+  );
+  findOrCreateCourt(lauderdaleLakesId, 1, 'Main');
 
   // Second demo park, so the leaderboard has somewhere for a player to
   // earn a Double Crown (king of two parks in the same season).

@@ -25,6 +25,7 @@ const {
   getCrownPerks,
   getPlayerSeasonPoints,
   getNextCrownProgress,
+  getAllCourtsTimerStatus,
   getParkMapPins,
   getParkSheetDetail,
   CROWN_LEVELS,
@@ -38,6 +39,15 @@ const {
   declareWinner,
   confirmResult,
   updateParkSettings,
+  syncOrganizerFlag,
+  logEvent,
+  getEventStats,
+  getNearbyOpenCourts,
+  checkInAtOpenCourt,
+  createCourtSuggestion,
+  getCourtSuggestions,
+  approveCourtSuggestion,
+  rejectCourtSuggestion,
 } = require('./db/queries');
 
 const app = express();
@@ -60,6 +70,25 @@ app.use(
 function requireAuth(req, res, next) {
   if (!req.session.userId) return res.redirect('/signup');
   next();
+}
+
+function requireOrganizer(req, res, next) {
+  const profile = getPlayerProfile(req.session.userId);
+  if (!profile || !profile.is_organizer) return res.redirect('/runs');
+  next();
+}
+
+// The source page a tracked tap happened on, from the Referer header —
+// falls back to the given default when it's missing (e.g. no JS/privacy
+// settings strip it) rather than leaving the event's page blank.
+function pagePathFromReferer(req, fallback) {
+  const ref = req.get('Referer');
+  if (!ref) return fallback;
+  try {
+    return new URL(ref).pathname;
+  } catch {
+    return fallback;
+  }
 }
 
 function initials(name) {
@@ -107,11 +136,13 @@ app.post('/signup', (req, res) => {
   if (user) {
     // Phone already known — courtside sign-up doubles as sign-in.
     req.session.userId = user.id;
+    syncOrganizerFlag(phone);
     return res.redirect('/');
   }
 
   const { userId } = createUserAndPlayer(name, phone);
   req.session.userId = userId;
+  syncOrganizerFlag(phone);
   res.redirect('/');
 });
 
@@ -166,6 +197,7 @@ app.get('/', requireAuth, (req, res) => {
 
 app.get('/how-it-works', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
+  logEvent(profile.player_id, 'how_it_works', pagePathFromReferer(req, '/'));
   const season = getSeasonWindow();
   res.render('how-it-works', {
     active: 'map',
@@ -176,6 +208,7 @@ app.get('/how-it-works', requireAuth, (req, res) => {
 
 app.get('/lobbies', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
+  logEvent(profile.player_id, 'view_lobbies', pagePathFromReferer(req, '/runs'));
   const tiers = getTiers();
   const lobbies = getOpenLobbies()
     .filter((lobby) => lobby.tier === profile.tier)
@@ -272,7 +305,8 @@ app.get('/board', requireAuth, (req, res) => {
 app.get('/map', requireAuth, (req, res) => res.redirect('/'));
 
 app.get('/runs', requireAuth, (req, res) => {
-  res.render('runs', { active: 'runs', parks: getParks() });
+  const profile = getPlayerProfile(req.session.userId);
+  res.render('runs', { active: 'runs', parks: getParks(), profile });
 });
 
 app.get('/parks/:parkId', requireAuth, (req, res) => {
@@ -297,6 +331,7 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
 
 app.post('/parks/:parkId/check-in', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
+  logEvent(profile.player_id, 'check_in', pagePathFromReferer(req, '/'));
   const { lat, lng } = req.body;
   if (typeof lat !== 'number' || typeof lng !== 'number') {
     return res.status(400).json({ ok: false, error: 'Location not available.' });
@@ -310,18 +345,60 @@ app.post('/parks/:parkId/heartbeat', requireAuth, (req, res) => {
   res.json(heartbeat(profile.player_id, Number(req.params.parkId), lat, lng));
 });
 
+// OSM-sourced basketball courts near the player, not yet in our own
+// parks table — the map's lighter "Open court" pins. Looked up server-
+// side (and cached) so the Overpass API never sees the browser directly.
+app.get('/api/nearby-courts', requireAuth, async (req, res) => {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ ok: false, error: 'lat/lng required.' });
+  }
+  const courts = await getNearbyOpenCourts(lat, lng);
+  res.json({ ok: true, courts });
+});
+
+// First check-in at one of those pins creates the real park behind it.
+app.post('/open-courts/check-in', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  logEvent(profile.player_id, 'check_in', pagePathFromReferer(req, '/'));
+  const { osmId, name, lat, lng, playerLat, playerLng } = req.body;
+  if (!osmId || typeof lat !== 'number' || typeof lng !== 'number') {
+    return res.status(400).json({ ok: false, error: 'Missing court location.' });
+  }
+  res.json(checkInAtOpenCourt(profile.player_id, String(osmId), name, lat, lng, playerLat, playerLng));
+});
+
+app.post('/court-suggestions', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const name = (req.body.name || '').trim();
+  const lat = Number(req.body.lat);
+  const lng = Number(req.body.lng);
+  if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ ok: false, error: 'A name and a dropped pin are both required.' });
+  }
+  res.json(createCourtSuggestion(profile.player_id, name, lat, lng));
+});
+
 app.post('/parks/:parkId/settings', requireAuth, (req, res) => {
   const gameTarget = Number(req.body.gameTarget);
-  const betweenGamesSeconds = Number(req.body.betweenGamesSeconds);
+  const betweenGamesMinutes = Number(req.body.betweenGamesMinutes);
   const checkInRadiusMeters = Number(req.body.checkInRadiusMeters);
   const leaveRadiusMeters = Number(req.body.leaveRadiusMeters);
   const valid =
     Number.isInteger(gameTarget) && gameTarget > 0 &&
-    Number.isInteger(betweenGamesSeconds) && betweenGamesSeconds > 0 &&
+    Number.isInteger(betweenGamesMinutes) && betweenGamesMinutes > 0 &&
     Number.isInteger(checkInRadiusMeters) && checkInRadiusMeters > 0 &&
     Number.isInteger(leaveRadiusMeters) && leaveRadiusMeters >= checkInRadiusMeters;
   if (valid) {
-    updateParkSettings(Number(req.params.parkId), { gameTarget, betweenGamesSeconds, checkInRadiusMeters, leaveRadiusMeters });
+    // Stored in seconds (the countdown math throughout db/queries.js
+    // works in seconds) — only the organizer-facing form is in minutes.
+    updateParkSettings(Number(req.params.parkId), {
+      gameTarget,
+      betweenGamesSeconds: betweenGamesMinutes * 60,
+      checkInRadiusMeters,
+      leaveRadiusMeters,
+    });
   }
   res.redirect(req.get('Referer') || '/runs');
 });
@@ -339,6 +416,7 @@ function redirectWithResult(req, res, result, fallbackPath) {
 
 app.post('/courts/:courtId/next', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
+  logEvent(profile.player_id, 'i_got_next', pagePathFromReferer(req, '/runs'));
   const court = getCourtById(req.params.courtId);
   const result = iGotNext(Number(req.params.courtId), profile.player_id);
   // Always lands on the court screen (not back to wherever the button was
@@ -389,6 +467,12 @@ app.get('/players/:id', requireAuth, (req, res) => {
   const player = getPlayerProfileByPlayerId(Number(req.params.id));
   if (!player) return res.redirect('/profile');
 
+  // Only a genuine leaderboard tap, not every visit to this page (e.g.
+  // your own profile via the bottom nav), counts as this event.
+  if (req.query.from === 'board') {
+    logEvent(viewer.player_id, 'leaderboard_player_tap', '/board');
+  }
+
   const season = getSeasonWindow();
   const points = getPlayerSeasonPoints(player.player_id, season.startSql);
 
@@ -402,6 +486,30 @@ app.get('/players/:id', requireAuth, (req, res) => {
     season,
     initials: initials(player.name),
   });
+});
+
+app.get('/admin/timer', requireAuth, requireOrganizer, (req, res) => {
+  res.render('admin-timer', { active: '', courts: getAllCourtsTimerStatus() });
+});
+
+app.get('/admin/stats', requireAuth, requireOrganizer, (req, res) => {
+  res.render('admin-stats', { active: '', events: getEventStats() });
+});
+
+app.get('/admin/courts', requireAuth, requireOrganizer, (req, res) => {
+  res.render('admin-courts', { active: '', suggestions: getCourtSuggestions() });
+});
+
+app.post('/admin/courts/:id/approve', requireAuth, requireOrganizer, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  approveCourtSuggestion(Number(req.params.id), profile.player_id);
+  res.redirect('/admin/courts');
+});
+
+app.post('/admin/courts/:id/reject', requireAuth, requireOrganizer, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  rejectCourtSuggestion(Number(req.params.id), profile.player_id);
+  res.redirect('/admin/courts');
 });
 
 const PORT = process.env.PORT || 3000;

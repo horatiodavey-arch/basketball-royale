@@ -39,7 +39,7 @@
           <%- include('partials/crown-icon', { size: 36, fill: king.crown ? king.crown.fill : 'none', stroke: king.crown ? king.crown.stroke : 'var(--muted)' }) %>
         </div>
         <div class="king-name heading">
-          <a class="player-link" href="/players/<%= king.playerId %>"><%= king.name %></a>
+          <a class="player-link" href="/players/<%= king.playerId %>?from=board"><%= king.name %></a>
           <% if (profile && king.playerId === profile.player_id) { %><span class="lb-you-tag">(You)</span><% } %>
           <% if (king.badge) { %><span class="crown-badge <%= king.badge === 'Triple Crown' ? 'triple' : 'double' %>"><%= king.badge %></span><% } %>
         </div>
@@ -55,7 +55,7 @@
           </div>
           <div class="lb-main">
             <div class="lb-name">
-              <a class="player-link" href="/players/<%= row.playerId %>"><%= row.name %></a>
+              <a class="player-link" href="/players/<%= row.playerId %>?from=board"><%= row.name %></a>
               <% if (profile && row.playerId === profile.player_id) { %><span class="lb-you-tag">(You)</span><% } %>
               <% if (row.badge) { %><span class="crown-badge <%= row.badge === 'Triple Crown' ? 'triple' : 'double' %>"><%= row.badge %></span><% } %>
             </div>

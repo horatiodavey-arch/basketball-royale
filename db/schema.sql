@@ -24,7 +24,8 @@ CREATE TABLE players (
     wins          INTEGER NOT NULL DEFAULT 0,
     losses        INTEGER NOT NULL DEFAULT 0,
     games_played  INTEGER NOT NULL DEFAULT 0,
-    promoted_at   TEXT                      -- when they last moved up
+    promoted_at   TEXT,                     -- when they last moved up
+    is_organizer  INTEGER NOT NULL DEFAULT 0 -- can see /admin/* pages
 );
 
 -- 3. TIERS — the rules of the ladder, as data (not code!)
@@ -115,7 +116,9 @@ CREATE TABLE IF NOT EXISTS parks (
     check_in_radius_meters INTEGER NOT NULL DEFAULT 250,  -- must be within this to check in
     leave_radius_meters    INTEGER NOT NULL DEFAULT 400,  -- must be outside this 5+ min to lose your spot
     game_target            INTEGER NOT NULL DEFAULT 16,   -- "first to 16"
-    between_games_seconds  INTEGER NOT NULL DEFAULT 180   -- winners-stay-on countdown
+    between_games_seconds  INTEGER NOT NULL DEFAULT 180,  -- winners-stay-on countdown
+    osm_id                 TEXT,               -- set when auto-created from an Overpass court
+    added_by_player_id     INTEGER REFERENCES players(id) -- set when created from an approved suggestion
 );
 
 -- 9. COURTS — a park can have more than one court (e.g. Main, Side)
@@ -198,6 +201,39 @@ CREATE TABLE IF NOT EXISTS live_game_players (
     captain        INTEGER NOT NULL DEFAULT 0,
     time_on        TEXT,              -- set when the game actually starts, not when seated for countdown
     time_off       TEXT
+);
+
+-- 16. EVENTS — one row per tracked tap (click tracking for /admin/stats)
+CREATE TABLE IF NOT EXISTS events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id   INTEGER NOT NULL REFERENCES players(id),
+    event_name  TEXT NOT NULL,              -- e.g. 'check_in', 'i_got_next'
+    page        TEXT,                       -- path the tap happened on
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 17. COURT_SUGGESTIONS — a player-dropped pin awaiting organizer review
+CREATE TABLE IF NOT EXISTS court_suggestions (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id             INTEGER NOT NULL REFERENCES players(id),
+    name                  TEXT NOT NULL,
+    lat                   REAL NOT NULL,
+    lng                   REAL NOT NULL,
+    status                TEXT NOT NULL DEFAULT 'pending', -- pending / approved / rejected
+    park_id               INTEGER REFERENCES parks(id),    -- set once approved
+    reviewed_by_player_id INTEGER REFERENCES players(id),
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    reviewed_at           TEXT
+);
+
+-- 18. OVERPASS_CACHE — one row per ~0.1deg area bucket, so repeated map
+-- loads from the same area reuse results instead of hitting Overpass.
+CREATE TABLE IF NOT EXISTS overpass_cache (
+    bucket_key    TEXT PRIMARY KEY,
+    lat           REAL NOT NULL,
+    lng           REAL NOT NULL,
+    response_json TEXT NOT NULL,
+    fetched_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- ============================================================

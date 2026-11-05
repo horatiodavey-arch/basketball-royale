@@ -25,6 +25,7 @@ function getPlayerProfile(userId) {
     .prepare(
       `SELECT u.id AS user_id, u.name, u.phone,
               p.id AS player_id, p.tier, p.wins, p.losses, p.games_played,
+              p.is_organizer,
               t.rank AS tier_rank, t.wins_to_promote, t.games_to_promote,
               t.min_stake_cents AS tier_min_stake_cents
        FROM users u
@@ -42,6 +43,7 @@ function getPlayerProfileByPlayerId(playerId) {
     .prepare(
       `SELECT u.id AS user_id, u.name, u.phone,
               p.id AS player_id, p.tier, p.wins, p.losses, p.games_played,
+              p.is_organizer,
               t.rank AS tier_rank, t.wins_to_promote, t.games_to_promote,
               t.min_stake_cents AS tier_min_stake_cents
        FROM users u
@@ -50,6 +52,22 @@ function getPlayerProfileByPlayerId(playerId) {
        WHERE p.id = ?`
     )
     .get(playerId);
+}
+
+// Flags a single account as organizer if its phone is in ORGANIZER_PHONES
+// — called on every signup/login (see db/index.js's applyOrganizerPhones
+// for the boot-time equivalent, covering accounts that already existed
+// before the env var was set).
+function syncOrganizerFlag(phone) {
+  const phones = (process.env.ORGANIZER_PHONES || '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!phones.includes(phone)) return;
+  db.prepare(
+    `UPDATE players SET is_organizer = 1
+     WHERE user_id IN (SELECT id FROM users WHERE phone = ?)`
+  ).run(phone);
 }
 
 function getTiers() {
@@ -123,7 +141,15 @@ function getParks() {
 }
 
 function getParkById(id) {
-  return db.prepare('SELECT * FROM parks WHERE id = ?').get(id);
+  return db
+    .prepare(
+      `SELECT p.*, u.name AS added_by_name
+       FROM parks p
+       LEFT JOIN players pl ON pl.id = p.added_by_player_id
+       LEFT JOIN users u ON u.id = pl.user_id
+       WHERE p.id = ?`
+    )
+    .get(id);
 }
 
 function getCourtsByPark(parkId) {
@@ -1038,6 +1064,254 @@ function getCourtScreen(courtId, viewerPlayerId) {
   };
 }
 
+// Every court, across every park, with its current timer status — the
+// /admin/timer tracking page. Ticks each court first so countdowns that
+// have already expired (and the queue/live-game transitions that follow)
+// are resolved before reporting status, not left showing stale state.
+function getAllCourtsTimerStatus() {
+  const courts = db
+    .prepare(
+      `SELECT c.id, c.number, c.nickname, p.id AS park_id, p.name AS park_name, p.between_games_seconds
+       FROM courts c
+       JOIN parks p ON p.id = c.park_id
+       ORDER BY p.name ASC, c.number ASC`
+    )
+    .all();
+
+  return courts.map((court) => {
+    tickCourt(court.id);
+    const game = getActiveLiveGame(court.id);
+
+    let status = 'idle';
+    let countdownEndsAtIso = null;
+    if (game && game.status === 'countdown') {
+      status = 'countdown';
+      countdownEndsAtIso = new Date(game.countdown_ends_at + 'Z').toISOString();
+    } else if (game) {
+      status = 'live';
+    }
+
+    return {
+      courtId: court.id,
+      courtName: court.nickname || `Court ${court.number}`,
+      parkId: court.park_id,
+      parkName: court.park_name,
+      betweenGamesMinutes: Math.round(court.between_games_seconds / 60),
+      status,
+      countdownEndsAtIso,
+    };
+  });
+}
+
+// Click tracking — one row per tracked tap. Logged regardless of whether
+// the underlying action (e.g. a check-in outside the radius) succeeds,
+// since this measures taps, not outcomes.
+function logEvent(playerId, eventName, page) {
+  db.prepare('INSERT INTO events (player_id, event_name, page) VALUES (?, ?, ?)').run(
+    playerId,
+    eventName,
+    page || null
+  );
+}
+
+const TRACKED_EVENTS = [
+  { name: 'check_in', label: 'Check in' },
+  { name: 'i_got_next', label: 'I got next' },
+  { name: 'view_lobbies', label: 'View lobbies' },
+  { name: 'how_it_works', label: 'How it works' },
+  { name: 'leaderboard_player_tap', label: 'Tapped a player (leaderboard)' },
+];
+
+// For /admin/stats: total taps, unique players, and an average taps/day
+// rate (total taps over the days since the event's first tap) per
+// tracked event.
+function getEventStats() {
+  return TRACKED_EVENTS.map(({ name, label }) => {
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) AS total, COUNT(DISTINCT player_id) AS uniquePlayers, MIN(created_at) AS firstAt
+         FROM events WHERE event_name = ?`
+      )
+      .get(name);
+
+    const days = row.firstAt
+      ? Math.max(1, Math.ceil((Date.now() - new Date(row.firstAt + 'Z').getTime()) / 86400000))
+      : 1;
+
+    return {
+      name,
+      label,
+      totalTaps: row.total,
+      uniquePlayers: row.uniquePlayers,
+      tapsPerDay: row.total > 0 ? Math.round((row.total / days) * 10) / 10 : 0,
+    };
+  });
+}
+
+// ============================================================
+// NEARBY COURTS — Overpass-sourced basketball courts the player hasn't
+// checked into yet, and player-suggested courts awaiting review.
+// ============================================================
+
+const OVERPASS_RADIUS_METERS = 16093; // 10 miles
+const OVERPASS_CACHE_DAYS = 7;
+
+// Buckets to ~0.1 degree (~7-11km depending on latitude) so repeated
+// loads from roughly the same area reuse one Overpass call instead of
+// firing a fresh one per exact coordinate.
+function overpassBucketKey(lat, lng) {
+  return `${Math.round(lat * 10) / 10},${Math.round(lng * 10) / 10}`;
+}
+
+// Talks to the free Overpass API for OSM basketball courts (leisure=pitch
+// + sport=basketball) within OVERPASS_RADIUS_METERS of (lat, lng).
+// Returns null (not []) on any network/parse failure, so the caller can
+// tell "nothing out there" apart from "couldn't ask" and degrade quietly
+// rather than caching an empty result from a down endpoint.
+async function fetchOverpassBasketballCourts(lat, lng) {
+  const query =
+    `[out:json][timeout:20];(` +
+    `node["leisure"="pitch"]["sport"="basketball"](around:${OVERPASS_RADIUS_METERS},${lat},${lng});` +
+    `way["leisure"="pitch"]["sport"="basketball"](around:${OVERPASS_RADIUS_METERS},${lat},${lng});` +
+    `);out center;`;
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(query),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data.elements) ? data.elements : [];
+  } catch (err) {
+    return null;
+  }
+}
+
+// Nearby OSM-sourced courts the player hasn't already checked into (those
+// show up as normal park pins instead). Served from a 7-day area cache;
+// only re-queries Overpass once that cache has gone stale.
+async function getNearbyOpenCourts(lat, lng) {
+  const key = overpassBucketKey(lat, lng);
+  const cached = db
+    .prepare(
+      `SELECT response_json FROM overpass_cache
+       WHERE bucket_key = ? AND fetched_at >= datetime('now', '-${OVERPASS_CACHE_DAYS} days')`
+    )
+    .get(key);
+
+  let elements;
+  if (cached) {
+    elements = JSON.parse(cached.response_json);
+  } else {
+    elements = await fetchOverpassBasketballCourts(lat, lng);
+    if (elements === null) return []; // Overpass unreachable — nothing to show, nothing to cache
+    db.prepare(
+      `INSERT INTO overpass_cache (bucket_key, lat, lng, response_json, fetched_at) VALUES (?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(bucket_key) DO UPDATE SET lat = excluded.lat, lng = excluded.lng,
+         response_json = excluded.response_json, fetched_at = excluded.fetched_at`
+    ).run(key, lat, lng, JSON.stringify(elements));
+  }
+
+  const claimedOsmIds = new Set(
+    db.prepare('SELECT osm_id FROM parks WHERE osm_id IS NOT NULL').all().map((r) => r.osm_id)
+  );
+
+  return elements
+    .map((el) => {
+      const elLat = el.lat != null ? el.lat : el.center && el.center.lat;
+      const elLng = el.lon != null ? el.lon : el.center && el.center.lon;
+      if (elLat == null || elLng == null) return null;
+      return {
+        osmId: `${el.type}/${el.id}`,
+        name: (el.tags && el.tags.name) || 'Open court',
+        lat: elLat,
+        lng: elLng,
+      };
+    })
+    .filter((c) => c && !claimedOsmIds.has(c.osmId) && haversineMeters(lat, lng, c.lat, c.lng) <= OVERPASS_RADIUS_METERS);
+}
+
+// First check-in at an Overpass-sourced court creates a real park for it
+// (idempotent on osm_id — a second player's first check-in reuses the
+// park the first player's created), then checks the player in normally.
+function checkInAtOpenCourt(playerId, osmId, name, lat, lng, playerLat, playerLng) {
+  if (typeof lat !== 'number' || typeof lng !== 'number') {
+    return { ok: false, error: 'This court has no location.' };
+  }
+
+  let park = db.prepare('SELECT id FROM parks WHERE osm_id = ?').get(osmId);
+  let parkId;
+  if (park) {
+    parkId = park.id;
+  } else {
+    db.prepare('INSERT INTO parks (name, lat, lng, osm_id) VALUES (?, ?, ?, ?)').run(
+      name || 'Open court',
+      lat,
+      lng,
+      osmId
+    );
+    parkId = lastId();
+    db.prepare("INSERT INTO courts (park_id, number, nickname) VALUES (?, 1, 'Main')").run(parkId);
+  }
+
+  return { ...checkIn(playerId, parkId, playerLat, playerLng), parkId };
+}
+
+function createCourtSuggestion(playerId, name, lat, lng) {
+  db.prepare('INSERT INTO court_suggestions (player_id, name, lat, lng) VALUES (?, ?, ?, ?)').run(
+    playerId,
+    name,
+    lat,
+    lng
+  );
+  return { ok: true };
+}
+
+// Pending first, then newest — what /admin/courts wants to triage.
+function getCourtSuggestions() {
+  return db
+    .prepare(
+      `SELECT cs.*, u.name AS suggested_by_name
+       FROM court_suggestions cs
+       JOIN players p ON p.id = cs.player_id
+       JOIN users u ON u.id = p.user_id
+       ORDER BY (cs.status = 'pending') DESC, cs.created_at DESC`
+    )
+    .all();
+}
+
+function approveCourtSuggestion(suggestionId, organizerPlayerId) {
+  const suggestion = db.prepare('SELECT * FROM court_suggestions WHERE id = ?').get(suggestionId);
+  if (!suggestion || suggestion.status !== 'pending') return { ok: false, error: 'Nothing to approve.' };
+
+  db.prepare('INSERT INTO parks (name, lat, lng, added_by_player_id) VALUES (?, ?, ?, ?)').run(
+    suggestion.name,
+    suggestion.lat,
+    suggestion.lng,
+    suggestion.player_id
+  );
+  const parkId = lastId();
+  db.prepare("INSERT INTO courts (park_id, number, nickname) VALUES (?, 1, 'Main')").run(parkId);
+
+  db.prepare(
+    `UPDATE court_suggestions SET status = 'approved', park_id = ?, reviewed_by_player_id = ?, reviewed_at = datetime('now')
+     WHERE id = ?`
+  ).run(parkId, organizerPlayerId, suggestionId);
+
+  return { ok: true, parkId };
+}
+
+function rejectCourtSuggestion(suggestionId, organizerPlayerId) {
+  const result = db
+    .prepare(
+      `UPDATE court_suggestions SET status = 'rejected', reviewed_by_player_id = ?, reviewed_at = datetime('now')
+       WHERE id = ? AND status = 'pending'`
+    )
+    .run(organizerPlayerId, suggestionId);
+  return { ok: result.changes > 0 };
+}
+
 module.exports = {
   getUserByPhone,
   getPlayerByUserId,
@@ -1063,6 +1337,7 @@ module.exports = {
   getCrownPerks,
   getPlayerSeasonPoints,
   getNextCrownProgress,
+  getAllCourtsTimerStatus,
   getParkMapPins,
   getParkSheetDetail,
   checkIn,
@@ -1078,4 +1353,13 @@ module.exports = {
   confirmResult,
   updateParkSettings,
   CHECK_IN_FRESH_MINUTES,
+  syncOrganizerFlag,
+  logEvent,
+  getEventStats,
+  getNearbyOpenCourts,
+  checkInAtOpenCourt,
+  createCourtSuggestion,
+  getCourtSuggestions,
+  approveCourtSuggestion,
+  rejectCourtSuggestion,
 };
