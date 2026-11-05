@@ -220,6 +220,7 @@ CREATE TABLE IF NOT EXISTS court_suggestions (
     name                  TEXT NOT NULL,
     lat                   REAL NOT NULL,
     lng                   REAL NOT NULL,
+    photo_url             TEXT,              -- optional data: URI the player attached
     status                TEXT NOT NULL DEFAULT 'pending', -- pending / approved / rejected
     park_id               INTEGER REFERENCES parks(id),    -- set once approved
     reviewed_by_player_id INTEGER REFERENCES players(id),
