@@ -16,6 +16,7 @@
   <% } %>
 
   <form method="POST" action="/signup">
+    <% if (returnTo) { %><input type="hidden" name="returnTo" value="<%= returnTo %>"><% } %>
     <div class="field">
       <label for="name">Name</label>
       <input type="text" id="name" name="name" value="<%= name %>" placeholder="Horatio D." autofocus required>

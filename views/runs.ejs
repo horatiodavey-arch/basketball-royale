@@ -10,8 +10,28 @@
 <body class="kotc">
 <div class="page">
   <div class="page-title heading">Runs</div>
-  <div class="page-sub">Check in at a park to join the next line.</div>
+  <div class="page-sub">Find a run, follow a court, or start your own &mdash; from anywhere.</div>
 
+  <% if (followedCourts.length > 0) { %>
+    <div class="section">Following</div>
+    <% followedCourts.forEach((fc) => { %>
+      <a href="/parks/<%= fc.parkId %>" class="park-link">
+        <div class="park-link-name"><%= fc.parkName %> &middot; <%= fc.courtName %></div>
+        <div class="park-link-location">
+          <%= fc.king ? ('King: ' + fc.king.name) : 'No king yet' %>
+          <% if (fc.nextRun) { %> &middot; Next run <%= formatRunTime(fc.nextRun.scheduledAt) %><% } %>
+        </div>
+      </a>
+    <% }); %>
+  <% } %>
+
+  <div class="section">Runs near you</div>
+  <div id="nearbyRunsLoading" class="next-action-note">Finding runs near you&hellip;</div>
+  <div id="nearbyRunsList" style="display: none;"></div>
+  <div id="nearbyRunsEmpty" class="empty-board" style="display: none;"></div>
+  <div id="nearbyRunsNoLocation" class="next-action-note" style="display: none;">Turn on location to see runs near you.</div>
+
+  <div class="section">Parks</div>
   <% if (parks.length === 0) { %>
     <div class="empty-board">No parks yet.</div>
   <% } else { %>
@@ -39,5 +59,64 @@
   <% } %>
 </div>
 <%- include('partials/bottom-nav', { active: 'runs' }) %>
+
+<script>
+  (function () {
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function renderRuns(runs) {
+      var list = document.getElementById('nearbyRunsList');
+      list.innerHTML = runs.map(function (r) {
+        return '<a href="/runs/' + r.id + '" class="park-link run-card">' +
+          '<div class="park-link-name">' + escapeHtml(r.timeLabel) + ' &middot; ' + escapeHtml(r.parkName) + ' (' + escapeHtml(r.courtName) + ')</div>' +
+          '<div class="park-link-location">' + r.rsvpCount + ' coming' + (r.note ? ' &middot; ' + escapeHtml(r.note) : '') + '</div>' +
+          '</a>';
+      }).join('');
+      list.style.display = 'block';
+    }
+
+    function renderEmpty(nearestCourt) {
+      var empty = document.getElementById('nearbyRunsEmpty');
+      if (nearestCourt) {
+        empty.innerHTML = 'No runs near you yet. Start one and be the first King of ' + escapeHtml(nearestCourt.parkName) + '.' +
+          '<br><a href="/runs/new?courtId=' + nearestCourt.id + '" class="submit-btn" style="display: inline-block; margin-top: 10px; text-decoration: none;">Start a run</a>';
+      } else {
+        empty.textContent = 'No runs near you yet.';
+      }
+      empty.style.display = 'block';
+    }
+
+    function loadNearbyRuns(lat, lng) {
+      fetch('/api/nearby-runs?lat=' + lat + '&lng=' + lng)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          document.getElementById('nearbyRunsLoading').style.display = 'none';
+          if (!data.ok) return;
+          if (data.runs.length > 0) {
+            renderRuns(data.runs);
+          } else {
+            renderEmpty(data.nearestCourt);
+          }
+        })
+        .catch(function () {
+          document.getElementById('nearbyRunsLoading').style.display = 'none';
+        });
+    }
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        loadNearbyRuns(pos.coords.latitude, pos.coords.longitude);
+      }, function () {
+        document.getElementById('nearbyRunsLoading').style.display = 'none';
+        document.getElementById('nearbyRunsNoLocation').style.display = 'block';
+      }, { timeout: 8000 });
+    } else {
+      document.getElementById('nearbyRunsLoading').style.display = 'none';
+      document.getElementById('nearbyRunsNoLocation').style.display = 'block';
+    }
+  })();
+</script>
 </body>
 </html>

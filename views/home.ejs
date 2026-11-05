@@ -50,6 +50,10 @@
           <button type="button" id="openCourtCancel" class="small-btn">Close</button>
           <button type="button" id="openCourtCheckIn" class="small-btn small-btn-accent">Check in</button>
         </div>
+        <div class="declare-row" style="margin-top: 8px;">
+          <a id="openCourtStartRun" href="#" class="small-btn link-btn">Start run</a>
+          <button type="button" id="openCourtFollow" class="small-btn">Follow</button>
+        </div>
       </div>
     </div>
     <div id="toast" class="location-banner" style="display: none;"></div>
@@ -98,15 +102,50 @@
         </div>
       <% } %>
 
+      <% if (sheet.upcomingRuns.length > 0) { %>
+        <div class="section">Upcoming runs</div>
+        <% sheet.upcomingRuns.forEach((run) => { %>
+          <a href="/runs/<%= run.id %>" class="park-link run-card">
+            <div class="park-link-name"><%= formatRunTime(run.scheduledAt) %></div>
+            <div class="park-link-location"><%= run.rsvpCount %> coming<% if (run.note) { %> &middot; <%= run.note %><% } %></div>
+          </a>
+        <% }); %>
+      <% } %>
+
       <div class="sheet-status"><%= sheet.viewerStatus %></div>
 
-      <div class="sheet-actions">
-        <button type="button" id="homeCheckInBtn" class="check-in-btn" <%= sheet.checkedIn ? 'disabled' : '' %>><%= sheet.checkedIn ? 'Checked in' : 'Check in' %></button>
-        <form method="POST" action="/courts/<%= sheet.firstCourtId %>/next">
-          <button type="submit" class="submit-btn" <%= sheet.firstCourtId ? '' : 'disabled' %>>I got next</button>
-        </form>
-      </div>
+      <% if (sheet.checkedIn) { %>
+        <div class="sheet-actions">
+          <button type="button" class="check-in-btn" disabled>Checked in</button>
+          <form method="POST" action="/courts/<%= sheet.firstCourtId %>/next">
+            <button type="submit" class="submit-btn" <%= sheet.firstCourtId ? '' : 'disabled' %>>I got next</button>
+          </form>
+        </div>
+      <% } else { %>
+        <div id="sheetCheckInNormal" class="sheet-actions">
+          <button type="button" id="homeCheckInBtn" class="check-in-btn">Check in</button>
+          <form method="POST" action="/courts/<%= sheet.firstCourtId %>/next">
+            <button type="submit" class="submit-btn" <%= sheet.firstCourtId ? '' : 'disabled' %>>I got next</button>
+          </form>
+        </div>
+        <div id="sheetTooFar" class="too-far-box" style="display: none;">
+          <div class="too-far-msg" id="sheetTooFarMsg"></div>
+          <% if (sheet.upcomingRuns.length > 0) { %>
+            <form method="POST" action="/runs/<%= sheet.upcomingRuns[0].id %>/coming" style="margin-top: 8px;">
+              <button type="submit" class="small-btn">I'm coming</button>
+            </form>
+          <% } %>
+        </div>
+      <% } %>
       <div id="homeCheckInStatus" class="checkin-status"></div>
+
+      <div class="court-actions-row" style="margin-top: 12px;">
+        <a href="/runs/new?courtId=<%= sheet.firstCourtId %>" class="small-btn link-btn">Start run</a>
+        <form method="POST" action="/courts/<%= sheet.firstCourtId %>/follow">
+          <button type="submit" class="small-btn <%= sheet.isFollowing ? 'small-btn-accent' : '' %>"><%= sheet.isFollowing ? 'Following ✓' : 'Follow' %></button>
+        </form>
+        <button type="button" id="inviteBtn" class="small-btn">Invite</button>
+      </div>
     </div>
   <% } %>
 </div>
@@ -134,17 +173,27 @@
         '</svg>';
     }
 
+    function formatRunTimeShort(scheduledAt) {
+      var d = new Date(scheduledAt.replace(' ', 'T'));
+      var weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+      var time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      return weekday + ' ' + time;
+    }
+
     function pinHtml(pin, isSelected, miles) {
       var fill = (pin.king && pin.king.crown) ? pin.king.crown.fill : 'none';
       var stroke = (pin.king && pin.king.crown) ? pin.king.crown.stroke : '#9C9A92';
       var dotClass = pin.activeCount > 0 ? 'pin-dot-active' : 'pin-dot-idle';
       var label = pin.king ? pin.king.name : pin.name;
       var distanceHtml = miles != null ? '<div class="pin-distance">' + miles.toFixed(1) + ' mi away</div>' : '';
+      var runHtml = pin.nextRun
+        ? '<div class="pin-run">' + formatRunTimeShort(pin.nextRun.scheduledAt) + ' · ' + pin.nextRun.rsvpCount + ' coming</div>'
+        : '';
       return '<div class="kotc-marker-content"><div class="pin' + (isSelected ? ' pin-selected' : '') + '">' +
         crownSvg(fill, stroke, 16) +
         '<span class="pin-count">' + pin.activeCount + '</span>' +
         '<span class="pin-dot ' + dotClass + '"></span>' +
-        '</div><div class="pin-label">' + escapeHtml(label) + distanceHtml + '</div></div>';
+        '</div><div class="pin-label">' + escapeHtml(label) + distanceHtml + runHtml + '</div></div>';
     }
 
     function openCourtPinHtml(court, miles) {
@@ -222,14 +271,20 @@
     }
 
     // Updates every park pin's distance label and, for the currently
-    // selected park, the bottom sheet's too. Returns the nearest park's
-    // id/distance so the caller can decide whether to jump to its sheet.
+    // selected park, the bottom sheet's too (including swapping in the
+    // "too far to check in" message once we know the real distance).
+    // Returns the nearest-with-activity park (falling back to nearest
+    // overall) so the caller can decide whether to jump to its sheet.
     function updateDistancesAndFindNearest(playerLat, playerLng) {
       var nearest = null;
       pins.forEach(function (pin) {
         if (pin.lat == null || pin.lng == null) return;
         var miles = haversineMiles(playerLat, playerLng, pin.lat, pin.lng);
-        if (!nearest || miles < nearest.miles) nearest = { id: pin.id, miles: miles };
+        var hasActivity = (pin.activeCount + pin.liveCount) > 0;
+        var better = !nearest ||
+          (hasActivity && !nearest.hasActivity) ||
+          (hasActivity === nearest.hasActivity && miles < nearest.miles);
+        if (better) nearest = { id: pin.id, miles: miles, hasActivity: hasActivity };
 
         var marker = parkMarkers[pin.id];
         if (marker) {
@@ -239,6 +294,15 @@
         if (pin.id === selectedParkData.id) {
           var sheetDistanceEl = document.getElementById('sheetDistance');
           if (sheetDistanceEl) sheetDistanceEl.textContent = '· ' + miles.toFixed(1) + ' mi away';
+
+          var normal = document.getElementById('sheetCheckInNormal');
+          var tooFar = document.getElementById('sheetTooFar');
+          if (normal && tooFar && miles * 1609.34 > selectedParkData.checkInRadiusMeters) {
+            normal.style.display = 'none';
+            document.getElementById('sheetTooFarMsg').textContent =
+              "You're " + miles.toFixed(1) + ' mi away. Check in opens when you get to the court.';
+            tooFar.style.display = 'block';
+          }
         }
       });
       return nearest;
@@ -270,6 +334,28 @@
       checkInBtn.disabled = false;
       checkInBtn.textContent = 'Check in';
       panel.style.display = 'block';
+
+      var startRunLink = document.getElementById('openCourtStartRun');
+      startRunLink.href = '/runs/new?osmId=' + encodeURIComponent(court.osmId) +
+        '&name=' + encodeURIComponent(court.name) + '&lat=' + court.lat + '&lng=' + court.lng;
+
+      var followBtn = document.getElementById('openCourtFollow');
+      followBtn.disabled = false;
+      followBtn.textContent = 'Follow';
+      followBtn.onclick = function () {
+        followBtn.disabled = true;
+        fetch('/open-courts/follow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ osmId: court.osmId, name: court.name, lat: court.lat, lng: court.lng }),
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            followBtn.textContent = data.ok ? 'Following ✓' : 'Follow';
+            followBtn.disabled = !data.ok;
+          })
+          .catch(function () { followBtn.disabled = false; });
+      };
 
       checkInBtn.onclick = function () {
         checkInBtn.disabled = true;
@@ -362,6 +448,24 @@
         })
         .catch(function () { suggestSubmitBtn.disabled = false; });
     });
+
+    var inviteBtn = document.getElementById('inviteBtn');
+    if (inviteBtn) {
+      inviteBtn.addEventListener('click', function () {
+        var parkName = <%- JSON.stringify(sheet.park.name).replace(/</g, '\\u003c') %>;
+        var url = window.location.origin + '/parks/' + selectedParkData.id;
+        var text = 'Pull up to ' + parkName + ". Let's see who takes the crown.";
+        if (navigator.share) {
+          navigator.share({ title: 'Basketball Royale', text: text, url: url }).catch(function () {});
+        } else if (navigator.clipboard) {
+          navigator.clipboard.writeText(text + ' ' + url).then(function () {
+            showToast('Invite link copied to clipboard', 3000);
+          });
+        } else {
+          alert(text + ' ' + url);
+        }
+      });
+    }
 
     // Show something immediately (geolocation can be slow or never
     // resolve), then re-center on the player once/if it does.

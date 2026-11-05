@@ -208,6 +208,31 @@ function ensureKingOfTheCourtTables() {
         response_json TEXT NOT NULL,
         fetched_at    TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS runs (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        court_id             INTEGER NOT NULL REFERENCES courts(id),
+        organizer_player_id  INTEGER NOT NULL REFERENCES players(id),
+        scheduled_at         TEXT NOT NULL,
+        note                 TEXT,
+        created_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS run_rsvps (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id     INTEGER NOT NULL REFERENCES runs(id),
+        player_id  INTEGER NOT NULL REFERENCES players(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (run_id, player_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS court_follows (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_id  INTEGER NOT NULL REFERENCES players(id),
+        court_id   INTEGER NOT NULL REFERENCES courts(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (player_id, court_id)
+    );
   `);
 }
 
