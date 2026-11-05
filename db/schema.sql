@@ -118,7 +118,8 @@ CREATE TABLE IF NOT EXISTS parks (
     game_target            INTEGER NOT NULL DEFAULT 16,   -- "first to 16"
     between_games_seconds  INTEGER NOT NULL DEFAULT 180,  -- winners-stay-on countdown
     osm_id                 TEXT,               -- set when auto-created from an Overpass court
-    added_by_player_id     INTEGER REFERENCES players(id) -- set when created from an approved suggestion
+    added_by_player_id     INTEGER REFERENCES players(id), -- set when created from an approved suggestion
+    is_suggested           INTEGER NOT NULL DEFAULT 0 -- organizer-curated pick, shown atop /runs
 );
 
 -- 9. COURTS — a park can have more than one court (e.g. Main, Side)
