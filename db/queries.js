@@ -141,7 +141,15 @@ function getParks() {
 }
 
 function getParkById(id) {
-  return db.prepare('SELECT * FROM parks WHERE id = ?').get(id);
+  return db
+    .prepare(
+      `SELECT p.*, u.name AS added_by_name
+       FROM parks p
+       LEFT JOIN players pl ON pl.id = p.added_by_player_id
+       LEFT JOIN users u ON u.id = pl.user_id
+       WHERE p.id = ?`
+    )
+    .get(id);
 }
 
 function getCourtsByPark(parkId) {
@@ -1140,6 +1148,170 @@ function getEventStats() {
   });
 }
 
+// ============================================================
+// NEARBY COURTS — Overpass-sourced basketball courts the player hasn't
+// checked into yet, and player-suggested courts awaiting review.
+// ============================================================
+
+const OVERPASS_RADIUS_METERS = 16093; // 10 miles
+const OVERPASS_CACHE_DAYS = 7;
+
+// Buckets to ~0.1 degree (~7-11km depending on latitude) so repeated
+// loads from roughly the same area reuse one Overpass call instead of
+// firing a fresh one per exact coordinate.
+function overpassBucketKey(lat, lng) {
+  return `${Math.round(lat * 10) / 10},${Math.round(lng * 10) / 10}`;
+}
+
+// Talks to the free Overpass API for OSM basketball courts (leisure=pitch
+// + sport=basketball) within OVERPASS_RADIUS_METERS of (lat, lng).
+// Returns null (not []) on any network/parse failure, so the caller can
+// tell "nothing out there" apart from "couldn't ask" and degrade quietly
+// rather than caching an empty result from a down endpoint.
+async function fetchOverpassBasketballCourts(lat, lng) {
+  const query =
+    `[out:json][timeout:20];(` +
+    `node["leisure"="pitch"]["sport"="basketball"](around:${OVERPASS_RADIUS_METERS},${lat},${lng});` +
+    `way["leisure"="pitch"]["sport"="basketball"](around:${OVERPASS_RADIUS_METERS},${lat},${lng});` +
+    `);out center;`;
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(query),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data.elements) ? data.elements : [];
+  } catch (err) {
+    return null;
+  }
+}
+
+// Nearby OSM-sourced courts the player hasn't already checked into (those
+// show up as normal park pins instead). Served from a 7-day area cache;
+// only re-queries Overpass once that cache has gone stale.
+async function getNearbyOpenCourts(lat, lng) {
+  const key = overpassBucketKey(lat, lng);
+  const cached = db
+    .prepare(
+      `SELECT response_json FROM overpass_cache
+       WHERE bucket_key = ? AND fetched_at >= datetime('now', '-${OVERPASS_CACHE_DAYS} days')`
+    )
+    .get(key);
+
+  let elements;
+  if (cached) {
+    elements = JSON.parse(cached.response_json);
+  } else {
+    elements = await fetchOverpassBasketballCourts(lat, lng);
+    if (elements === null) return []; // Overpass unreachable — nothing to show, nothing to cache
+    db.prepare(
+      `INSERT INTO overpass_cache (bucket_key, lat, lng, response_json, fetched_at) VALUES (?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(bucket_key) DO UPDATE SET lat = excluded.lat, lng = excluded.lng,
+         response_json = excluded.response_json, fetched_at = excluded.fetched_at`
+    ).run(key, lat, lng, JSON.stringify(elements));
+  }
+
+  const claimedOsmIds = new Set(
+    db.prepare('SELECT osm_id FROM parks WHERE osm_id IS NOT NULL').all().map((r) => r.osm_id)
+  );
+
+  return elements
+    .map((el) => {
+      const elLat = el.lat != null ? el.lat : el.center && el.center.lat;
+      const elLng = el.lon != null ? el.lon : el.center && el.center.lon;
+      if (elLat == null || elLng == null) return null;
+      return {
+        osmId: `${el.type}/${el.id}`,
+        name: (el.tags && el.tags.name) || 'Open court',
+        lat: elLat,
+        lng: elLng,
+      };
+    })
+    .filter((c) => c && !claimedOsmIds.has(c.osmId) && haversineMeters(lat, lng, c.lat, c.lng) <= OVERPASS_RADIUS_METERS);
+}
+
+// First check-in at an Overpass-sourced court creates a real park for it
+// (idempotent on osm_id — a second player's first check-in reuses the
+// park the first player's created), then checks the player in normally.
+function checkInAtOpenCourt(playerId, osmId, name, lat, lng, playerLat, playerLng) {
+  if (typeof lat !== 'number' || typeof lng !== 'number') {
+    return { ok: false, error: 'This court has no location.' };
+  }
+
+  let park = db.prepare('SELECT id FROM parks WHERE osm_id = ?').get(osmId);
+  let parkId;
+  if (park) {
+    parkId = park.id;
+  } else {
+    db.prepare('INSERT INTO parks (name, lat, lng, osm_id) VALUES (?, ?, ?, ?)').run(
+      name || 'Open court',
+      lat,
+      lng,
+      osmId
+    );
+    parkId = lastId();
+    db.prepare("INSERT INTO courts (park_id, number, nickname) VALUES (?, 1, 'Main')").run(parkId);
+  }
+
+  return { ...checkIn(playerId, parkId, playerLat, playerLng), parkId };
+}
+
+function createCourtSuggestion(playerId, name, lat, lng) {
+  db.prepare('INSERT INTO court_suggestions (player_id, name, lat, lng) VALUES (?, ?, ?, ?)').run(
+    playerId,
+    name,
+    lat,
+    lng
+  );
+  return { ok: true };
+}
+
+// Pending first, then newest — what /admin/courts wants to triage.
+function getCourtSuggestions() {
+  return db
+    .prepare(
+      `SELECT cs.*, u.name AS suggested_by_name
+       FROM court_suggestions cs
+       JOIN players p ON p.id = cs.player_id
+       JOIN users u ON u.id = p.user_id
+       ORDER BY (cs.status = 'pending') DESC, cs.created_at DESC`
+    )
+    .all();
+}
+
+function approveCourtSuggestion(suggestionId, organizerPlayerId) {
+  const suggestion = db.prepare('SELECT * FROM court_suggestions WHERE id = ?').get(suggestionId);
+  if (!suggestion || suggestion.status !== 'pending') return { ok: false, error: 'Nothing to approve.' };
+
+  db.prepare('INSERT INTO parks (name, lat, lng, added_by_player_id) VALUES (?, ?, ?, ?)').run(
+    suggestion.name,
+    suggestion.lat,
+    suggestion.lng,
+    suggestion.player_id
+  );
+  const parkId = lastId();
+  db.prepare("INSERT INTO courts (park_id, number, nickname) VALUES (?, 1, 'Main')").run(parkId);
+
+  db.prepare(
+    `UPDATE court_suggestions SET status = 'approved', park_id = ?, reviewed_by_player_id = ?, reviewed_at = datetime('now')
+     WHERE id = ?`
+  ).run(parkId, organizerPlayerId, suggestionId);
+
+  return { ok: true, parkId };
+}
+
+function rejectCourtSuggestion(suggestionId, organizerPlayerId) {
+  const result = db
+    .prepare(
+      `UPDATE court_suggestions SET status = 'rejected', reviewed_by_player_id = ?, reviewed_at = datetime('now')
+       WHERE id = ? AND status = 'pending'`
+    )
+    .run(organizerPlayerId, suggestionId);
+  return { ok: result.changes > 0 };
+}
+
 module.exports = {
   getUserByPhone,
   getPlayerByUserId,
@@ -1184,4 +1356,10 @@ module.exports = {
   syncOrganizerFlag,
   logEvent,
   getEventStats,
+  getNearbyOpenCourts,
+  checkInAtOpenCourt,
+  createCourtSuggestion,
+  getCourtSuggestions,
+  approveCourtSuggestion,
+  rejectCourtSuggestion,
 };

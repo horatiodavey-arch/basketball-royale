@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Court suggestions — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc">
+<div class="page">
+  <div class="page-title heading">Court suggestions</div>
+  <div class="page-sub">Player-dropped pins, organizer-only.</div>
+
+  <% if (suggestions.length === 0) { %>
+    <div class="empty-board">No suggestions yet.</div>
+  <% } %>
+
+  <% suggestions.forEach((s) => { %>
+    <div class="stats-card">
+      <div class="stats-label"><%= s.name %></div>
+      <div class="suggestion-meta">
+        Suggested by <%= s.suggested_by_name %> &middot; <%= s.lat.toFixed(5) %>, <%= s.lng.toFixed(5) %>
+      </div>
+      <% if (s.status === 'pending') { %>
+        <div class="declare-row" style="margin-top: 10px;">
+          <form method="POST" action="/admin/courts/<%= s.id %>/approve">
+            <button type="submit" class="small-btn small-btn-accent">Approve</button>
+          </form>
+          <form method="POST" action="/admin/courts/<%= s.id %>/reject">
+            <button type="submit" class="small-btn">Reject</button>
+          </form>
+        </div>
+      <% } else { %>
+        <div class="suggestion-status suggestion-status-<%= s.status %>">
+          <%= s.status === 'approved' ? 'Approved' : 'Rejected' %>
+        </div>
+      <% } %>
+    </div>
+  <% }); %>
+</div>
+<%- include('partials/bottom-nav', { active: active }) %>
+</body>
+</html>

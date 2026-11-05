@@ -10,6 +10,9 @@
 <body class="kotc">
 <div class="page">
   <div class="page-title heading"><%= park.name %></div>
+  <% if (park.added_by_name) { %>
+    <div class="page-sub">Court added by <%= park.added_by_name %></div>
+  <% } %>
 
   <% if (error) { %>
     <div class="error-msg"><%= error %></div>

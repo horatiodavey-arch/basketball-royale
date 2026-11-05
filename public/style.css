@@ -392,6 +392,9 @@ body.kotc { background: #FFFFFF; padding: 0; }
    that point regardless of its own (variable, label-dependent) size. */
 .kotc-marker { background: transparent; border: none; }
 .kotc-marker-content { position: absolute; transform: translate(-50%, -100%); text-align: center; }
+/* Dots (the "You" marker) center exactly on their point, unlike pins
+   which anchor above it by their pointed base. */
+.kotc-dot-content { position: absolute; transform: translate(-50%, -50%); }
 
 .pin {
   display: inline-flex; align-items: center; gap: 4px; background: #FFFFFF;
@@ -399,13 +402,10 @@ body.kotc { background: #FFFFFF; padding: 0; }
   white-space: nowrap;
 }
 .pin-selected { box-shadow: 0 0 0 2px var(--gold-fill), 0 2px 6px rgba(0, 0, 0, 0.2); }
-.pin-you { background: var(--green); padding: 8px; }
-.pin-you svg { stroke: #FFFFFF; }
 .pin-count { font-weight: 700; font-size: 14px; }
 .pin-dot { width: 8px; height: 8px; border-radius: 50%; }
 .pin-dot-active { background: var(--green); }
 .pin-dot-idle { background: var(--muted); }
-.pin-dot-you { background: #FFFFFF; }
 .pin-label {
   display: inline-block; background: #FFFFFF; border-radius: 999px; padding: 3px 10px;
   font-size: 11px; font-weight: 700; color: var(--text2); text-align: center;
@@ -486,6 +486,52 @@ body.kotc { background: #FFFFFF; padding: 0; }
 }
 .stats-tile-value { font-size: 22px; font-weight: 700; color: var(--accent); }
 .stats-tile-label { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+/* Court suggestions (/admin/courts) */
+.suggestion-meta { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.suggestion-status {
+  margin-top: 10px; display: inline-block; font-size: 12px; font-weight: 700;
+  padding: 4px 10px; border-radius: 999px;
+}
+.suggestion-status-approved { background: var(--green-bg); color: var(--green-text); }
+.suggestion-status-rejected { background: var(--bg); color: var(--muted); }
+
+/* Location-aware map additions */
+.location-banner {
+  background: var(--accent-bg); color: var(--accent); font-size: 12px; font-weight: 600;
+  text-align: center; padding: 8px 12px; border-radius: 10px; margin-bottom: 10px;
+}
+.you-dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #1A73E8; border: 3px solid #FFFFFF;
+  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.3), 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+.pin-distance { font-size: 9px; font-weight: 700; color: var(--muted); margin-top: 1px; }
+.sheet-distance { font-weight: 600; color: var(--text2); }
+
+.pin-open { background: #FFFFFF; opacity: 0.9; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); }
+.pin-dot-open { background: var(--muted); }
+.pin-label-open { color: var(--text2); }
+.pin-sub-open { display: block; font-size: 9px; font-weight: 600; color: var(--muted); }
+
+.map-wrap { position: relative; }
+.suggest-court-btn {
+  position: absolute; top: 10px; right: 10px; z-index: 500;
+  background: #FFFFFF; border: none; border-radius: 999px; padding: 8px 14px;
+  font-size: 12px; font-weight: 700; color: var(--accent); cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18); font-family: inherit;
+}
+.suggest-court-btn.active { background: var(--accent); color: #fff; }
+.suggest-court-panel {
+  position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 500;
+  background: #FFFFFF; border-radius: 14px; padding: 12px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.22);
+}
+.suggest-court-panel p { font-size: 12px; color: var(--text2); margin: 0 0 8px; }
+.suggest-court-panel input {
+  width: 100%; box-sizing: border-box; padding: 9px 10px; border-radius: 10px;
+  border: 1px solid var(--border); font-size: 14px; margin-bottom: 8px; font-family: inherit;
+}
+.suggest-court-panel .declare-row form { flex: 1; }
 
 /* ============================================================
    RESPONSIVE — every screen is one centered column (the .phone /

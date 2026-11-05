@@ -42,6 +42,12 @@ const {
   syncOrganizerFlag,
   logEvent,
   getEventStats,
+  getNearbyOpenCourts,
+  checkInAtOpenCourt,
+  createCourtSuggestion,
+  getCourtSuggestions,
+  approveCourtSuggestion,
+  rejectCourtSuggestion,
 } = require('./db/queries');
 
 const app = express();
@@ -339,6 +345,41 @@ app.post('/parks/:parkId/heartbeat', requireAuth, (req, res) => {
   res.json(heartbeat(profile.player_id, Number(req.params.parkId), lat, lng));
 });
 
+// OSM-sourced basketball courts near the player, not yet in our own
+// parks table — the map's lighter "Open court" pins. Looked up server-
+// side (and cached) so the Overpass API never sees the browser directly.
+app.get('/api/nearby-courts', requireAuth, async (req, res) => {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ ok: false, error: 'lat/lng required.' });
+  }
+  const courts = await getNearbyOpenCourts(lat, lng);
+  res.json({ ok: true, courts });
+});
+
+// First check-in at one of those pins creates the real park behind it.
+app.post('/open-courts/check-in', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  logEvent(profile.player_id, 'check_in', pagePathFromReferer(req, '/'));
+  const { osmId, name, lat, lng, playerLat, playerLng } = req.body;
+  if (!osmId || typeof lat !== 'number' || typeof lng !== 'number') {
+    return res.status(400).json({ ok: false, error: 'Missing court location.' });
+  }
+  res.json(checkInAtOpenCourt(profile.player_id, String(osmId), name, lat, lng, playerLat, playerLng));
+});
+
+app.post('/court-suggestions', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const name = (req.body.name || '').trim();
+  const lat = Number(req.body.lat);
+  const lng = Number(req.body.lng);
+  if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ ok: false, error: 'A name and a dropped pin are both required.' });
+  }
+  res.json(createCourtSuggestion(profile.player_id, name, lat, lng));
+});
+
 app.post('/parks/:parkId/settings', requireAuth, (req, res) => {
   const gameTarget = Number(req.body.gameTarget);
   const betweenGamesMinutes = Number(req.body.betweenGamesMinutes);
@@ -453,6 +494,22 @@ app.get('/admin/timer', requireAuth, requireOrganizer, (req, res) => {
 
 app.get('/admin/stats', requireAuth, requireOrganizer, (req, res) => {
   res.render('admin-stats', { active: '', events: getEventStats() });
+});
+
+app.get('/admin/courts', requireAuth, requireOrganizer, (req, res) => {
+  res.render('admin-courts', { active: '', suggestions: getCourtSuggestions() });
+});
+
+app.post('/admin/courts/:id/approve', requireAuth, requireOrganizer, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  approveCourtSuggestion(Number(req.params.id), profile.player_id);
+  res.redirect('/admin/courts');
+});
+
+app.post('/admin/courts/:id/reject', requireAuth, requireOrganizer, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  rejectCourtSuggestion(Number(req.params.id), profile.player_id);
+  res.redirect('/admin/courts');
 });
 
 const PORT = process.env.PORT || 3000;

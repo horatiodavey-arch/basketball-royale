@@ -187,6 +187,27 @@ function ensureKingOfTheCourtTables() {
         page        TEXT,
         created_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS court_suggestions (
+        id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_id             INTEGER NOT NULL REFERENCES players(id),
+        name                  TEXT NOT NULL,
+        lat                   REAL NOT NULL,
+        lng                   REAL NOT NULL,
+        status                TEXT NOT NULL DEFAULT 'pending',
+        park_id               INTEGER REFERENCES parks(id),
+        reviewed_by_player_id INTEGER REFERENCES players(id),
+        created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+        reviewed_at           TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS overpass_cache (
+        bucket_key    TEXT PRIMARY KEY,
+        lat           REAL NOT NULL,
+        lng           REAL NOT NULL,
+        response_json TEXT NOT NULL,
+        fetched_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
@@ -210,6 +231,9 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('next_line', 'created_at', 'TEXT');
   addColumnIfMissing('check_ins', 'last_inside', 'TEXT');
   addColumnIfMissing('players', 'is_organizer', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing('parks', 'osm_id', 'TEXT');
+  addColumnIfMissing('parks', 'added_by_player_id', 'INTEGER REFERENCES players(id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_parks_osm_id ON parks(osm_id)');
 
   // The check-in radius default changed 150 -> 250. Any park still sitting
   // at the old factory default (never customized by an organizer) picks up
@@ -313,6 +337,18 @@ function seedKingOfTheCourtDemoData() {
   );
   const mainCourtId = findOrCreateCourt(lauderhillId, 1, 'Main');
   findOrCreateCourt(lauderhillId, 2, 'Side');
+
+  // A second always-on preset park — distinct from Lauderhill Parks &
+  // Recreation above, a few miles away in the neighboring city.
+  const lauderdaleLakesId = findOrCreatePark(
+    'Lauderdale Lakes Recreation',
+    '4331 NW 36th St, Lauderdale Lakes, FL 33319',
+    250,
+    400,
+    26.17172,
+    -80.20678
+  );
+  findOrCreateCourt(lauderdaleLakesId, 1, 'Main');
 
   // Second demo park, so the leaderboard has somewhere for a player to
   // earn a Double Crown (king of two parks in the same season).

@@ -32,7 +32,27 @@
   <% if (pins.length === 0) { %>
     <div class="empty-board">No parks yet.</div>
   <% } else { %>
-    <div id="map" class="leaflet-map"></div>
+    <div id="locationBanner" class="location-banner" style="display: none;"></div>
+    <div class="map-wrap">
+      <div id="map" class="leaflet-map"></div>
+      <button type="button" id="suggestCourtBtn" class="suggest-court-btn">+ Suggest a court</button>
+      <div id="suggestCourtPanel" class="suggest-court-panel" style="display: none;">
+        <p>Tap the map to drop a pin, then name the court.</p>
+        <input type="text" id="suggestCourtName" placeholder="Court name" maxlength="80">
+        <div class="declare-row">
+          <button type="button" id="suggestCourtCancel" class="small-btn">Cancel</button>
+          <button type="button" id="suggestCourtSubmit" class="small-btn small-btn-accent" disabled>Submit</button>
+        </div>
+      </div>
+      <div id="openCourtPanel" class="suggest-court-panel" style="display: none;">
+        <p id="openCourtName"></p>
+        <div class="declare-row">
+          <button type="button" id="openCourtCancel" class="small-btn">Close</button>
+          <button type="button" id="openCourtCheckIn" class="small-btn small-btn-accent">Check in</button>
+        </div>
+      </div>
+    </div>
+    <div id="toast" class="location-banner" style="display: none;"></div>
 
     <div class="bottom-sheet">
       <div class="sheet-handle"></div>
@@ -40,6 +60,7 @@
       <div class="sheet-meta">
         <span class="sheet-dot <%= sheet.activeCount > 0 ? 'sheet-dot-active' : 'sheet-dot-idle' %>"></span>
         <%= sheet.activeCount %> active now &middot; <%= sheet.liveCount %> game<%= sheet.liveCount === 1 ? '' : 's' %> live
+        <span id="sheetDistance" class="sheet-distance"></span>
       </div>
 
       <% if (sheet.king) { %>
@@ -102,8 +123,6 @@
       lng: selectedPark.lng,
       checkInRadiusMeters: selectedPark.check_in_radius_meters,
     }).replace(/</g, '\\u003c') %>;
-    var viewerCrownFill = <%- JSON.stringify(crown ? crown.fill : 'none') %>;
-
     function escapeHtml(s) {
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
@@ -115,16 +134,42 @@
         '</svg>';
     }
 
-    function pinHtml(pin, isSelected) {
+    function pinHtml(pin, isSelected, miles) {
       var fill = (pin.king && pin.king.crown) ? pin.king.crown.fill : 'none';
       var stroke = (pin.king && pin.king.crown) ? pin.king.crown.stroke : '#9C9A92';
       var dotClass = pin.activeCount > 0 ? 'pin-dot-active' : 'pin-dot-idle';
       var label = pin.king ? pin.king.name : pin.name;
+      var distanceHtml = miles != null ? '<div class="pin-distance">' + miles.toFixed(1) + ' mi away</div>' : '';
       return '<div class="kotc-marker-content"><div class="pin' + (isSelected ? ' pin-selected' : '') + '">' +
         crownSvg(fill, stroke, 16) +
         '<span class="pin-count">' + pin.activeCount + '</span>' +
         '<span class="pin-dot ' + dotClass + '"></span>' +
-        '</div><div class="pin-label">' + escapeHtml(label) + '</div></div>';
+        '</div><div class="pin-label">' + escapeHtml(label) + distanceHtml + '</div></div>';
+    }
+
+    function openCourtPinHtml(court, miles) {
+      var distanceHtml = miles != null ? '<div class="pin-distance">' + miles.toFixed(1) + ' mi away</div>' : '';
+      return '<div class="kotc-marker-content"><div class="pin pin-open"><span class="pin-dot pin-dot-open"></span></div>' +
+        '<div class="pin-label pin-label-open">' + escapeHtml(court.name) +
+        '<span class="pin-sub-open">Open court &middot; No king yet</span>' + distanceHtml + '</div></div>';
+    }
+
+    function haversineMiles(lat1, lng1, lat2, lng2) {
+      var R = 3958.8;
+      var toRad = function (d) { return (d * Math.PI) / 180; };
+      var dLat = toRad(lat2 - lat1);
+      var dLng = toRad(lng2 - lng1);
+      var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function showToast(message, ms) {
+      var toast = document.getElementById('toast');
+      if (!toast) return;
+      toast.textContent = message;
+      toast.style.display = 'block';
+      if (ms) setTimeout(function () { toast.style.display = 'none'; }, ms);
     }
 
     var map = L.map('map', { zoomControl: true });
@@ -148,13 +193,15 @@
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
     }).addTo(map);
 
+    var parkMarkers = {};
     pins.forEach(function (pin) {
       if (pin.lat == null || pin.lng == null) return;
       var isSelected = pin.id === selectedParkData.id;
       var icon = L.divIcon({ className: 'kotc-marker', html: pinHtml(pin, isSelected), iconSize: [0, 0] });
-      L.marker([pin.lat, pin.lng], { icon: icon })
+      var marker = L.marker([pin.lat, pin.lng], { icon: icon })
         .addTo(map)
         .on('click', function () { window.location.href = '/?park=' + pin.id; });
+      parkMarkers[pin.id] = marker;
     });
 
     if (selectedParkData.lat != null) {
@@ -174,6 +221,148 @@
       map.setView(FORT_LAUDERDALE, 12);
     }
 
+    // Updates every park pin's distance label and, for the currently
+    // selected park, the bottom sheet's too. Returns the nearest park's
+    // id/distance so the caller can decide whether to jump to its sheet.
+    function updateDistancesAndFindNearest(playerLat, playerLng) {
+      var nearest = null;
+      pins.forEach(function (pin) {
+        if (pin.lat == null || pin.lng == null) return;
+        var miles = haversineMiles(playerLat, playerLng, pin.lat, pin.lng);
+        if (!nearest || miles < nearest.miles) nearest = { id: pin.id, miles: miles };
+
+        var marker = parkMarkers[pin.id];
+        if (marker) {
+          var isSelected = pin.id === selectedParkData.id;
+          marker.setIcon(L.divIcon({ className: 'kotc-marker', html: pinHtml(pin, isSelected, miles), iconSize: [0, 0] }));
+        }
+        if (pin.id === selectedParkData.id) {
+          var sheetDistanceEl = document.getElementById('sheetDistance');
+          if (sheetDistanceEl) sheetDistanceEl.textContent = '· ' + miles.toFixed(1) + ' mi away';
+        }
+      });
+      return nearest;
+    }
+
+    var openCourtMarkers = {};
+    function loadNearbyOpenCourts(playerLat, playerLng) {
+      fetch('/api/nearby-courts?lat=' + playerLat + '&lng=' + playerLng)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok) return;
+          data.courts.forEach(function (court) {
+            var miles = haversineMiles(playerLat, playerLng, court.lat, court.lng);
+            var icon = L.divIcon({ className: 'kotc-marker', html: openCourtPinHtml(court, miles), iconSize: [0, 0] });
+            var marker = L.marker([court.lat, court.lng], { icon: icon }).addTo(map);
+            marker.on('click', function () { showOpenCourtPanel(court, playerLat, playerLng); });
+            openCourtMarkers[court.osmId] = marker;
+          });
+        })
+        .catch(function () {});
+    }
+
+    function showOpenCourtPanel(court, playerLat, playerLng) {
+      closeSuggestPanel();
+      var panel = document.getElementById('openCourtPanel');
+      var nameEl = document.getElementById('openCourtName');
+      var checkInBtn = document.getElementById('openCourtCheckIn');
+      nameEl.textContent = court.name + ' — open court, no king yet';
+      checkInBtn.disabled = false;
+      checkInBtn.textContent = 'Check in';
+      panel.style.display = 'block';
+
+      checkInBtn.onclick = function () {
+        checkInBtn.disabled = true;
+        checkInBtn.textContent = 'Checking in…';
+        fetch('/open-courts/check-in', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            osmId: court.osmId, name: court.name, lat: court.lat, lng: court.lng,
+            playerLat: playerLat, playerLng: playerLng,
+          }),
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.ok) {
+              window.location.href = '/?park=' + data.parkId;
+            } else {
+              checkInBtn.disabled = false;
+              checkInBtn.textContent = 'Check in';
+              nameEl.textContent = data.error || 'Could not check in.';
+            }
+          })
+          .catch(function () {
+            checkInBtn.disabled = false;
+            checkInBtn.textContent = 'Check in';
+          });
+      };
+    }
+    document.getElementById('openCourtCancel').addEventListener('click', function () {
+      document.getElementById('openCourtPanel').style.display = 'none';
+    });
+
+    // Suggest a court: tap the button, tap the map to drop a pin, name it.
+    var suggestMode = false;
+    var suggestMarker = null;
+    var suggestLatLng = null;
+    var suggestBtn = document.getElementById('suggestCourtBtn');
+    var suggestPanel = document.getElementById('suggestCourtPanel');
+    var suggestNameInput = document.getElementById('suggestCourtName');
+    var suggestSubmitBtn = document.getElementById('suggestCourtSubmit');
+
+    function closeSuggestPanel() {
+      suggestMode = false;
+      suggestBtn.classList.remove('active');
+      suggestPanel.style.display = 'none';
+      suggestNameInput.value = '';
+      suggestSubmitBtn.disabled = true;
+      if (suggestMarker) { map.removeLayer(suggestMarker); suggestMarker = null; }
+      suggestLatLng = null;
+    }
+
+    suggestBtn.addEventListener('click', function () {
+      if (suggestMode) { closeSuggestPanel(); return; }
+      document.getElementById('openCourtPanel').style.display = 'none';
+      suggestMode = true;
+      suggestBtn.classList.add('active');
+      suggestPanel.style.display = 'block';
+    });
+
+    map.on('click', function (e) {
+      if (!suggestMode) return;
+      suggestLatLng = e.latlng;
+      if (suggestMarker) map.removeLayer(suggestMarker);
+      suggestMarker = L.marker(e.latlng).addTo(map);
+      suggestSubmitBtn.disabled = !suggestNameInput.value.trim();
+    });
+
+    suggestNameInput.addEventListener('input', function () {
+      suggestSubmitBtn.disabled = !(suggestLatLng && suggestNameInput.value.trim());
+    });
+
+    document.getElementById('suggestCourtCancel').addEventListener('click', closeSuggestPanel);
+
+    suggestSubmitBtn.addEventListener('click', function () {
+      if (!suggestLatLng) return;
+      suggestSubmitBtn.disabled = true;
+      fetch('/court-suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: suggestNameInput.value.trim(), lat: suggestLatLng.lat, lng: suggestLatLng.lng }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.ok) {
+            closeSuggestPanel();
+            showToast('Thanks — sent to the organizers for review.', 3000);
+          } else {
+            suggestSubmitBtn.disabled = false;
+          }
+        })
+        .catch(function () { suggestSubmitBtn.disabled = false; });
+    });
+
     // Show something immediately (geolocation can be slow or never
     // resolve), then re-center on the player once/if it does.
     setFallbackView();
@@ -181,13 +370,27 @@
       navigator.geolocation.getCurrentPosition(function (pos) {
         var youIcon = L.divIcon({
           className: 'kotc-marker',
-          html: '<div class="kotc-marker-content"><div class="pin pin-you">' + crownSvg(viewerCrownFill, '#FFFFFF', 16) + '<span class="pin-dot pin-dot-you"></span></div><div class="pin-label">You</div></div>',
+          html: '<div class="kotc-dot-content"><div class="you-dot"></div></div>',
           iconSize: [0, 0],
         });
-        L.marker([pos.coords.latitude, pos.coords.longitude], { icon: youIcon }).addTo(map);
-        map.setView([pos.coords.latitude, pos.coords.longitude], 12);
+        L.marker([pos.coords.latitude, pos.coords.longitude], { icon: youIcon, zIndexOffset: 1000 }).addTo(map);
+        map.setView([pos.coords.latitude, pos.coords.longitude], 13);
+
+        var nearest = updateDistancesAndFindNearest(pos.coords.latitude, pos.coords.longitude);
+        var urlHasPark = new URLSearchParams(window.location.search).has('park');
+        if (!urlHasPark && nearest && nearest.id !== selectedParkData.id) {
+          window.location.href = '/?park=' + nearest.id;
+          return;
+        }
+
+        loadNearbyOpenCourts(pos.coords.latitude, pos.coords.longitude);
       }, function () {
         // Permission denied or unavailable — keep the fallback view.
+        var banner = document.getElementById('locationBanner');
+        if (banner) {
+          banner.textContent = 'Turn on location to see courts near you.';
+          banner.style.display = 'block';
+        }
       }, { timeout: 8000 });
     }
   })();
