@@ -473,6 +473,20 @@ body.kotc { background: #FFFFFF; padding: 0; }
 }
 .timer-idle { font-size: 13px; color: var(--muted); }
 
+/* Click tracking (/admin/stats) */
+.stats-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+  padding: 14px; margin-bottom: 12px;
+}
+.stats-label { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+.stats-tiles { display: flex; gap: 8px; }
+.stats-tile {
+  flex: 1; background: var(--bg); border-radius: 10px; padding: 10px 6px;
+  text-align: center;
+}
+.stats-tile-value { font-size: 22px; font-weight: 700; color: var(--accent); }
+.stats-tile-label { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
 /* ============================================================
    RESPONSIVE — every screen is one centered column (the .phone /
    .page / .nav-bar trio), not an adaptive multi-pane desktop layout.

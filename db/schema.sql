@@ -24,7 +24,8 @@ CREATE TABLE players (
     wins          INTEGER NOT NULL DEFAULT 0,
     losses        INTEGER NOT NULL DEFAULT 0,
     games_played  INTEGER NOT NULL DEFAULT 0,
-    promoted_at   TEXT                      -- when they last moved up
+    promoted_at   TEXT,                     -- when they last moved up
+    is_organizer  INTEGER NOT NULL DEFAULT 0 -- can see /admin/* pages
 );
 
 -- 3. TIERS — the rules of the ladder, as data (not code!)
@@ -198,6 +199,15 @@ CREATE TABLE IF NOT EXISTS live_game_players (
     captain        INTEGER NOT NULL DEFAULT 0,
     time_on        TEXT,              -- set when the game actually starts, not when seated for countdown
     time_off       TEXT
+);
+
+-- 16. EVENTS — one row per tracked tap (click tracking for /admin/stats)
+CREATE TABLE IF NOT EXISTS events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id   INTEGER NOT NULL REFERENCES players(id),
+    event_name  TEXT NOT NULL,              -- e.g. 'check_in', 'i_got_next'
+    page        TEXT,                       -- path the tap happened on
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- ============================================================

@@ -122,19 +122,38 @@ and the Crown Perks checklist that used to have no home of their own;
 lobby/tier-ladder screen moved to `/lobbies`, linked from the bottom of
 `/runs`.
 
-## Timer tracking
-
-`/admin/timer` (linked from `/runs`) lists every court across every park
-with its live between-games status at a glance — idle, a game in progress,
-or a countdown with a live ticking "M:SS" clock to the next game. Each
-court also shows its configured "Time between games" in minutes, which is
-how organizers set it from the court screen's "Game settings" (stored as
-seconds internally, converted at the form boundary).
-
 **Known simplification**: selecting a different pin does a full page
 navigation (consistent with the rest of this server-rendered app), so the
 map's pan/zoom position resets to the new park's view rather than staying
 put — a minor rough edge, not a live client-side map update.
+
+## Timer tracking
+
+`/admin/timer` (linked from `/runs`, organizers only) lists every court
+across every park with its live between-games status at a glance — idle, a
+game in progress, or a countdown with a live ticking "M:SS" clock to the
+next game. Each court also shows its configured "Time between games" in
+minutes, which is how organizers set it from the court screen's "Game
+settings" (stored as seconds internally, converted at the form boundary).
+
+## Organizers & click tracking
+
+`players.is_organizer` gates two pages, both linked from `/runs` only when
+the signed-in player is an organizer, and redirecting to `/runs` for anyone
+else who hits the URL directly:
+
+- `/admin/timer` — the between-games timer board above.
+- `/admin/stats` — total taps, unique players, and an average taps/day rate
+  for each of five tracked taps: Check in, I got next, View lobbies, How it
+  works, and tapping a player from the leaderboard. Every tap writes one row
+  to the `events` table (`player_id`, `event_name`, `page`, `created_at`);
+  `/admin/stats` aggregates it live, nothing is pre-computed.
+
+To make an account an organizer, set `ORGANIZER_PHONES` to a comma-separated
+list of phone numbers (matching how that player signs in). It's applied both
+at boot (covering a phone added to the list after that account already
+exists) and on every signup/login (covering a fresh account created after
+the list is set) — so there's no manual DB edit needed either way.
 
 ## Deploying on Railway
 
@@ -143,3 +162,5 @@ put — a minor rough edge, not a live client-side map update.
   repo (the app creates the folder if it doesn't exist).
 - Set `SESSION_SECRET` to a fixed random string, so sessions survive restarts
   and deploys instead of invalidating every time the random fallback changes.
+- Set `ORGANIZER_PHONES` to your own phone number (and any other organizers',
+  comma-separated) so those accounts can see `/admin/timer` and `/admin/stats`.

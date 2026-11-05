@@ -25,6 +25,7 @@ function getPlayerProfile(userId) {
     .prepare(
       `SELECT u.id AS user_id, u.name, u.phone,
               p.id AS player_id, p.tier, p.wins, p.losses, p.games_played,
+              p.is_organizer,
               t.rank AS tier_rank, t.wins_to_promote, t.games_to_promote,
               t.min_stake_cents AS tier_min_stake_cents
        FROM users u
@@ -42,6 +43,7 @@ function getPlayerProfileByPlayerId(playerId) {
     .prepare(
       `SELECT u.id AS user_id, u.name, u.phone,
               p.id AS player_id, p.tier, p.wins, p.losses, p.games_played,
+              p.is_organizer,
               t.rank AS tier_rank, t.wins_to_promote, t.games_to_promote,
               t.min_stake_cents AS tier_min_stake_cents
        FROM users u
@@ -50,6 +52,22 @@ function getPlayerProfileByPlayerId(playerId) {
        WHERE p.id = ?`
     )
     .get(playerId);
+}
+
+// Flags a single account as organizer if its phone is in ORGANIZER_PHONES
+// — called on every signup/login (see db/index.js's applyOrganizerPhones
+// for the boot-time equivalent, covering accounts that already existed
+// before the env var was set).
+function syncOrganizerFlag(phone) {
+  const phones = (process.env.ORGANIZER_PHONES || '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!phones.includes(phone)) return;
+  db.prepare(
+    `UPDATE players SET is_organizer = 1
+     WHERE user_id IN (SELECT id FROM users WHERE phone = ?)`
+  ).run(phone);
 }
 
 function getTiers() {
@@ -1077,6 +1095,51 @@ function getAllCourtsTimerStatus() {
   });
 }
 
+// Click tracking — one row per tracked tap. Logged regardless of whether
+// the underlying action (e.g. a check-in outside the radius) succeeds,
+// since this measures taps, not outcomes.
+function logEvent(playerId, eventName, page) {
+  db.prepare('INSERT INTO events (player_id, event_name, page) VALUES (?, ?, ?)').run(
+    playerId,
+    eventName,
+    page || null
+  );
+}
+
+const TRACKED_EVENTS = [
+  { name: 'check_in', label: 'Check in' },
+  { name: 'i_got_next', label: 'I got next' },
+  { name: 'view_lobbies', label: 'View lobbies' },
+  { name: 'how_it_works', label: 'How it works' },
+  { name: 'leaderboard_player_tap', label: 'Tapped a player (leaderboard)' },
+];
+
+// For /admin/stats: total taps, unique players, and an average taps/day
+// rate (total taps over the days since the event's first tap) per
+// tracked event.
+function getEventStats() {
+  return TRACKED_EVENTS.map(({ name, label }) => {
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) AS total, COUNT(DISTINCT player_id) AS uniquePlayers, MIN(created_at) AS firstAt
+         FROM events WHERE event_name = ?`
+      )
+      .get(name);
+
+    const days = row.firstAt
+      ? Math.max(1, Math.ceil((Date.now() - new Date(row.firstAt + 'Z').getTime()) / 86400000))
+      : 1;
+
+    return {
+      name,
+      label,
+      totalTaps: row.total,
+      uniquePlayers: row.uniquePlayers,
+      tapsPerDay: row.total > 0 ? Math.round((row.total / days) * 10) / 10 : 0,
+    };
+  });
+}
+
 module.exports = {
   getUserByPhone,
   getPlayerByUserId,
@@ -1118,4 +1181,7 @@ module.exports = {
   confirmResult,
   updateParkSettings,
   CHECK_IN_FRESH_MINUTES,
+  syncOrganizerFlag,
+  logEvent,
+  getEventStats,
 };

@@ -28,6 +28,7 @@ if (isNewDb) {
 ensureKingOfTheCourtTables();
 migrateKingOfTheCourtColumns();
 seedKingOfTheCourtDemoData();
+applyOrganizerPhones();
 
 // Reused as the lobby's shared "roster" before teams are drafted.
 // Joining a lobby = joining this forming game with team left unassigned.
@@ -178,6 +179,14 @@ function ensureKingOfTheCourtTables() {
         time_on        TEXT,
         time_off       TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS events (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_id   INTEGER NOT NULL REFERENCES players(id),
+        event_name  TEXT NOT NULL,
+        page        TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
@@ -200,6 +209,7 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('next_line', 'status', "TEXT NOT NULL DEFAULT 'waiting'");
   addColumnIfMissing('next_line', 'created_at', 'TEXT');
   addColumnIfMissing('check_ins', 'last_inside', 'TEXT');
+  addColumnIfMissing('players', 'is_organizer', 'INTEGER NOT NULL DEFAULT 0');
 
   // The check-in radius default changed 150 -> 250. Any park still sitting
   // at the old factory default (never customized by an organizer) picks up
@@ -252,6 +262,25 @@ function renameParkIfExists(oldName, newName, newLocation, newLat, newLng) {
     newLng,
     existing.id
   );
+}
+
+// Flags any account whose phone is in ORGANIZER_PHONES (comma-separated)
+// as an organizer. Runs at boot, so a phone added to the env var after an
+// account already exists still takes effect on the next restart — and
+// again from server.js on every signup/login, for the common case of an
+// account that's created or logged into fresh after the env var is set.
+function applyOrganizerPhones() {
+  const phones = (process.env.ORGANIZER_PHONES || '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (phones.length === 0) return;
+
+  const flag = db.prepare(
+    `UPDATE players SET is_organizer = 1
+     WHERE user_id IN (SELECT id FROM users WHERE phone = ?)`
+  );
+  for (const phone of phones) flag.run(phone);
 }
 
 function findOrCreateCourt(parkId, number, nickname) {
