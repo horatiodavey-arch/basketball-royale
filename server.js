@@ -25,6 +25,7 @@ const {
   getCrownPerks,
   getPlayerSeasonPoints,
   getNextCrownProgress,
+  getAllCourtsTimerStatus,
   getParkMapPins,
   getParkSheetDetail,
   CROWN_LEVELS,
@@ -312,16 +313,23 @@ app.post('/parks/:parkId/heartbeat', requireAuth, (req, res) => {
 
 app.post('/parks/:parkId/settings', requireAuth, (req, res) => {
   const gameTarget = Number(req.body.gameTarget);
-  const betweenGamesSeconds = Number(req.body.betweenGamesSeconds);
+  const betweenGamesMinutes = Number(req.body.betweenGamesMinutes);
   const checkInRadiusMeters = Number(req.body.checkInRadiusMeters);
   const leaveRadiusMeters = Number(req.body.leaveRadiusMeters);
   const valid =
     Number.isInteger(gameTarget) && gameTarget > 0 &&
-    Number.isInteger(betweenGamesSeconds) && betweenGamesSeconds > 0 &&
+    Number.isInteger(betweenGamesMinutes) && betweenGamesMinutes > 0 &&
     Number.isInteger(checkInRadiusMeters) && checkInRadiusMeters > 0 &&
     Number.isInteger(leaveRadiusMeters) && leaveRadiusMeters >= checkInRadiusMeters;
   if (valid) {
-    updateParkSettings(Number(req.params.parkId), { gameTarget, betweenGamesSeconds, checkInRadiusMeters, leaveRadiusMeters });
+    // Stored in seconds (the countdown math throughout db/queries.js
+    // works in seconds) — only the organizer-facing form is in minutes.
+    updateParkSettings(Number(req.params.parkId), {
+      gameTarget,
+      betweenGamesSeconds: betweenGamesMinutes * 60,
+      checkInRadiusMeters,
+      leaveRadiusMeters,
+    });
   }
   res.redirect(req.get('Referer') || '/runs');
 });
@@ -402,6 +410,10 @@ app.get('/players/:id', requireAuth, (req, res) => {
     season,
     initials: initials(player.name),
   });
+});
+
+app.get('/admin/timer', requireAuth, (req, res) => {
+  res.render('admin-timer', { active: '', courts: getAllCourtsTimerStatus() });
 });
 
 const PORT = process.env.PORT || 3000;

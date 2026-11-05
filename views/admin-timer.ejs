@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timer tracking — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc">
+<div class="page">
+  <div class="page-title heading">Timer tracking</div>
+  <div class="page-sub">Between-games countdowns across every court, live.</div>
+
+  <% if (courts.length === 0) { %>
+    <div class="empty-board">No courts yet.</div>
+  <% } %>
+  <% courts.forEach((c) => { %>
+    <div class="timer-row">
+      <div class="timer-main">
+        <div class="timer-court"><%= c.parkName %> &middot; <%= c.courtName %></div>
+        <div class="timer-sub">Time between games: <%= c.betweenGamesMinutes %> min</div>
+      </div>
+      <div class="timer-status">
+        <% if (c.status === 'countdown') { %>
+          <span class="timer-countdown" data-ends-at="<%= c.countdownEndsAtIso %>">&ndash;:&ndash;&ndash;</span>
+        <% } else if (c.status === 'live') { %>
+          <span class="timer-live">Live game</span>
+        <% } else { %>
+          <span class="timer-idle">Idle</span>
+        <% } %>
+      </div>
+    </div>
+  <% }); %>
+</div>
+<%- include('partials/bottom-nav', { active: active }) %>
+
+<script>
+  (function () {
+    var els = document.querySelectorAll('.timer-countdown');
+    function tick() {
+      els.forEach(function (el) {
+        var endsAt = new Date(el.getAttribute('data-ends-at')).getTime();
+        var remaining = Math.max(0, Math.round((endsAt - Date.now()) / 1000));
+        var m = Math.floor(remaining / 60);
+        var s = remaining % 60;
+        el.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+      });
+    }
+    tick();
+    setInterval(tick, 1000);
+    // Pick up status changes (a countdown resolving into a live game,
+    // a new countdown starting elsewhere) without a manual refresh.
+    setInterval(function () { location.reload(); }, 15000);
+  })();
+</script>
+</body>
+</html>

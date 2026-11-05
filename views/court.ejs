@@ -160,8 +160,8 @@
         <input type="number" id="gameTarget" name="gameTarget" min="1" value="<%= park.game_target %>">
       </div>
       <div class="form-group">
-        <label for="betweenGamesSeconds">Between games (seconds)</label>
-        <input type="number" id="betweenGamesSeconds" name="betweenGamesSeconds" min="10" value="<%= park.between_games_seconds %>">
+        <label for="betweenGamesMinutes">Time between games (minutes)</label>
+        <input type="number" id="betweenGamesMinutes" name="betweenGamesMinutes" min="1" value="<%= Math.round(park.between_games_seconds / 60) %>">
       </div>
       <div class="form-group">
         <label for="checkInRadiusMeters">Check-in radius (meters)</label>

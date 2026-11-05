@@ -1038,6 +1038,45 @@ function getCourtScreen(courtId, viewerPlayerId) {
   };
 }
 
+// Every court, across every park, with its current timer status — the
+// /admin/timer tracking page. Ticks each court first so countdowns that
+// have already expired (and the queue/live-game transitions that follow)
+// are resolved before reporting status, not left showing stale state.
+function getAllCourtsTimerStatus() {
+  const courts = db
+    .prepare(
+      `SELECT c.id, c.number, c.nickname, p.id AS park_id, p.name AS park_name, p.between_games_seconds
+       FROM courts c
+       JOIN parks p ON p.id = c.park_id
+       ORDER BY p.name ASC, c.number ASC`
+    )
+    .all();
+
+  return courts.map((court) => {
+    tickCourt(court.id);
+    const game = getActiveLiveGame(court.id);
+
+    let status = 'idle';
+    let countdownEndsAtIso = null;
+    if (game && game.status === 'countdown') {
+      status = 'countdown';
+      countdownEndsAtIso = new Date(game.countdown_ends_at + 'Z').toISOString();
+    } else if (game) {
+      status = 'live';
+    }
+
+    return {
+      courtId: court.id,
+      courtName: court.nickname || `Court ${court.number}`,
+      parkId: court.park_id,
+      parkName: court.park_name,
+      betweenGamesMinutes: Math.round(court.between_games_seconds / 60),
+      status,
+      countdownEndsAtIso,
+    };
+  });
+}
+
 module.exports = {
   getUserByPhone,
   getPlayerByUserId,
@@ -1063,6 +1102,7 @@ module.exports = {
   getCrownPerks,
   getPlayerSeasonPoints,
   getNextCrownProgress,
+  getAllCourtsTimerStatus,
   getParkMapPins,
   getParkSheetDetail,
   checkIn,

@@ -140,15 +140,16 @@
     }
     setTimeout(refreshMapSize, 300);
     setTimeout(refreshMapSize, 1000);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // CARTO's free "Positron" tiles — OSM's own tile servers reject
+    // unregistered/automated traffic with 403s under their usage policy.
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      subdomains: 'abcd',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
     }).addTo(map);
 
-    var bounds = [];
     pins.forEach(function (pin) {
       if (pin.lat == null || pin.lng == null) return;
-      bounds.push([pin.lat, pin.lng]);
       var isSelected = pin.id === selectedParkData.id;
       var icon = L.divIcon({ className: 'kotc-marker', html: pinHtml(pin, isSelected), iconSize: [0, 0] });
       L.marker([pin.lat, pin.lng], { icon: icon })
@@ -166,12 +167,11 @@
       }).addTo(map);
     }
 
+    // Default center when we don't know the player's own location — this
+    // app's real-world home turf, not a computed fit of the seeded parks.
+    var FORT_LAUDERDALE = [26.1224, -80.1373];
     function setFallbackView() {
-      if (bounds.length > 0) {
-        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 });
-      } else {
-        map.setView([26.15, -80.25], 11);
-      }
+      map.setView(FORT_LAUDERDALE, 12);
     }
 
     // Show something immediately (geolocation can be slow or never
