@@ -52,7 +52,8 @@ INSERT INTO tiers VALUES
 CREATE TABLE lobbies (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     name          TEXT NOT NULL,             -- "Sunday Run @ [court]"
-    location      TEXT,
+    location      TEXT,                     -- legacy free-text fallback; park_id drives display now
+    park_id       INTEGER REFERENCES parks(id), -- the real park this lobby plays at
     starts_at     TEXT NOT NULL,
     tier          TEXT NOT NULL REFERENCES tiers(name),
     stake_cents   INTEGER NOT NULL,          -- entry fee for games here

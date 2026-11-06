@@ -76,7 +76,13 @@ function getTiers() {
 
 function getOpenLobbies() {
   return db
-    .prepare("SELECT * FROM lobbies WHERE status = 'open' ORDER BY starts_at ASC")
+    .prepare(
+      `SELECT l.*, p.name AS park_name, p.location AS park_location, p.lat AS park_lat, p.lng AS park_lng
+       FROM lobbies l
+       LEFT JOIN parks p ON p.id = l.park_id
+       WHERE l.status = 'open'
+       ORDER BY l.starts_at ASC`
+    )
     .all();
 }
 

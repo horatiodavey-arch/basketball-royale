@@ -261,6 +261,7 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('parks', 'added_by_player_id', 'INTEGER REFERENCES players(id)');
   addColumnIfMissing('parks', 'is_suggested', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing('court_suggestions', 'photo_url', 'TEXT');
+  addColumnIfMissing('lobbies', 'park_id', 'INTEGER REFERENCES parks(id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_parks_osm_id ON parks(osm_id)');
 
   // The check-in radius default changed 150 -> 250. Any park still sitting
@@ -367,6 +368,14 @@ function seedKingOfTheCourtDemoData() {
   findOrCreateCourt(lauderhillId, 2, 'Side');
   // Organizer-curated pick for the Runs tab's "Suggested parks" section.
   db.prepare('UPDATE parks SET is_suggested = 1 WHERE id = ?').run(lauderhillId);
+
+  // The demo Sunday run lobby plays at Lauderhill — linked here (rather
+  // than at lobby-creation time in seedDemoData(), which runs before this
+  // park exists) so /lobbies can show its real name and directions
+  // instead of the old free-text "Home court".
+  db.prepare(
+    `UPDATE lobbies SET park_id = ? WHERE name = 'Sunday run' AND park_id IS NULL`
+  ).run(lauderhillId);
 
   // Sunrise Athletic Complex (11501 NW 44th St, Sunrise, FL 33323) is the
   // second organizer-suggested park, but isn't seeded yet — its exact

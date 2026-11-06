@@ -29,7 +29,12 @@ To wipe and reseed: `npm run db:reset`.
 - **`/lobbies`** reads real data: record, tier badge, promotion progress
   (from `tiers.wins_to_promote` / `games_to_promote`), open lobbies at the
   player's tier, and the ladder of locked tiers. (The home screen itself is
-  now the King of the Court map — see below.)
+  now the King of the Court map — see below.) Each lobby links to a real
+  `parks` row via `lobbies.park_id` — the card shows the park's name and
+  "Get directions" opens a Google Maps directions link to the park's actual
+  lat/lng (the old free-text `location` column is still there but unused for
+  display). The demo "Sunday run" lobby is linked to Lauderhill Parks &
+  Recreation.
 - **Join a lobby**: the schema has no separate "lobby roster" table — a
   lobby's roster before teams are drafted is the `game_players` for its one
   `forming`-status game (auto-created per lobby). Joining inserts a
