@@ -12,6 +12,30 @@
   <div class="page-title heading">Runs</div>
   <div class="page-sub">Find a run, follow a court, or start your own &mdash; from anywhere.</div>
 
+  <% if (suggestedParks.length > 0) { %>
+    <div class="section">Suggested parks</div>
+    <% suggestedParks.forEach((sp) => { %>
+      <div class="stats-card suggested-park-card" data-park-id="<%= sp.park.id %>" data-lat="<%= sp.park.lat %>" data-lng="<%= sp.park.lng %>">
+        <div class="stats-label"><%= sp.park.name %></div>
+        <div class="suggestion-meta">
+          <span class="suggested-distance"></span>
+          <%= sp.king ? ('King: ' + sp.king.name) : 'No king yet' %>
+          <% if (sp.upcomingRuns.length > 0) { %> &middot; Next run <%= formatRunTime(sp.upcomingRuns[0].scheduledAt) %><% } %>
+        </div>
+        <div class="declare-row" style="margin-top: 10px;">
+          <% if (sp.checkedIn) { %>
+            <button type="button" class="small-btn" disabled>Checked in</button>
+          <% } else { %>
+            <button type="button" class="small-btn suggested-checkin-btn" data-park-id="<%= sp.park.id %>">Check in</button>
+          <% } %>
+          <form method="POST" action="/courts/<%= sp.firstCourtId %>/next" style="flex: 1;">
+            <button type="submit" class="small-btn small-btn-accent" style="width: 100%;" <%= sp.firstCourtId ? '' : 'disabled' %>>I got next</button>
+          </form>
+        </div>
+      </div>
+    <% }); %>
+  <% } %>
+
   <% if (followedCourts.length > 0) { %>
     <div class="section">Following</div>
     <% followedCourts.forEach((fc) => { %>
@@ -105,9 +129,68 @@
         });
     }
 
+    function haversineMiles(lat1, lng1, lat2, lng2) {
+      var R = 3958.8;
+      var toRad = function (d) { return (d * Math.PI) / 180; };
+      var dLat = toRad(lat2 - lat1);
+      var dLng = toRad(lng2 - lng1);
+      var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Reuses the same geolocation fix already gathered for nearby runs —
+    // no second permission prompt just to show distance on these cards.
+    function fillSuggestedParkDistances(lat, lng) {
+      document.querySelectorAll('.suggested-park-card').forEach(function (card) {
+        var pLat = parseFloat(card.getAttribute('data-lat'));
+        var pLng = parseFloat(card.getAttribute('data-lng'));
+        if (isNaN(pLat) || isNaN(pLng)) return;
+        var miles = haversineMiles(lat, lng, pLat, pLng);
+        var el = card.querySelector('.suggested-distance');
+        if (el) el.textContent = miles.toFixed(1) + ' mi away · ';
+      });
+    }
+
+    document.querySelectorAll('.suggested-checkin-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (!navigator.geolocation) return;
+        var parkId = btn.getAttribute('data-park-id');
+        btn.disabled = true;
+        var originalText = btn.textContent;
+        btn.textContent = 'Finding you…';
+        navigator.geolocation.getCurrentPosition(function (pos) {
+          fetch('/parks/' + parkId + '/check-in', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (data.ok) {
+                location.reload();
+              } else {
+                btn.disabled = false;
+                btn.textContent = originalText;
+                alert(data.error || 'Could not check in.');
+              }
+            })
+            .catch(function () {
+              btn.disabled = false;
+              btn.textContent = originalText;
+            });
+        }, function () {
+          btn.disabled = false;
+          btn.textContent = originalText;
+          alert('Location permission denied.');
+        });
+      });
+    });
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(function (pos) {
         loadNearbyRuns(pos.coords.latitude, pos.coords.longitude);
+        fillSuggestedParkDistances(pos.coords.latitude, pos.coords.longitude);
       }, function () {
         document.getElementById('nearbyRunsLoading').style.display = 'none';
         document.getElementById('nearbyRunsNoLocation').style.display = 'block';

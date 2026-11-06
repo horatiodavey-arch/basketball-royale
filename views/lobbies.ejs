@@ -58,8 +58,13 @@
         <% } %>
       </div>
       <div class="lobby-meta">
+        <%
+          var directionsUrl = lobby.park_lat != null
+            ? 'https://www.google.com/maps/dir/?api=1&destination=' + lobby.park_lat + ',' + lobby.park_lng
+            : 'https://maps.google.com/?q=' + encodeURIComponent(lobby.park_location || lobby.park_name || '');
+        %>
         <%= lobby.startsLabel %> &middot;
-        <a href="https://maps.google.com/?q=<%= encodeURIComponent(lobby.location || '') %>" style="color: var(--accent); text-decoration: none;">&#128205; <%= lobby.location %> &middot; Get directions</a>
+        <a href="<%= directionsUrl %>" style="color: var(--accent); text-decoration: none;">&#128205; <%= lobby.park_name %> &middot; Get directions</a>
       </div>
       <div class="lobby-meta" style="font-weight: 600; color: var(--text);">
         <% if (lobby.joined) { %>

@@ -29,7 +29,12 @@ To wipe and reseed: `npm run db:reset`.
 - **`/lobbies`** reads real data: record, tier badge, promotion progress
   (from `tiers.wins_to_promote` / `games_to_promote`), open lobbies at the
   player's tier, and the ladder of locked tiers. (The home screen itself is
-  now the King of the Court map — see below.)
+  now the King of the Court map — see below.) Each lobby links to a real
+  `parks` row via `lobbies.park_id` — the card shows the park's name and
+  "Get directions" opens a Google Maps directions link to the park's actual
+  lat/lng (the old free-text `location` column is still there but unused for
+  display). The demo "Sunday run" lobby is linked to Lauderhill Parks &
+  Recreation.
 - **Join a lobby**: the schema has no separate "lobby roster" table — a
   lobby's roster before teams are drafted is the `game_players` for its one
   `forming`-status game (auto-created per lobby). Joining inserts a
@@ -206,12 +211,41 @@ it's a park like any other, with its own leaderboard and king.
 ## Suggest a court
 
 The "+ Suggest a court" button on the map lets a player drop a pin
-anywhere and name it — for a real court that isn't on OpenStreetMap yet.
-That goes to `court_suggestions` as `pending` and shows up on
+anywhere, name it, and optionally attach a photo — for a real court that
+isn't on OpenStreetMap yet. The photo is read client-side (`FileReader`,
+capped at 5MB) and sent as a `data:` URI, not a file upload — no
+multer/storage plumbing needed for a "demo mode" app, though a real
+deployment would want a proper object store and image processing instead
+of storing it as TEXT. Only an `image/*` MIME type the browser itself
+produced from the picked file is accepted server-side (never an arbitrary
+URL or string), so this can't be turned into a stored-XSS or
+server-side-request vector.
+
+That suggestion goes to `court_suggestions` as `pending` and shows up on
 `/admin/courts` (organizer-only, linked from `/runs`) for an organizer to
-approve or reject. Approving creates a real park the same way an Overpass
-check-in does, and that park's court screen then shows "Court added by
-\<player name\>" so the credit sticks.
+approve or reject, photo included. Approving creates a real park the same
+way an Overpass check-in does, and that park's court screen then shows
+"Court added by \<player name\>" so the credit sticks.
+
+## /admin/courts — park management
+
+Beyond reviewing suggestions, `/admin/courts` lists every park (preset,
+player-suggested, or auto-created from a first Overpass check-in — each
+labeled as such) with its own editable card: name, address, both radii,
+and a small Leaflet map with a draggable marker for the pin itself — drag
+it onto the actual courts rather than wherever the street address
+happens to geocode to, then Save. Each card also has a "Suggested"
+checkbox (`parks.is_suggested`) that curates it onto `/runs` — see below.
+
+## Suggested parks (Runs tab)
+
+The top of `/runs` shows "Suggested parks" — organizer-picked parks
+(`is_suggested = 1`, toggled from `/admin/courts` above), each as a card
+with distance (filled in client-side from the same geolocation `/runs`
+already gathers for nearby runs — no second permission prompt), the
+current king, the soonest upcoming run, and Check in / I got next buttons
+wired straight into the normal check-in flow (still radius-gated, same as
+everywhere else).
 
 ## Timer tracking
 
@@ -234,8 +268,8 @@ else who hits the URL directly:
   works, and tapping a player from the leaderboard. Every tap writes one row
   to the `events` table (`player_id`, `event_name`, `page`, `created_at`);
   `/admin/stats` aggregates it live, nothing is pre-computed.
-- `/admin/courts` — pending player-suggested courts (see above) to approve
-  or reject.
+- `/admin/courts` — suggestions to approve/reject, and every park's own
+  editable settings, name, address, and pin (see above).
 
 To make an account an organizer, set `ORGANIZER_PHONES` to a comma-separated
 list of phone numbers (matching how that player signs in). It's applied both

@@ -39,6 +39,13 @@
       <div id="suggestCourtPanel" class="suggest-court-panel" style="display: none;">
         <p>Tap the map to drop a pin, then name the court.</p>
         <input type="text" id="suggestCourtName" placeholder="Court name" maxlength="80">
+        <label class="suggest-court-photo-label" for="suggestCourtPhoto">+ Add a photo (optional)</label>
+        <input type="file" id="suggestCourtPhoto" accept="image/*" style="display: none;">
+        <div id="suggestCourtPhotoPreviewWrap" style="display: none;">
+          <img id="suggestCourtPhotoPreview" class="suggest-court-photo-preview" alt="Selected photo">
+          <button type="button" id="suggestCourtPhotoRemove" class="tiny-btn">Remove photo</button>
+        </div>
+        <div id="suggestCourtPhotoError" class="error-msg" style="display: none; margin: 8px 0 0;"></div>
         <div class="declare-row">
           <button type="button" id="suggestCourtCancel" class="small-btn">Cancel</button>
           <button type="button" id="suggestCourtSubmit" class="small-btn small-btn-accent" disabled>Submit</button>
@@ -392,10 +399,24 @@
     var suggestMode = false;
     var suggestMarker = null;
     var suggestLatLng = null;
+    var suggestPhotoDataUrl = null;
     var suggestBtn = document.getElementById('suggestCourtBtn');
     var suggestPanel = document.getElementById('suggestCourtPanel');
     var suggestNameInput = document.getElementById('suggestCourtName');
     var suggestSubmitBtn = document.getElementById('suggestCourtSubmit');
+    var suggestPhotoInput = document.getElementById('suggestCourtPhoto');
+    var suggestPhotoPreviewWrap = document.getElementById('suggestCourtPhotoPreviewWrap');
+    var suggestPhotoPreview = document.getElementById('suggestCourtPhotoPreview');
+    var suggestPhotoError = document.getElementById('suggestCourtPhotoError');
+    var SUGGEST_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+
+    function resetSuggestPhoto() {
+      suggestPhotoDataUrl = null;
+      suggestPhotoInput.value = '';
+      suggestPhotoPreviewWrap.style.display = 'none';
+      suggestPhotoPreview.src = '';
+      suggestPhotoError.style.display = 'none';
+    }
 
     function closeSuggestPanel() {
       suggestMode = false;
@@ -405,7 +426,35 @@
       suggestSubmitBtn.disabled = true;
       if (suggestMarker) { map.removeLayer(suggestMarker); suggestMarker = null; }
       suggestLatLng = null;
+      resetSuggestPhoto();
     }
+
+    suggestPhotoInput.addEventListener('change', function () {
+      var file = suggestPhotoInput.files[0];
+      if (!file) return;
+      if (file.type.indexOf('image/') !== 0) {
+        suggestPhotoError.textContent = 'Please choose an image file.';
+        suggestPhotoError.style.display = 'block';
+        suggestPhotoInput.value = '';
+        return;
+      }
+      if (file.size > SUGGEST_PHOTO_MAX_BYTES) {
+        suggestPhotoError.textContent = 'That photo is too large (5MB max).';
+        suggestPhotoError.style.display = 'block';
+        suggestPhotoInput.value = '';
+        return;
+      }
+      suggestPhotoError.style.display = 'none';
+      var reader = new FileReader();
+      reader.onload = function () {
+        suggestPhotoDataUrl = reader.result;
+        suggestPhotoPreview.src = suggestPhotoDataUrl;
+        suggestPhotoPreviewWrap.style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    });
+
+    document.getElementById('suggestCourtPhotoRemove').addEventListener('click', resetSuggestPhoto);
 
     suggestBtn.addEventListener('click', function () {
       if (suggestMode) { closeSuggestPanel(); return; }
@@ -435,7 +484,10 @@
       fetch('/court-suggestions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: suggestNameInput.value.trim(), lat: suggestLatLng.lat, lng: suggestLatLng.lng }),
+        body: JSON.stringify({
+          name: suggestNameInput.value.trim(), lat: suggestLatLng.lat, lng: suggestLatLng.lng,
+          photo: suggestPhotoDataUrl,
+        }),
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {

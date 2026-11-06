@@ -76,7 +76,13 @@ function getTiers() {
 
 function getOpenLobbies() {
   return db
-    .prepare("SELECT * FROM lobbies WHERE status = 'open' ORDER BY starts_at ASC")
+    .prepare(
+      `SELECT l.*, p.name AS park_name, p.location AS park_location, p.lat AS park_lat, p.lng AS park_lng
+       FROM lobbies l
+       LEFT JOIN parks p ON p.id = l.park_id
+       WHERE l.status = 'open'
+       ORDER BY l.starts_at ASC`
+    )
     .all();
 }
 
@@ -1285,12 +1291,13 @@ function checkInAtOpenCourt(playerId, osmId, name, lat, lng, playerLat, playerLn
   return { ...checkIn(playerId, parkId, playerLat, playerLng), parkId };
 }
 
-function createCourtSuggestion(playerId, name, lat, lng) {
-  db.prepare('INSERT INTO court_suggestions (player_id, name, lat, lng) VALUES (?, ?, ?, ?)').run(
+function createCourtSuggestion(playerId, name, lat, lng, photoUrl) {
+  db.prepare('INSERT INTO court_suggestions (player_id, name, lat, lng, photo_url) VALUES (?, ?, ?, ?, ?)').run(
     playerId,
     name,
     lat,
-    lng
+    lng,
+    photoUrl || null
   );
   return { ok: true };
 }
@@ -1337,6 +1344,52 @@ function rejectCourtSuggestion(suggestionId, organizerPlayerId) {
     )
     .run(organizerPlayerId, suggestionId);
   return { ok: result.changes > 0 };
+}
+
+// 'auto' (materialized from an Overpass court on first check-in/run/follow),
+// 'suggested' (created by approving a player's court_suggestions row), or
+// 'preset' (seeded at boot — neither of the above).
+function parkSource(park) {
+  if (park.osm_id) return 'auto';
+  if (park.added_by_player_id) return 'suggested';
+  return 'preset';
+}
+
+// Every park, for /admin/courts' park-management list — name/address, pin,
+// radii, how it was added, and whether it's organizer-curated as
+// "Suggested" on the Runs tab.
+function getAllParksForAdmin() {
+  return db
+    .prepare(
+      `SELECT p.*, u.name AS added_by_name
+       FROM parks p
+       LEFT JOIN players pl ON pl.id = p.added_by_player_id
+       LEFT JOIN users u ON u.id = pl.user_id
+       ORDER BY p.name ASC`
+    )
+    .all()
+    .map((park) => ({ ...park, source: parkSource(park) }));
+}
+
+// The admin park editor: name, address, pin location, both radii, and the
+// organizer-curated "Suggested" flag — a superset of updateParkSettings
+// above, which only the court screen's own "Game settings" form uses.
+function updateParkAdmin(parkId, { name, location, lat, lng, checkInRadiusMeters, leaveRadiusMeters, isSuggested }) {
+  db.prepare(
+    `UPDATE parks SET name = ?, location = ?, lat = ?, lng = ?,
+       check_in_radius_meters = ?, leave_radius_meters = ?, is_suggested = ?
+     WHERE id = ?`
+  ).run(name, location, lat, lng, checkInRadiusMeters, leaveRadiusMeters, isSuggested ? 1 : 0, parkId);
+  return { ok: true };
+}
+
+// Organizer-curated parks for the top of /runs — same shape as
+// getParkSheetDetail (king, upcoming runs, the viewer's own checked-in
+// state, firstCourtId for Check in / I got next) plus the park's own
+// lat/lng so the client can fill in a distance once it has one.
+function getSuggestedParks(seasonStart, viewerPlayerId) {
+  const parks = db.prepare('SELECT id FROM parks WHERE is_suggested = 1 ORDER BY name ASC').all();
+  return parks.map((p) => getParkSheetDetail(p.id, seasonStart, viewerPlayerId));
 }
 
 // ============================================================
@@ -1603,4 +1656,7 @@ module.exports = {
   getFollowedCourtsForPlayer,
   getNearbyUpcomingRuns,
   OVERPASS_RADIUS_METERS,
+  getAllParksForAdmin,
+  updateParkAdmin,
+  getSuggestedParks,
 };
