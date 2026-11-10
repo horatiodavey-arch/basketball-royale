@@ -9,6 +9,7 @@
 </head>
 <body class="kotc">
 <div class="page">
+  <%- include('partials/royale-header') %>
   <div class="page-title heading">Leaderboard</div>
   <div class="page-sub">King of the Court &mdash; season standings.</div>
 
@@ -18,7 +19,7 @@
     <div class="board-controls">
       <select class="park-select" onchange="location.href = '/board?scope=<%= scope %>&park=' + this.value;">
         <% parks.forEach((park) => { %>
-          <option value="<%= park.id %>" <%= park.id === selectedPark.id ? 'selected' : '' %>><%= park.name %></option>
+          <option value="<%= park.id %>" <%= park.id === selectedPark.id ? 'selected' : '' %>><%= park.name %><% if (park.city) { %> &middot; <%= park.city %><% } %></option>
         <% }); %>
       </select>
       <div class="tabs">

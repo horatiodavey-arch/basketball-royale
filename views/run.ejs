@@ -9,7 +9,8 @@
 </head>
 <body class="kotc">
 <div class="page">
-  <div class="page-title heading"><%= run.parkName %></div>
+  <%- include('partials/royale-header') %>
+  <div class="page-title heading"><%- include('partials/park-name', { name: run.parkName, city: run.parkCity }) %></div>
   <div class="page-sub"><%= run.courtName %><% if (run.parkLocation) { %> &middot; <%= run.parkLocation %><% } %></div>
 
   <div class="live-card">

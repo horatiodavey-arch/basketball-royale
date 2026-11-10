@@ -9,6 +9,7 @@
 </head>
 <body class="kotc">
 <div class="page">
+  <%- include('partials/royale-header') %>
   <div class="page-title heading">Runs</div>
   <div class="page-sub">Find a run, follow a court, or start your own &mdash; from anywhere.</div>
 
@@ -16,11 +17,16 @@
     <div class="section">Suggested parks</div>
     <% suggestedParks.forEach((sp) => { %>
       <div class="stats-card suggested-park-card" data-park-id="<%= sp.park.id %>" data-lat="<%= sp.park.lat %>" data-lng="<%= sp.park.lng %>">
-        <div class="stats-label"><%= sp.park.name %></div>
-        <div class="suggestion-meta">
-          <span class="suggested-distance"></span>
-          <%= sp.king ? ('King: ' + sp.king.name) : 'No king yet' %>
-          <% if (sp.upcomingRuns.length > 0) { %> &middot; Next run <%= formatRunTime(sp.upcomingRuns[0].scheduledAt) %><% } %>
+        <div class="park-link-with-thumb">
+          <%- include('partials/park-thumb', { park: sp.park }) %>
+          <div class="park-link-body">
+            <div class="stats-label" style="margin-bottom: 2px;"><%- include('partials/park-name', { name: sp.park.name, city: sp.park.city }) %></div>
+            <div class="suggestion-meta">
+              <span class="suggested-distance"></span>
+              <%= sp.king ? ('King: ' + sp.king.name) : 'No king yet' %>
+              <% if (sp.upcomingRuns.length > 0) { %> &middot; Next run <%= formatRunTime(sp.upcomingRuns[0].scheduledAt) %><% } %>
+            </div>
+          </div>
         </div>
         <div class="declare-row" style="margin-top: 10px;">
           <% if (sp.checkedIn) { %>
@@ -40,7 +46,7 @@
     <div class="section">Following</div>
     <% followedCourts.forEach((fc) => { %>
       <a href="/parks/<%= fc.parkId %>" class="park-link">
-        <div class="park-link-name"><%= fc.parkName %> &middot; <%= fc.courtName %></div>
+        <div class="park-link-name"><%- include('partials/park-name', { name: fc.parkName, city: fc.parkCity }) %> &middot; <%= fc.courtName %></div>
         <div class="park-link-location">
           <%= fc.king ? ('King: ' + fc.king.name) : 'No king yet' %>
           <% if (fc.nextRun) { %> &middot; Next run <%= formatRunTime(fc.nextRun.scheduledAt) %><% } %>
@@ -59,12 +65,17 @@
   <% if (parks.length === 0) { %>
     <div class="empty-board">No parks yet.</div>
   <% } else { %>
+    <input type="search" id="parkSearch" class="park-search" placeholder="Search parks" autocomplete="off" aria-label="Search parks">
     <% parks.forEach((park) => { %>
-      <a href="/parks/<%= park.id %>" class="park-link">
-        <div class="park-link-name"><%= park.name %></div>
-        <div class="park-link-location"><%= park.location %></div>
+      <a href="/parks/<%= park.id %>" class="park-link park-link-with-thumb park-search-item" data-search="<%= [park.name, park.city, park.location].filter(Boolean).join(' ').toLowerCase() %>">
+        <%- include('partials/park-thumb', { park: park }) %>
+        <div class="park-link-body">
+          <div class="park-link-name"><%- include('partials/park-name', { name: park.name, city: park.city }) %></div>
+          <div class="park-link-location"><%= park.location %></div>
+        </div>
       </a>
     <% }); %>
+    <div id="parkSearchEmpty" class="empty-board" style="display: none;">No parks match that search.</div>
   <% } %>
 
   <div class="season-note" style="text-align: center; margin-top: 18px;">
@@ -78,17 +89,35 @@
 </div>
 <%- include('partials/bottom-nav', { active: 'runs' }) %>
 
+<script src="/geo.js"></script>
 <script>
   (function () {
     function escapeHtml(s) {
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    // Type-to-filter over the Parks list: name, city, and address — so
+    // "sac" finds Sunrise Athletic Complex (SAC), "sunrise" finds it too.
+    var parkSearch = document.getElementById('parkSearch');
+    if (parkSearch) {
+      parkSearch.addEventListener('input', function () {
+        var term = parkSearch.value.trim().toLowerCase();
+        var shown = 0;
+        document.querySelectorAll('.park-search-item').forEach(function (item) {
+          var match = item.getAttribute('data-search').indexOf(term) !== -1;
+          item.style.display = match ? '' : 'none';
+          if (match) shown += 1;
+        });
+        document.getElementById('parkSearchEmpty').style.display = shown === 0 ? 'block' : 'none';
+      });
+    }
+
     function renderRuns(runs) {
       var list = document.getElementById('nearbyRunsList');
       list.innerHTML = runs.map(function (r) {
+        var park = escapeHtml(r.parkName) + (r.parkCity ? ' <span class="park-city">&middot; ' + escapeHtml(r.parkCity) + '</span>' : '');
         return '<a href="/runs/' + r.id + '" class="park-link run-card">' +
-          '<div class="park-link-name">' + escapeHtml(r.timeLabel) + ' &middot; ' + escapeHtml(r.parkName) + ' (' + escapeHtml(r.courtName) + ')</div>' +
+          '<div class="park-link-name">' + escapeHtml(r.timeLabel) + ' &middot; ' + park + ' (' + escapeHtml(r.courtName) + ')</div>' +
           '<div class="park-link-location">' + r.rsvpCount + ' coming' + (r.note ? ' &middot; ' + escapeHtml(r.note) : '') + '</div>' +
           '</a>';
       }).join('');
@@ -123,16 +152,6 @@
         });
     }
 
-    function haversineMiles(lat1, lng1, lat2, lng2) {
-      var R = 3958.8;
-      var toRad = function (d) { return (d * Math.PI) / 180; };
-      var dLat = toRad(lat2 - lat1);
-      var dLng = toRad(lng2 - lng1);
-      var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
-
     // Reuses the same geolocation fix already gathered for nearby runs —
     // no second permission prompt just to show distance on these cards.
     function fillSuggestedParkDistances(lat, lng) {
@@ -140,59 +159,38 @@
         var pLat = parseFloat(card.getAttribute('data-lat'));
         var pLng = parseFloat(card.getAttribute('data-lng'));
         if (isNaN(pLat) || isNaN(pLng)) return;
-        var miles = haversineMiles(lat, lng, pLat, pLng);
+        var miles = RoyaleGeo.haversineMiles(lat, lng, pLat, pLng);
         var el = card.querySelector('.suggested-distance');
-        if (el) el.textContent = miles.toFixed(1) + ' mi away · ';
+        if (el) el.textContent = RoyaleGeo.distanceLabel(miles) + ' · ';
       });
     }
 
     document.querySelectorAll('.suggested-checkin-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        if (!navigator.geolocation) return;
-        var parkId = btn.getAttribute('data-park-id');
-        btn.disabled = true;
         var originalText = btn.textContent;
-        btn.textContent = 'Finding you…';
-        navigator.geolocation.getCurrentPosition(function (pos) {
-          fetch('/parks/' + parkId + '/check-in', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-          })
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-              if (data.ok) {
-                location.reload();
-              } else {
-                btn.disabled = false;
-                btn.textContent = originalText;
-                alert(data.error || 'Could not check in.');
-              }
-            })
-            .catch(function () {
-              btn.disabled = false;
-              btn.textContent = originalText;
-            });
-        }, function () {
-          btn.disabled = false;
-          btn.textContent = originalText;
-          alert('Location permission denied.');
+        btn.disabled = true;
+        RoyaleGeo.checkIn({
+          url: '/parks/' + btn.getAttribute('data-park-id') + '/check-in',
+          onStatus: function (text) { btn.textContent = text; },
+          onDone: function () { location.reload(); },
+          onFail: function (message) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+            alert(message);
+          },
         });
       });
     });
 
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(function (pos) {
-        loadNearbyRuns(pos.coords.latitude, pos.coords.longitude);
-        fillSuggestedParkDistances(pos.coords.latitude, pos.coords.longitude);
-      }, function () {
-        document.getElementById('nearbyRunsLoading').style.display = 'none';
-        document.getElementById('nearbyRunsNoLocation').style.display = 'block';
-      }, { timeout: 8000 });
-    } else {
+    // RoyaleGeo.getPosition calls the error handler when the device has
+    // no geolocation at all, too — one "no location" path for both.
+    RoyaleGeo.getPosition(function (pos) {
+      loadNearbyRuns(pos.coords.latitude, pos.coords.longitude);
+      fillSuggestedParkDistances(pos.coords.latitude, pos.coords.longitude);
+    }, function () {
       document.getElementById('nearbyRunsLoading').style.display = 'none';
       document.getElementById('nearbyRunsNoLocation').style.display = 'block';
-    }
+    });
   })();
 </script>
 </body>

@@ -61,7 +61,10 @@ const {
   getAllParksForAdmin,
   updateParkAdmin,
   getSuggestedParks,
+  getCheckIn,
 } = require('./db/queries');
+const { geocodeAddress, fillMissingParkLocations, startBackgroundGeocoding } = require('./db/geocode');
+const parkPhotos = require('./db/park-photos');
 
 const app = express();
 
@@ -82,6 +85,28 @@ app.use(
     cookie: { httpOnly: true, sameSite: 'lax' },
   })
 );
+
+// Runs for every page and action (static files were already served above).
+app.use((req, res, next) => {
+  // The ROYALE header is on every page and shows "Crowns reset in N days".
+  res.locals.season = getSeasonWindow();
+  next();
+});
+
+// A city only a lookup can supply (a park made from an OpenStreetMap pin
+// or an approved suggestion has coordinates but no address) is filled in
+// behind the scenes — the request that created the park doesn't wait.
+function fillParkLocationsInBackground() {
+  fillMissingParkLocations().catch(() => {});
+}
+
+// A form field that should be a number, where blank means "not set" —
+// Number('') is 0, which would quietly pin a park at latitude zero.
+function optionalNumber(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
 
 function requireAuth(req, res, next) {
   if (!req.session.userId) return res.redirect('/signup');
@@ -234,8 +259,15 @@ app.get('/', requireAuth, (req, res) => {
     selectedPark,
     sheet,
     formatRunTime,
+    canAddPhoto: canAddParkPhoto(profile, selectedPark.id),
   });
 });
+
+// Only someone who's actually at the park can add a photo of it; an
+// organizer can from anywhere.
+function canAddParkPhoto(profile, parkId) {
+  return !!profile.is_organizer || !!getCheckIn(profile.player_id, parkId);
+}
 
 app.get('/how-it-works', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
@@ -365,6 +397,7 @@ app.get('/runs/new', requireAuth, (req, res) => {
   const osmId = req.query.osmId || null;
   let courtName = null;
   let parkName = null;
+  let parkCity = null;
 
   if (courtId) {
     const court = getCourtById(courtId);
@@ -372,6 +405,7 @@ app.get('/runs/new', requireAuth, (req, res) => {
     const park = getParkById(court.park_id);
     courtName = court.nickname || `Court ${court.number}`;
     parkName = park.name;
+    parkCity = park.city;
   } else if (!osmId) {
     return res.redirect('/runs');
   }
@@ -381,6 +415,7 @@ app.get('/runs/new', requireAuth, (req, res) => {
     courtId,
     courtName,
     parkName,
+    parkCity,
     osmId,
     osmName: req.query.name || '',
     osmLat: req.query.lat || '',
@@ -398,6 +433,7 @@ app.post('/runs', requireAuth, (req, res) => {
     const lng = Number(req.body.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.redirect('/runs');
     courtId = findOrCreateParkAndCourtFromOsm(String(req.body.osmId), req.body.name, lat, lng).courtId;
+    fillParkLocationsInBackground();
   }
   if (!courtId) return res.redirect('/runs');
 
@@ -432,7 +468,6 @@ app.post('/courts/:courtId/follow', requireAuth, (req, res) => {
   toggleFollowCourt(profile.player_id, Number(req.params.courtId));
   res.redirect(req.get('Referer') || '/runs');
 });
-
 app.get('/api/nearby-runs', requireAuth, (req, res) => {
   const lat = Number(req.query.lat);
   const lng = Number(req.query.lng);
@@ -464,17 +499,62 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
       ? new Date(screen.liveGame.countdown_ends_at + 'Z').toISOString()
       : null;
 
-  res.render('court', { ...screen, profile, active: 'runs', countdownEndsAtIso, error: req.query.error || null, formatRunTime });
+  res.render('court', {
+    ...screen,
+    profile,
+    active: 'runs',
+    countdownEndsAtIso,
+    error: req.query.error || null,
+    formatRunTime,
+    canAddPhoto: !!profile.is_organizer || screen.checkedIn,
+  });
 });
 
 app.post('/parks/:parkId/check-in', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   logEvent(profile.player_id, 'check_in', pagePathFromReferer(req, '/'));
-  const { lat, lng } = req.body;
+  const { lat, lng, accuracy } = req.body;
   if (typeof lat !== 'number' || typeof lng !== 'number') {
     return res.status(400).json({ ok: false, error: 'Location not available.' });
   }
-  res.json(checkIn(profile.player_id, Number(req.params.parkId), lat, lng));
+  res.json(checkIn(profile.player_id, Number(req.params.parkId), lat, lng, accuracy));
+});
+
+// A photo of the park, straight from the phone's camera. The body is the
+// image itself (not a form), so it's parsed here rather than by the JSON
+// parser above; whatever arrives is resized and re-encoded before it's
+// kept. It waits for an organizer's approval before anyone else sees it.
+app.post(
+  '/parks/:parkId/photos',
+  requireAuth,
+  express.raw({ type: 'image/*', limit: '15mb' }),
+  async (req, res) => {
+    const profile = getPlayerProfile(req.session.userId);
+    const park = getParkById(Number(req.params.parkId));
+    if (!park) return res.status(404).json({ ok: false, error: 'Park not found.' });
+
+    if (!canAddParkPhoto(profile, park.id)) {
+      return res.status(403).json({ ok: false, error: 'Check in at this park to add a photo.' });
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ ok: false, error: 'No photo received.' });
+    }
+
+    const result = await parkPhotos.savePhoto(park.id, profile.player_id, req.body);
+    if (!result.ok) return res.status(400).json(result);
+    res.json({ ok: true, message: 'Thanks — sent to the organizers for review.' });
+  }
+);
+
+// Deliberately not requireAuth: an approved photo is as public as the
+// park. One still waiting for review is served only to organizers and
+// the player who took it — to everyone else it doesn't exist.
+app.get('/park-photos/:filename', (req, res) => {
+  const photo = parkPhotos.getPhotoByFilename(req.params.filename);
+  const viewer = req.session.userId ? getPlayerProfile(req.session.userId) : null;
+  if (!photo || !parkPhotos.canViewPhoto(photo, viewer)) return res.status(404).end();
+  res.set('Cache-Control', photo.status === 'approved' ? 'public, max-age=604800' : 'private, no-store');
+  res.sendFile(parkPhotos.photoPath(photo.filename));
 });
 
 app.post('/parks/:parkId/heartbeat', requireAuth, (req, res) => {
@@ -500,11 +580,12 @@ app.get('/api/nearby-courts', requireAuth, async (req, res) => {
 app.post('/open-courts/check-in', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   logEvent(profile.player_id, 'check_in', pagePathFromReferer(req, '/'));
-  const { osmId, name, lat, lng, playerLat, playerLng } = req.body;
+  const { osmId, name, lat, lng, playerLat, playerLng, accuracy } = req.body;
   if (!osmId || typeof lat !== 'number' || typeof lng !== 'number') {
     return res.status(400).json({ ok: false, error: 'Missing court location.' });
   }
-  res.json(checkInAtOpenCourt(profile.player_id, String(osmId), name, lat, lng, playerLat, playerLng));
+  res.json(checkInAtOpenCourt(profile.player_id, String(osmId), name, lat, lng, playerLat, playerLng, accuracy));
+  fillParkLocationsInBackground();
 });
 
 // Following an OSM-sourced court materializes it the same way check-in
@@ -518,6 +599,7 @@ app.post('/open-courts/follow', requireAuth, (req, res) => {
   }
   const { courtId, parkId } = findOrCreateParkAndCourtFromOsm(String(osmId), name, lat, lng);
   res.json({ ...followCourt(profile.player_id, courtId), courtId, parkId });
+  fillParkLocationsInBackground();
 });
 
 app.post('/court-suggestions', requireAuth, (req, res) => {
@@ -631,10 +713,11 @@ app.get('/players/:id', requireAuth, (req, res) => {
 
   const season = getSeasonWindow();
   const points = getPlayerSeasonPoints(player.player_id, season.startSql);
+  const isSelf = player.player_id === viewer.player_id;
 
   res.render('player-profile', {
     active: 'profile',
-    isSelf: player.player_id === viewer.player_id,
+    isSelf,
     player,
     points,
     crown: getCrownLevel(points),
@@ -661,12 +744,50 @@ app.get('/admin/courts', requireAuth, requireOrganizer, (req, res) => {
     active: '',
     suggestions: getCourtSuggestions(),
     parks: getAllParksForAdmin(),
+    pendingPhotos: parkPhotos.getPendingPhotos(),
+    approvedPhotos: parkPhotos.getApprovedPhotosByPark(),
   });
+});
+
+// "Find on map": turns the address an organizer typed into a pin they
+// can then drag onto the courts. Organizer-only, so this can't be used
+// as an open relay to the geocoder.
+app.get('/admin/geocode', requireAuth, requireOrganizer, async (req, res) => {
+  const address = String(req.query.address || '').trim();
+  if (!address) return res.status(400).json({ ok: false, error: 'Type an address first.' });
+
+  const result = await geocodeAddress(address);
+  if (result.ok) return res.json(result);
+  res.json({
+    ok: false,
+    error:
+      result.reason === 'unavailable'
+        ? "The address lookup isn't reachable right now. Tap the map to place the pin yourself."
+        : "Couldn't find that address. Check it, or tap the map to place the pin yourself.",
+  });
+});
+
+app.post('/admin/photos/:id/approve', requireAuth, requireOrganizer, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  parkPhotos.approvePhoto(Number(req.params.id), profile.player_id);
+  res.redirect('/admin/courts');
+});
+
+app.post('/admin/photos/:id/cover', requireAuth, requireOrganizer, (req, res) => {
+  parkPhotos.setCoverPhoto(Number(req.params.id));
+  res.redirect('/admin/courts');
+});
+
+// Rejects a photo still waiting for review, or takes down an approved one.
+app.post('/admin/photos/:id/remove', requireAuth, requireOrganizer, (req, res) => {
+  parkPhotos.removePhoto(Number(req.params.id));
+  res.redirect('/admin/courts');
 });
 
 app.post('/admin/courts/:id/approve', requireAuth, requireOrganizer, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   approveCourtSuggestion(Number(req.params.id), profile.player_id);
+  fillParkLocationsInBackground();
   res.redirect('/admin/courts');
 });
 
@@ -676,33 +797,51 @@ app.post('/admin/courts/:id/reject', requireAuth, requireOrganizer, (req, res) =
   res.redirect('/admin/courts');
 });
 
-app.post('/admin/parks/:id/update', requireAuth, requireOrganizer, (req, res) => {
+app.post('/admin/parks/:id/update', requireAuth, requireOrganizer, async (req, res) => {
   const name = (req.body.name || '').trim();
   const location = (req.body.location || '').trim();
-  const lat = Number(req.body.lat);
-  const lng = Number(req.body.lng);
+  let city = (req.body.city || '').trim();
+  let lat = optionalNumber(req.body.lat);
+  let lng = optionalNumber(req.body.lng);
   const checkInRadiusMeters = Number(req.body.checkInRadiusMeters);
   const leaveRadiusMeters = Number(req.body.leaveRadiusMeters);
   const valid =
     name &&
-    Number.isFinite(lat) && Number.isFinite(lng) &&
     Number.isInteger(checkInRadiusMeters) && checkInRadiusMeters > 0 &&
     Number.isInteger(leaveRadiusMeters) && leaveRadiusMeters >= checkInRadiusMeters;
-  if (valid) {
-    updateParkAdmin(Number(req.params.id), {
-      name,
-      location,
-      lat,
-      lng,
-      checkInRadiusMeters,
-      leaveRadiusMeters,
-      isSuggested: req.body.isSuggested === 'on',
-    });
+  if (!valid) return res.redirect('/admin/courts');
+
+  // Saved with an address but no pin placed: look the address up so the
+  // park still lands on the map. (If that fails it's saved pin-less, and
+  // the card says so.)
+  if (lat === null || lng === null) {
+    lat = null;
+    lng = null;
+    const found = location ? await geocodeAddress(location) : { ok: false };
+    if (found.ok) {
+      lat = found.lat;
+      lng = found.lng;
+      city = city || found.city || '';
+    }
   }
+
+  updateParkAdmin(Number(req.params.id), {
+    name,
+    location,
+    city,
+    lat,
+    lng,
+    checkInRadiusMeters,
+    leaveRadiusMeters,
+    isSuggested: req.body.isSuggested === 'on',
+  });
   res.redirect('/admin/courts');
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Basketball Royale running at http://localhost:${PORT}`);
+  // After the port is open, never before: a slow or unreachable geocoder
+  // must not hold up the app starting.
+  startBackgroundGeocoding();
 });

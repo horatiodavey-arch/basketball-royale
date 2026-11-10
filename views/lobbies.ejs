@@ -9,6 +9,7 @@
 </head>
 <body>
 <div class="phone">
+  <%- include('partials/royale-header') %>
 
   <div class="header">
     <div class="avatar"><%= initials %></div>
@@ -64,7 +65,7 @@
             : 'https://maps.google.com/?q=' + encodeURIComponent(lobby.park_location || lobby.park_name || '');
         %>
         <%= lobby.startsLabel %> &middot;
-        <a href="<%= directionsUrl %>" style="color: var(--accent); text-decoration: none;">&#128205; <%= lobby.park_name %> &middot; Get directions</a>
+        <a href="<%= directionsUrl %>" style="color: var(--accent); text-decoration: none;">&#128205; <%= lobby.park_name %><% if (lobby.park_city) { %> &middot; <%= lobby.park_city %><% } %> &middot; Get directions</a>
       </div>
       <div class="lobby-meta" style="font-weight: 600; color: var(--text);">
         <% if (lobby.joined) { %>

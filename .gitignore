@@ -74,6 +74,9 @@ web_modules/
 db/*.db
 db/*.db-journal
 
+# Park photos uploaded by players (stored under DATA_DIR; db/ by default)
+db/park-photos/
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
