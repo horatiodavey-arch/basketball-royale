@@ -98,9 +98,12 @@ multi-user deploy.
 `/` is now the King of the Court map, not the old lobby list. It leads with
 the player's own standing (crown level or "No crown yet", season points, and
 either "X pts to \<next level\>" or a note that they've already got the top
-crown), then a real, interactive map — [Leaflet](https://leafletjs.com/) +
-[CARTO](https://carto.com/basemaps) light tiles, no API key — with one
-custom pin per park (the king's crown color, the active-now count with a
+crown), then a real, interactive map — [Leaflet](https://leafletjs.com/)
+for markers/circles/pan/zoom, with
+[MapLibre GL](https://maplibre.org/)'s vector tiles (via the
+[`@maplibre/maplibre-gl-leaflet`](https://github.com/maplibre/maplibre-gl-leaflet)
+bridge layer) rendering [OpenFreeMap](https://openfreemap.org/)'s free,
+no-API-key "Positron" style underneath — with one custom pin per park (the king's crown color, the active-now count with a
 green/gray dot, and the king's name) plus a blue dot at the player's own
 real location. It asks for that location on load, centers there and opens
 the bottom sheet on the nearest park *with current activity* — checked-in
@@ -120,15 +123,20 @@ crowns and points), how far the viewer is from that park's crown (or that
 they already hold it), and Check in / I got next buttons wired straight
 into the existing check-in and next-line flow.
 
-The Leaflet *library* is vendored into `public/vendor/leaflet/` (served by
-this app, not pulled from a CDN at runtime), so it isn't a point of failure
-in network-restricted environments. The tile *imagery* itself still loads
-live from CARTO's `basemaps.cartocdn.com` and needs normal outbound
+Leaflet, MapLibre GL, and the `maplibre-gl-leaflet` bridge are all vendored
+into `public/vendor/` at pinned versions (served by this app, not pulled
+from a CDN at runtime), so the *libraries* aren't a point of failure in
+network-restricted environments. The tile *imagery* itself still loads live
+from OpenFreeMap's `tiles.openfreemap.org` and needs normal outbound
 internet access — in a sandboxed/offline environment the map renders and is
-fully interactive, just without street imagery (a plain background
-instead). CARTO's tiles replaced a direct `tile.openstreetmap.org` embed,
-whose usage policy blocks unregistered/automated hotlinking (403s) — CARTO
-is a free, no-API-key basemap CDN built for exactly this. `/how-it-works`
+fully interactive (pins, pan/zoom, the bottom sheet all still work), just
+without street imagery (a plain background instead). OpenFreeMap replaced
+an earlier CARTO basemap that started requiring an API key; OpenFreeMap's
+Positron style is free and keyless. Leaflet still owns every marker, the
+check-in radius circle, and all click handling exactly as before —
+MapLibre GL only renders the base tiles underneath, dropped in via the
+bridge layer's `L.maplibreGL(...)` adapter so nothing else about the map
+changed. `/how-it-works`
 (linked from the top of the map) holds the point breakdown, crown levels,
 and the Crown Perks checklist that used to have no home of their own;
 `/profile` keeps its own personalized copy of the perks. The old
@@ -258,18 +266,22 @@ settings" (stored as seconds internally, converted at the form boundary).
 
 ## Organizers & click tracking
 
-`players.is_organizer` gates three pages, all linked from `/runs` only when
-the signed-in player is an organizer, and redirecting to `/runs` for anyone
-else who hits the URL directly:
+`players.is_organizer` gates three pages behind a single **Organizer** link
+on `/runs` (visible only to organizers; `/admin` itself, and each tab's own
+URL, redirects to `/runs` for anyone else who hits them directly). `/admin`
+redirects to `/admin/stats`; all three share a `Stats | Timer | Courts` tab
+bar (the same pill-tab component `/board`'s Court/City switch uses) so
+they read as one Organizer section instead of three unrelated pages:
 
-- `/admin/timer` — the between-games timer board above.
-- `/admin/stats` — total taps, unique players, and an average taps/day rate
-  for each of five tracked taps: Check in, I got next, View lobbies, How it
-  works, and tapping a player from the leaderboard. Every tap writes one row
-  to the `events` table (`player_id`, `event_name`, `page`, `created_at`);
-  `/admin/stats` aggregates it live, nothing is pre-computed.
-- `/admin/courts` — suggestions to approve/reject, and every park's own
-  editable settings, name, address, and pin (see above).
+- `/admin/stats` (Stats tab) — total taps, unique players, and an average
+  taps/day rate for each of five tracked taps: Check in, I got next, View
+  lobbies, How it works, and tapping a player from the leaderboard. Every
+  tap writes one row to the `events` table (`player_id`, `event_name`,
+  `page`, `created_at`); `/admin/stats` aggregates it live, nothing is
+  pre-computed.
+- `/admin/timer` (Timer tab) — the between-games timer board above.
+- `/admin/courts` (Courts tab) — suggestions to approve/reject, and every
+  park's own editable settings, name, address, and pin (see above).
 
 To make an account an organizer, set `ORGANIZER_PHONES` to a comma-separated
 list of phone numbers (matching how that player signs in). It's applied both
@@ -285,8 +297,9 @@ the list is set) — so there's no manual DB edit needed either way.
 - Set `SESSION_SECRET` to a fixed random string, so sessions survive restarts
   and deploys instead of invalidating every time the random fallback changes.
 - Set `ORGANIZER_PHONES` to your own phone number (and any other organizers',
-  comma-separated) so those accounts can see `/admin/timer`, `/admin/stats`,
-  and `/admin/courts`.
-- No extra config needed for nearby courts — Railway's normal outbound
-  internet access reaches the Overpass API and CARTO's tiles fine; both
+  comma-separated) so those accounts can see the **Organizer** link and its
+  `/admin` tabs (Stats, Timer, Courts).
+- No extra config needed for nearby courts or map tiles — Railway's normal
+  outbound internet access reaches the Overpass API and OpenFreeMap's tiles
+  fine; both
   are blocked only by this dev sandbox's own network policy.

@@ -6,6 +6,7 @@
 <title>Basketball Royale</title>
 <%- include('partials/fonts') %>
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/vendor/maplibre-gl/maplibre-gl.css">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body class="kotc">
@@ -160,6 +161,8 @@
 
 <% if (pins.length > 0) { %>
 <script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/vendor/maplibre-gl/maplibre-gl.js"></script>
+<script src="/vendor/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
 <script>
   (function () {
     var pins = <%- JSON.stringify(pins).replace(/</g, '\\u003c') %>;
@@ -241,12 +244,16 @@
     }
     setTimeout(refreshMapSize, 300);
     setTimeout(refreshMapSize, 1000);
-    // CARTO's free "Positron" tiles — OSM's own tile servers reject
-    // unregistered/automated traffic with 403s under their usage policy.
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
-      subdomains: 'abcd',
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    // OpenFreeMap's free, no-key "Positron" vector style, rendered by
+    // MapLibre GL and dropped into this Leaflet map via the
+    // maplibre-gl-leaflet bridge layer — Leaflet still owns markers,
+    // circles, clicks, and pan/zoom exactly as before; only the base
+    // tiles underneath come from a vector style instead of a raster
+    // tile layer. (CARTO's raster tiles required an API key we don't
+    // have; OpenFreeMap needs none.)
+    L.maplibreGL({
+      style: 'https://tiles.openfreemap.org/styles/positron',
+      attributionControl: { customAttribution: 'OpenFreeMap &copy; OpenMapTiles Data from OpenStreetMap' },
     }).addTo(map);
 
     var parkMarkers = {};

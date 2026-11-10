@@ -644,6 +644,10 @@ app.get('/players/:id', requireAuth, (req, res) => {
   });
 });
 
+app.get('/admin', requireAuth, requireOrganizer, (req, res) => {
+  res.redirect('/admin/stats');
+});
+
 app.get('/admin/timer', requireAuth, requireOrganizer, (req, res) => {
   res.render('admin-timer', { active: '', courts: getAllCourtsTimerStatus() });
 });
