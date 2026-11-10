@@ -52,7 +52,8 @@ INSERT INTO tiers VALUES
 CREATE TABLE lobbies (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     name          TEXT NOT NULL,             -- "Sunday Run @ [court]"
-    location      TEXT,
+    location      TEXT,                     -- legacy free-text fallback; park_id drives display now
+    park_id       INTEGER REFERENCES parks(id), -- the real park this lobby plays at
     starts_at     TEXT NOT NULL,
     tier          TEXT NOT NULL REFERENCES tiers(name),
     stake_cents   INTEGER NOT NULL,          -- entry fee for games here
@@ -118,7 +119,8 @@ CREATE TABLE IF NOT EXISTS parks (
     game_target            INTEGER NOT NULL DEFAULT 16,   -- "first to 16"
     between_games_seconds  INTEGER NOT NULL DEFAULT 180,  -- winners-stay-on countdown
     osm_id                 TEXT,               -- set when auto-created from an Overpass court
-    added_by_player_id     INTEGER REFERENCES players(id) -- set when created from an approved suggestion
+    added_by_player_id     INTEGER REFERENCES players(id), -- set when created from an approved suggestion
+    is_suggested           INTEGER NOT NULL DEFAULT 0 -- organizer-curated pick, shown atop /runs
 );
 
 -- 9. COURTS — a park can have more than one court (e.g. Main, Side)
@@ -219,6 +221,7 @@ CREATE TABLE IF NOT EXISTS court_suggestions (
     name                  TEXT NOT NULL,
     lat                   REAL NOT NULL,
     lng                   REAL NOT NULL,
+    photo_url             TEXT,              -- optional data: URI the player attached
     status                TEXT NOT NULL DEFAULT 'pending', -- pending / approved / rejected
     park_id               INTEGER REFERENCES parks(id),    -- set once approved
     reviewed_by_player_id INTEGER REFERENCES players(id),

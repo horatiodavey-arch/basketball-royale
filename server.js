@@ -58,6 +58,9 @@ const {
   getFollowedCourtsForPlayer,
   getNearbyUpcomingRuns,
   OVERPASS_RADIUS_METERS,
+  getAllParksForAdmin,
+  updateParkAdmin,
+  getSuggestedParks,
 } = require('./db/queries');
 
 const app = express();
@@ -67,7 +70,10 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
+// Raised from Express's 100kb default so a suggested court's optional
+// photo (sent as a data: URI, not a file upload — no multer/storage
+// infra needed for a "demo mode" app) fits comfortably.
+app.use(express.json({ limit: '8mb' }));
 app.use(
   session({
     secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
@@ -348,6 +354,7 @@ app.get('/runs', requireAuth, (req, res) => {
     parks: getParks(),
     profile,
     followedCourts: getFollowedCourtsForPlayer(profile.player_id, season.startSql),
+    suggestedParks: getSuggestedParks(season.startSql, profile.player_id),
     formatRunTime,
   });
 });
@@ -521,7 +528,12 @@ app.post('/court-suggestions', requireAuth, (req, res) => {
   if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) {
     return res.status(400).json({ ok: false, error: 'A name and a dropped pin are both required.' });
   }
-  res.json(createCourtSuggestion(profile.player_id, name, lat, lng));
+  const photo = req.body.photo;
+  // Optional, and only ever a data: image URI the client itself encoded —
+  // never a remote URL (that would make this an SSRF-style fetch vector)
+  // or arbitrary text stored where a page later renders it as a link.
+  const photoUrl = typeof photo === 'string' && /^data:image\/(png|jpe?g|webp|gif);base64,/.test(photo) ? photo : null;
+  res.json(createCourtSuggestion(profile.player_id, name, lat, lng, photoUrl));
 });
 
 app.post('/parks/:parkId/settings', requireAuth, (req, res) => {
@@ -641,7 +653,11 @@ app.get('/admin/stats', requireAuth, requireOrganizer, (req, res) => {
 });
 
 app.get('/admin/courts', requireAuth, requireOrganizer, (req, res) => {
-  res.render('admin-courts', { active: '', suggestions: getCourtSuggestions() });
+  res.render('admin-courts', {
+    active: '',
+    suggestions: getCourtSuggestions(),
+    parks: getAllParksForAdmin(),
+  });
 });
 
 app.post('/admin/courts/:id/approve', requireAuth, requireOrganizer, (req, res) => {
@@ -653,6 +669,32 @@ app.post('/admin/courts/:id/approve', requireAuth, requireOrganizer, (req, res) 
 app.post('/admin/courts/:id/reject', requireAuth, requireOrganizer, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   rejectCourtSuggestion(Number(req.params.id), profile.player_id);
+  res.redirect('/admin/courts');
+});
+
+app.post('/admin/parks/:id/update', requireAuth, requireOrganizer, (req, res) => {
+  const name = (req.body.name || '').trim();
+  const location = (req.body.location || '').trim();
+  const lat = Number(req.body.lat);
+  const lng = Number(req.body.lng);
+  const checkInRadiusMeters = Number(req.body.checkInRadiusMeters);
+  const leaveRadiusMeters = Number(req.body.leaveRadiusMeters);
+  const valid =
+    name &&
+    Number.isFinite(lat) && Number.isFinite(lng) &&
+    Number.isInteger(checkInRadiusMeters) && checkInRadiusMeters > 0 &&
+    Number.isInteger(leaveRadiusMeters) && leaveRadiusMeters >= checkInRadiusMeters;
+  if (valid) {
+    updateParkAdmin(Number(req.params.id), {
+      name,
+      location,
+      lat,
+      lng,
+      checkInRadiusMeters,
+      leaveRadiusMeters,
+      isSuggested: req.body.isSuggested === 'on',
+    });
+  }
   res.redirect('/admin/courts');
 });
 

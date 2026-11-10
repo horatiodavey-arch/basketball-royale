@@ -149,9 +149,11 @@ body.kotc { background: #FFFFFF; padding: 0; }
 .form-group { margin-bottom: 16px; }
 .form-group label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 6px; font-weight: 600; }
 .form-group select,
-.form-group input[type="number"] {
+.form-group input[type="number"],
+.form-group input[type="text"] {
   width: 100%; padding: 10px 12px; border: 1px solid var(--border);
   border-radius: 8px; font-size: 15px; font-family: inherit; background: var(--card);
+  box-sizing: border-box;
 }
 .score-row { display: flex; align-items: center; gap: 10px; }
 .score-row .team-label { font-size: 12px; color: var(--text2); font-weight: 600; width: 70px; }
@@ -495,6 +497,33 @@ body.kotc { background: #FFFFFF; padding: 0; }
 }
 .suggestion-status-approved { background: var(--green-bg); color: var(--green-text); }
 .suggestion-status-rejected { background: var(--bg); color: var(--muted); }
+.suggestion-photo {
+  display: block; width: 100%; max-height: 160px; object-fit: cover;
+  border-radius: 10px; margin-top: 10px;
+}
+
+.admin-park-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 10px;
+}
+.admin-park-summary {
+  cursor: pointer; list-style: none; display: flex; align-items: center;
+  flex-wrap: wrap; gap: 8px;
+}
+.admin-park-summary::-webkit-details-marker { display: none; }
+.admin-park-name { font-weight: 700; font-size: 15px; }
+.source-badge {
+  font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+  background: var(--bg); color: var(--text2);
+}
+.source-badge-suggested { background: var(--accent-bg); color: var(--accent); }
+.source-badge-auto { background: var(--green-bg); color: var(--green-text); }
+.source-badge-featured { background: var(--gold-fill); color: #6B4E00; }
+.admin-park-form { margin-top: 14px; }
+.admin-pin-map {
+  height: 220px; border-radius: 10px; overflow: hidden; margin-bottom: 8px;
+  background: #E3E8E2;
+}
 
 /* Location-aware map additions */
 .location-banner {
@@ -533,6 +562,14 @@ body.kotc { background: #FFFFFF; padding: 0; }
   border: 1px solid var(--border); font-size: 14px; margin-bottom: 8px; font-family: inherit;
 }
 .suggest-court-panel .declare-row form { flex: 1; }
+.suggest-court-photo-label {
+  display: inline-block; font-size: 12px; font-weight: 600; color: var(--accent);
+  cursor: pointer; margin-bottom: 8px;
+}
+.suggest-court-photo-preview {
+  display: block; width: 100%; max-height: 120px; object-fit: cover;
+  border-radius: 10px; margin-bottom: 6px;
+}
 
 /* Runs — start/view a run, follow a court, "too far to check in" */
 .run-card { border-left: 3px solid var(--accent); }
