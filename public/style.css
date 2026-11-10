@@ -124,7 +124,7 @@ body.kotc { background: #FFFFFF; padding: 0; }
 
 .nav-bar {
   position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
-  width: 100%; max-width: 380px;
+  width: 100%; max-width: 380px; z-index: 1000;
   display: flex; background: #FFFFFF; border-top: 1px solid var(--border);
   padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
   box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.04);

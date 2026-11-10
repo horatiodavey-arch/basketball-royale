@@ -10,8 +10,9 @@
 </head>
 <body class="kotc">
 <div class="page">
-  <div class="page-title heading">Courts</div>
+  <div class="page-title heading">Organizer</div>
   <div class="page-sub">Suggestions to review, and every park's own settings &mdash; organizer-only.</div>
+  <%- include('partials/admin-tabs', { tab: 'courts' }) %>
 
   <div class="section">Suggestions</div>
   <% if (suggestions.length === 0) { %>
