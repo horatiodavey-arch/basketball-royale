@@ -1,0 +1,33 @@
+<%# The ladder as this player sees it (ladder comes from getTierLadder in
+    db/trophies.js): tiers already passed, the current one in full color,
+    the rest locked. Deliberately no stakes or rake here. %>
+<div class="tier-ladder">
+  <% ladder.steps.forEach((step) => { %>
+    <div class="ladder-step ladder-step-<%= step.state %>">
+      <div class="ladder-icon">
+        <% if (step.state === 'locked') { %>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        <% } else if (step.state === 'passed') { %>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        <% } else { %>
+          <span class="ladder-dot"></span>
+        <% } %>
+      </div>
+      <div class="ladder-main">
+        <div class="ladder-name">
+          <%= step.name[0].toUpperCase() + step.name.slice(1) %>
+          <% if (step.state === 'current') { %><span class="ladder-here">You are here</span><% } %>
+        </div>
+        <% if (step.state === 'current') { %>
+          <% if (ladder.paidGamesNeeded) { %>
+            <div class="ladder-progress"><%= ladder.paidGames %> of <%= ladder.paidGamesNeeded %> paid games</div>
+          <% } %>
+          <div class="ladder-progress"><%= ladder.trophyCount %> troph<%= ladder.trophyCount === 1 ? 'y' : 'ies' %> earned</div>
+        <% } %>
+      </div>
+    </div>
+  <% }); %>
+  <% if (ladder.paidGamesNeeded) { %>
+    <div class="ladder-rule">Rank up with <%= ladder.paidGamesNeeded %> paid games or by earning trophies.</div>
+  <% } %>
+</div>

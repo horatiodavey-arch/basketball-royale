@@ -36,15 +36,16 @@ CREATE TABLE tiers (
     min_stake_cents INTEGER NOT NULL,
     max_stake_cents INTEGER,                 -- NULL = no ceiling
     rake_percent    INTEGER NOT NULL,
-    wins_to_promote  INTEGER,                -- promotion: wins OR games
-    games_to_promote INTEGER                 -- NULL = criteria TBD / top tier
+    wins_to_promote  INTEGER,                -- unused since rank-ups moved to paid games OR trophies
+    games_to_promote INTEGER,                -- PAID lobby games played; NULL = criteria TBD / top tier
+    trophies_to_promote INTEGER              -- NULL = not decided yet (and not shown to players)
 );
 
 INSERT INTO tiers VALUES
-    ('rookie',    1,  500,  500, 30, 5,  10),   -- $5 flat, 30% rake
-    ('starter',   2,  500, 1500, 25, NULL, NULL), -- criteria TBD
-    ('star',      3, 1500, 2500, 20, NULL, NULL), -- criteria TBD
-    ('superstar', 4, 2500, NULL, 12, NULL, NULL); -- top of the ladder
+    ('rookie',    1,  500,  500, 30, NULL, 10, NULL),   -- $5 flat, 30% rake; 10 paid games or trophies
+    ('starter',   2,  500, 1500, 25, NULL, NULL, NULL), -- criteria TBD
+    ('star',      3, 1500, 2500, 20, NULL, NULL, NULL), -- criteria TBD
+    ('superstar', 4, 2500, NULL, 12, NULL, NULL, NULL); -- top of the ladder
     -- NOTE: all money is stored in CENTS (500 = $5.00).
     -- Never store money as decimals — rounding errors are real.
 
@@ -303,6 +304,36 @@ CREATE TABLE IF NOT EXISTS park_photos (
     reviewed_at           TEXT
 );
 
+-- 25. TROPHIES — a player's final crown for a finished 30-day season.
+-- Names are stored as text (not ids) so a trophy still reads correctly
+-- after a park is renamed or removed.
+CREATE TABLE IF NOT EXISTS trophies (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id     INTEGER NOT NULL REFERENCES players(id),
+    season_start  TEXT NOT NULL,
+    season_end    TEXT NOT NULL,
+    crown_name    TEXT NOT NULL,
+    points        REAL NOT NULL,
+    king_parks    TEXT NOT NULL DEFAULT '[]',   -- JSON array of park names
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (player_id, season_start)
+);
+
+-- 26. CLOSED_SEASONS — seasons whose trophies have been handed out, so
+-- each one is processed exactly once (even one nobody earned a crown in).
+CREATE TABLE IF NOT EXISTS closed_seasons (
+    season_start  TEXT PRIMARY KEY,
+    closed_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 27. PLAYER_ACTIVE_DAYS — one row per player per day they opened the
+-- app, for the "came back another day" step of the organizer funnel.
+CREATE TABLE IF NOT EXISTS player_active_days (
+    player_id  INTEGER NOT NULL REFERENCES players(id),
+    day        TEXT NOT NULL,                -- YYYY-MM-DD in the app's timezone
+    PRIMARY KEY (player_id, day)
+);
+
 -- ============================================================
 -- THE SETTLEMENT FUNCTION (pseudocode — this becomes real code)
 -- Runs ONCE when a game's score is confirmed by both teams:
@@ -316,7 +347,7 @@ CREATE TABLE IF NOT EXISTS park_photos (
 --   for everyone:     player.games_played += 1
 --
 --   then check promotion (rookie example):
---   if wins >= 5 OR games_played >= 10:
+--   if paid_games_played >= 10 OR trophies >= (not decided yet):
 --       tier = 'starter'
 --       ledger += promo_credit(+500)   -- the free entry
 -- ============================================================

@@ -2,3 +2,6 @@
   <a href="/" class="royale-brand" aria-label="ROYALE, back to the map"><span class="royale-dot"></span>ROYALE</a>
   <div class="royale-reset">Crowns reset in <%= season.daysLeft %> day<%= season.daysLeft === 1 ? '' : 's' %>.</div>
 </div>
+<% if (locals.trophyNote) { %>
+  <div class="royale-trophy-note">Your crown resets, but it's saved as a trophy. Trophies move you up the ladder.</div>
+<% } %>

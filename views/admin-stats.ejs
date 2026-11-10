@@ -14,6 +14,24 @@
   <div class="page-sub">Taps on the app's key actions, organizer-only.</div>
   <%- include('partials/admin-tabs', { tab: 'stats' }) %>
 
+  <div class="section" style="margin-top: 0;">Funnel</div>
+  <div class="stats-card">
+    <% funnel.forEach((step) => { %>
+      <div class="funnel-step">
+        <div class="funnel-head">
+          <span class="funnel-label"><%= step.label %></span>
+          <span>
+            <span class="funnel-count heading"><%= step.count %></span>
+            <% if (step.percentOfPrevious !== null) { %><span class="funnel-pct"><%= step.percentOfPrevious %>% of previous step</span><% } %>
+          </span>
+        </div>
+        <div class="bar"><div class="fill" style="width: <%= step.percentOfSignups %>%;"></div></div>
+      </div>
+    <% }); %>
+  </div>
+  <div class="season-note">Each step counts only players who also made the step before it.</div>
+
+  <div class="section">Taps</div>
   <% events.forEach((e) => { %>
     <div class="stats-card">
       <div class="stats-label"><%= e.label %></div>

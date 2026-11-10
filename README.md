@@ -27,7 +27,7 @@ To wipe and reseed: `npm run db:reset`.
 - **Sign up** creates a `users` row and a matching `players` row (tier
   defaults to `rookie`, per the schema).
 - **`/lobbies`** reads real data: record, tier badge, promotion progress
-  (from `tiers.wins_to_promote` / `games_to_promote`), open lobbies at the
+  (paid games played out of `tiers.games_to_promote`), open lobbies at the
   player's tier, and the ladder of locked tiers. (The home screen itself is
   now the King of the Court map — see below.) Each lobby links to a real
   `parks` row via `lobbies.park_id` — the card shows the park's name and
@@ -156,6 +156,29 @@ before the app decides the player is outside the radius (and a rough reading
 never hides the Check in button as "too far"). Every Organizer tab shows a
 "My location" line with your latitude, longitude, and accuracy, for telling a
 misplaced pin apart from a weak signal.
+
+## Tiers and trophies
+
+The ladder is Rookie → Starter → Star → Superstar. Rookie → Starter is **10
+paid lobby games played, or trophies** (this replaced "5 wins or 10 games";
+existing databases are updated once on boot). How many trophies it takes
+isn't decided yet, so it's stored (`tiers.trophies_to_promote`, empty) but
+never shown — players see "Rank up with 10 paid games or by earning
+trophies." A paid game counts once its lobby game is locked, and the app
+can't lock a lobby game yet, so everyone shows "0 of 10 paid games" for now;
+nobody is promoted automatically this round.
+
+When a 30-day season ends, `db/trophies.js` saves every player who finished
+it with a crown as a trophy (`trophies`: season dates, crown level, points,
+and the parks they were king of). Each season is closed exactly once
+(`closed_seasons`) — at boot, and again if a season rolls over while the
+server is up — including any that ended while it was down. Profiles show
+trophies as crown icons with the month (hover for details), or "Finish the
+month with a crown to earn your first trophy." Your own Profile and How it
+works show the shadowed ladder: your tier in full color with "You are here",
+"X of 10 paid games" and "X trophies earned", higher tiers grayed out with a
+lock, and no rake or prices. The tier badge shows next to names on
+Profile, player profiles, and the leaderboard.
 
 ## ROYALE header
 
@@ -343,11 +366,19 @@ bar (the same pill-tab component `/board`'s Court/City switch uses) so
 they read as one Organizer section instead of three unrelated pages:
 
 - `/admin/stats` (Stats tab) — total taps, unique players, and an average
-  taps/day rate for each of five tracked taps: Check in, I got next, View
+  taps/day rate for each tracked tap — Check in, I got next, Start a run, I'm coming, Invite
+  friends, Follow a court, Suggest a court, Add a park photo, View
   lobbies, How it works, and tapping a player from the leaderboard. Every
   tap writes one row to the `events` table (`player_id`, `event_name`,
   `page`, `created_at`); `/admin/stats` aggregates it live, nothing is
-  pre-computed.
+  pre-computed. Above the taps is a funnel — signed up → checked in →
+  played a game → came back another day — where each step counts only
+  players who also made the step before it. "Came back" uses
+  `player_active_days` (one row per player per day they open the app, by
+  Eastern calendar day — override with `APP_TIMEZONE`), seeded once from
+  existing activity. Invite buttons report themselves through
+  `POST /api/events`, which only accepts `invite_friends`; unfollowing a
+  court isn't counted as "Follow a court".
 - `/admin/timer` (Timer tab) — the between-games timer board above.
 - `/admin/courts` (Courts tab) — suggestions to approve/reject, and every
   park's own editable settings, name, address, and pin (see above).

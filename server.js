@@ -62,9 +62,14 @@ const {
   updateParkAdmin,
   getSuggestedParks,
   getCheckIn,
+  getPaidGamesPlayed,
+  CLIENT_REPORTED_EVENTS,
+  recordActiveDay,
+  getFunnel,
 } = require('./db/queries');
 const { geocodeAddress, fillMissingParkLocations, startBackgroundGeocoding } = require('./db/geocode');
 const parkPhotos = require('./db/park-photos');
+const { closeFinishedSeasonsIfDue, getTrophies, getTierLadder } = require('./db/trophies');
 
 const app = express();
 
@@ -88,8 +93,12 @@ app.use(
 
 // Runs for every page and action (static files were already served above).
 app.use((req, res, next) => {
+  // A season that has ended gets its trophies handed out before anything
+  // reads standings — a no-op except the first request of a new season.
+  closeFinishedSeasonsIfDue();
   // The ROYALE header is on every page and shows "Crowns reset in N days".
   res.locals.season = getSeasonWindow();
+  if (req.session.userId) recordActiveDay(req.session.userId);
   next();
 });
 
@@ -277,6 +286,7 @@ app.get('/how-it-works', requireAuth, (req, res) => {
     active: 'map',
     crownLevels: CROWN_LEVELS,
     perks: getCrownPerks(profile.player_id, season.startSql),
+    ladder: getTierLadder(profile),
   });
 });
 
@@ -303,14 +313,13 @@ app.get('/lobbies', requireAuth, (req, res) => {
       };
     });
 
-  const winsNeeded = profile.wins_to_promote;
-  const gamesNeeded = profile.games_to_promote;
-  let progressPercent = 0;
-  if (winsNeeded || gamesNeeded) {
-    const winRatio = winsNeeded ? profile.wins / winsNeeded : 0;
-    const gameRatio = gamesNeeded ? profile.games_played / gamesNeeded : 0;
-    progressPercent = Math.min(100, Math.round(Math.max(winRatio, gameRatio) * 100));
-  }
+  // Rank-ups are "N paid games or trophies". Only the paid-games half has
+  // a number players can see — the trophy count needed isn't shown yet.
+  const paidGames = getPaidGamesPlayed(profile.player_id);
+  const paidGamesNeeded = profile.games_to_promote;
+  const progressPercent = paidGamesNeeded
+    ? Math.min(100, Math.round((paidGames / paidGamesNeeded) * 100))
+    : 0;
   const nextTier = tiers.find((t) => t.rank === profile.tier_rank + 1);
 
   res.render('lobbies', {
@@ -320,8 +329,8 @@ app.get('/lobbies', requireAuth, (req, res) => {
     lobbies,
     initials: initials(profile.name),
     progressPercent,
-    winsNeeded,
-    gamesNeeded,
+    paidGames,
+    paidGamesNeeded,
     nextTier,
   });
 });
@@ -444,6 +453,7 @@ app.post('/runs', requireAuth, (req, res) => {
   }
 
   const runId = createRun(courtId, profile.player_id, scheduledAt, req.body.note);
+  logEvent(profile.player_id, 'start_a_run', pagePathFromReferer(req, '/runs/new'));
   res.redirect(`/runs/${runId}`);
 });
 
@@ -459,15 +469,30 @@ app.get('/runs/:id', (req, res) => {
 
 app.post('/runs/:id/coming', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
+  logEvent(profile.player_id, 'im_coming', pagePathFromReferer(req, `/runs/${req.params.id}`));
   rsvpToRun(Number(req.params.id), profile.player_id);
   res.redirect(`/runs/${req.params.id}`);
 });
 
 app.post('/courts/:courtId/follow', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  toggleFollowCourt(profile.player_id, Number(req.params.courtId));
+  const result = toggleFollowCourt(profile.player_id, Number(req.params.courtId));
+  // The same button unfollows; only the tap that follows is the event.
+  if (result.following) logEvent(profile.player_id, 'follow_court', pagePathFromReferer(req, '/runs'));
   res.redirect(req.get('Referer') || '/runs');
 });
+// For taps that never reach a route of their own (an Invite button only
+// opens the phone's share sheet), reported by the page itself.
+app.post('/api/events', requireAuth, (req, res) => {
+  const name = req.body && req.body.name;
+  if (!CLIENT_REPORTED_EVENTS.includes(name)) {
+    return res.status(400).json({ ok: false, error: 'Unknown event.' });
+  }
+  const profile = getPlayerProfile(req.session.userId);
+  logEvent(profile.player_id, name, pagePathFromReferer(req, '/'));
+  res.json({ ok: true });
+});
+
 app.get('/api/nearby-runs', requireAuth, (req, res) => {
   const lat = Number(req.query.lat);
   const lng = Number(req.query.lng);
@@ -533,6 +558,7 @@ app.post(
     const park = getParkById(Number(req.params.parkId));
     if (!park) return res.status(404).json({ ok: false, error: 'Park not found.' });
 
+    logEvent(profile.player_id, 'add_park_photo', pagePathFromReferer(req, `/parks/${park.id}`));
     if (!canAddParkPhoto(profile, park.id)) {
       return res.status(403).json({ ok: false, error: 'Check in at this park to add a photo.' });
     }
@@ -597,6 +623,7 @@ app.post('/open-courts/follow', requireAuth, (req, res) => {
   if (!osmId || typeof lat !== 'number' || typeof lng !== 'number') {
     return res.status(400).json({ ok: false, error: 'Missing court location.' });
   }
+  logEvent(profile.player_id, 'follow_court', pagePathFromReferer(req, '/'));
   const { courtId, parkId } = findOrCreateParkAndCourtFromOsm(String(osmId), name, lat, lng);
   res.json({ ...followCourt(profile.player_id, courtId), courtId, parkId });
   fillParkLocationsInBackground();
@@ -604,6 +631,7 @@ app.post('/open-courts/follow', requireAuth, (req, res) => {
 
 app.post('/court-suggestions', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
+  logEvent(profile.player_id, 'suggest_court', pagePathFromReferer(req, '/'));
   const name = (req.body.name || '').trim();
   const lat = Number(req.body.lat);
   const lng = Number(req.body.lng);
@@ -724,6 +752,9 @@ app.get('/players/:id', requireAuth, (req, res) => {
     perks: getCrownPerks(player.player_id, season.startSql),
     season,
     initials: initials(player.name),
+    trophies: getTrophies(player.player_id),
+    // The ladder is "where am I" — shown on your own profile only.
+    ladder: isSelf ? getTierLadder(player) : null,
   });
 });
 
@@ -736,7 +767,7 @@ app.get('/admin/timer', requireAuth, requireOrganizer, (req, res) => {
 });
 
 app.get('/admin/stats', requireAuth, requireOrganizer, (req, res) => {
-  res.render('admin-stats', { active: '', events: getEventStats() });
+  res.render('admin-stats', { active: '', events: getEventStats(), funnel: getFunnel() });
 });
 
 app.get('/admin/courts', requireAuth, requireOrganizer, (req, res) => {

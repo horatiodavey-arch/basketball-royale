@@ -1,4 +1,4 @@
-const { db, formingGameFor, lastId, cityFromAddress } = require('./index');
+const { db, formingGameFor, lastId, cityFromAddress, runOnce } = require('./index');
 
 function getUserByPhone(phone) {
   return db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
@@ -139,6 +139,21 @@ function getLobbyById(id) {
   return db.prepare('SELECT * FROM lobbies WHERE id = ?').get(id);
 }
 
+// Paid lobby games this player has actually finished — what the ladder's
+// "X of 10 paid games" counts. A lobby they've only joined doesn't count
+// until its game is locked. (King of the Court games aren't paid games.)
+function getPaidGamesPlayed(playerId) {
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS n
+       FROM game_players gp
+       JOIN games g ON g.id = gp.game_id
+       JOIN lobbies l ON l.id = g.lobby_id
+       WHERE gp.player_id = ? AND g.status = 'locked' AND l.stake_cents > 0`
+    )
+    .get(playerId).n;
+}
+
 // ============================================================
 // KING OF THE COURT
 // ============================================================
@@ -235,6 +250,7 @@ function standingsFromGameResults(whereClause, params) {
     .prepare(
       `SELECT gr.player_id AS playerId,
               u.name,
+              p.tier,
               SUM(CASE WHEN gr.result = 'win' THEN 1 ELSE 0 END) AS wins,
               COUNT(*) AS games,
               SUM(gr.minutes_played) AS minutes
@@ -250,19 +266,30 @@ function standingsFromGameResults(whereClause, params) {
     .map((row) => {
       const hours = roundTenth(row.minutes / 60);
       const points = row.wins * 3 + row.games * 1 + hours;
-      return { playerId: row.playerId, name: row.name, wins: row.wins, games: row.games, hours, points };
+      return { playerId: row.playerId, name: row.name, tier: row.tier, wins: row.wins, games: row.games, hours, points };
     })
     .sort((a, b) => b.points - a.points || b.hours - a.hours);
 }
 
-// Standings at one park, this season — also how a park's king is found.
-function getParkStandings(parkId, seasonStart) {
-  return standingsFromGameResults('gr.park_id = ? AND gr.date >= ?', [parkId, seasonStart]);
+// Every caller wanting the current season passes just seasonStart (nothing
+// is dated in the future, so no upper bound is needed). seasonEnd is for
+// scoring a season that's already over — see db/trophies.js.
+function seasonRange(seasonStart, seasonEnd) {
+  return seasonEnd
+    ? { sql: 'gr.date >= ? AND gr.date < ?', params: [seasonStart, seasonEnd] }
+    : { sql: 'gr.date >= ?', params: [seasonStart] };
 }
 
-// Standings across every park, this season (the "City" tab).
-function getCityStandings(seasonStart) {
-  return standingsFromGameResults('gr.date >= ?', [seasonStart]);
+// Standings at one park for a season — also how a park's king is found.
+function getParkStandings(parkId, seasonStart, seasonEnd) {
+  const range = seasonRange(seasonStart, seasonEnd);
+  return standingsFromGameResults(`gr.park_id = ? AND ${range.sql}`, [parkId, ...range.params]);
+}
+
+// Standings across every park for a season (the "City" tab).
+function getCityStandings(seasonStart, seasonEnd) {
+  const range = seasonRange(seasonStart, seasonEnd);
+  return standingsFromGameResults(range.sql, range.params);
 }
 
 // playerId -> total season points across every park, for crown level.
@@ -1170,10 +1197,22 @@ function logEvent(playerId, eventName, page) {
 const TRACKED_EVENTS = [
   { name: 'check_in', label: 'Check in' },
   { name: 'i_got_next', label: 'I got next' },
+  { name: 'start_a_run', label: 'Start a run' },
+  { name: 'im_coming', label: "I'm coming" },
+  { name: 'invite_friends', label: 'Invite friends' },
+  { name: 'follow_court', label: 'Follow a court' },
+  { name: 'suggest_court', label: 'Suggest a court' },
+  { name: 'add_park_photo', label: 'Add a park photo' },
   { name: 'view_lobbies', label: 'View lobbies' },
   { name: 'how_it_works', label: 'How it works' },
   { name: 'leaderboard_player_tap', label: 'Tapped a player (leaderboard)' },
 ];
+
+// Events a page reports itself (POST /api/events) because the tap never
+// reaches a route of its own — an Invite button only opens the phone's
+// share sheet. A fixed list, so that endpoint can't be used to write
+// arbitrary event names.
+const CLIENT_REPORTED_EVENTS = ['invite_friends'];
 
 // For /admin/stats: total taps, unique players, and an average taps/day
 // rate (total taps over the days since the event's first tap) per
@@ -1197,6 +1236,95 @@ function getEventStats() {
       totalTaps: row.total,
       uniquePlayers: row.uniquePlayers,
       tapsPerDay: row.total > 0 ? Math.round((row.total / days) * 10) / 10 : 0,
+    };
+  });
+}
+
+// --- Funnel: signed up -> checked in -> played a game -> came back
+// another day. "Came back" needs to know which days a player opened the
+// app at all, which taps alone don't capture — hence player_active_days.
+
+const APP_TIMEZONE = process.env.APP_TIMEZONE || 'America/New_York';
+const dayFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: APP_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+// The calendar day (YYYY-MM-DD) an instant falls on where the app is
+// played — not UTC, where one evening at the park straddles two "days"
+// and would count as coming back.
+function appDay(date = new Date()) {
+  return dayFormatter.format(date);
+}
+
+const recordedToday = new Map(); // userId -> the day already written this process
+
+// Marks today as a day this player opened the app. Runs on every signed-in
+// request, so it only touches the database the first time each day.
+function recordActiveDay(userId) {
+  const today = appDay();
+  if (recordedToday.get(userId) === today) return;
+  db.prepare(
+    'INSERT OR IGNORE INTO player_active_days (player_id, day) SELECT id, ? FROM players WHERE user_id = ?'
+  ).run(today, userId);
+  recordedToday.set(userId, today);
+}
+
+// Players were active before this table existed — seed it from every
+// dated thing they've already done, so the funnel isn't empty on day one.
+runOnce('active_days_backfill', () => {
+  const insert = db.prepare('INSERT OR IGNORE INTO player_active_days (player_id, day) VALUES (?, ?)');
+  const sources = [
+    'SELECT p.id AS playerId, u.created_at AS at FROM players p JOIN users u ON u.id = p.user_id',
+    'SELECT player_id AS playerId, created_at AS at FROM events',
+    'SELECT player_id AS playerId, time_in AS at FROM check_ins',
+    'SELECT player_id AS playerId, date AS at FROM game_results',
+  ];
+  for (const sql of sources) {
+    for (const row of db.prepare(sql).all()) {
+      if (row.at) insert.run(row.playerId, appDay(new Date(row.at.replace(' ', 'T') + 'Z')));
+    }
+  }
+});
+
+// Each step counts only players who also made the step before it, so the
+// numbers can only go down — which also keeps the seeded demo players
+// (who have games on record but never checked in) out of "played a game".
+function getFunnel() {
+  const count = (sql) => db.prepare(sql).get().n;
+  const counts = [
+    ['Signed up', count('SELECT COUNT(*) AS n FROM players')],
+    ['Checked in', count('SELECT COUNT(DISTINCT player_id) AS n FROM check_ins')],
+    [
+      'Played a game',
+      count(
+        `SELECT COUNT(DISTINCT player_id) AS n FROM game_results
+         WHERE player_id IN (SELECT player_id FROM check_ins)`
+      ),
+    ],
+    [
+      'Came back another day',
+      count(
+        `SELECT COUNT(*) AS n FROM (
+           SELECT player_id FROM player_active_days
+           WHERE player_id IN (SELECT player_id FROM check_ins)
+             AND player_id IN (SELECT player_id FROM game_results)
+           GROUP BY player_id HAVING COUNT(*) >= 2
+         )`
+      ),
+    ],
+  ];
+
+  const top = counts[0][1];
+  return counts.map(([label, n], i) => {
+    const previous = i === 0 ? n : counts[i - 1][1];
+    return {
+      label,
+      count: n,
+      percentOfSignups: top > 0 ? Math.round((n / top) * 100) : 0,
+      percentOfPrevious: i === 0 ? null : previous > 0 ? Math.round((n / previous) * 100) : 0,
     };
   });
 }
@@ -1702,4 +1830,8 @@ module.exports = {
   getAllParksForAdmin,
   updateParkAdmin,
   getSuggestedParks,
+  getPaidGamesPlayed,
+  CLIENT_REPORTED_EVENTS,
+  recordActiveDay,
+  getFunnel,
 };
