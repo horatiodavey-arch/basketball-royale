@@ -18,6 +18,7 @@
     <div class="rules-line" style="border-top: none; padding-top: 0; margin-top: 0;">
       Win = 3 pts &middot; Game = 1 pt &middot; Court hour = 1 pt. Crowns reset every 30 days.
     </div>
+    <div class="trophy-rule">Your crown resets, but it's saved as a trophy. Trophies move you up the ladder.</div>
   </div>
 
   <div class="crowns-info">
@@ -29,6 +30,9 @@
       </div>
     <% }); %>
   </div>
+
+  <div class="section">The ladder</div>
+  <%- include('partials/tier-ladder', { ladder: ladder }) %>
 
   <div class="section">Crown perks</div>
   <% perks.forEach((perk) => { %>

@@ -55,6 +55,7 @@
 </div>
 <%- include('partials/bottom-nav', { active: 'runs' }) %>
 
+<script src="/track.js"></script>
 <script>
   (function () {
     var courtName = <%- JSON.stringify(run.courtName).replace(/</g, '\\u003c') %>;
@@ -62,6 +63,7 @@
     document.getElementById('inviteBtn').addEventListener('click', function () {
       var url = window.location.origin + '/runs/<%= run.id %>';
       var text = 'Pull up to ' + courtName + ' ' + timeLabel + ". Let's see who takes the crown.";
+      <% if (profile) { %>RoyaleTrack.report('invite_friends');<% } %>
       if (navigator.share) {
         navigator.share({ title: 'Basketball Royale', text: text, url: url }).catch(function () {});
       } else if (navigator.clipboard) {

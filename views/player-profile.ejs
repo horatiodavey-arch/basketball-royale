@@ -9,12 +9,13 @@
 </head>
 <body class="kotc">
 <div class="page">
-  <%- include('partials/royale-header') %>
+  <%- include('partials/royale-header', { trophyNote: true }) %>
   <div class="profile-header">
     <div class="avatar profile-avatar"><%= initials %></div>
     <div class="profile-id">
       <div class="profile-name heading">
         <%= player.name %>
+        <span class="tier-badge tier-badge-sm"><%= player.tier %></span>
         <% if (isSelf) { %><span class="lb-you-tag">(You)</span><% } %>
       </div>
       <div class="profile-record"><%= player.wins %>W &ndash; <%= player.losses %>L &middot; <%= player.games_played %> games</div>
@@ -29,6 +30,27 @@
     </div>
   </div>
   <div class="season-note">Resets in <%= season.daysLeft %> day<%= season.daysLeft === 1 ? '' : 's' %>.</div>
+
+  <div class="section">Trophies</div>
+  <% if (trophies.length === 0) { %>
+    <div class="next-action-note">Finish the month with a crown to earn your first trophy.</div>
+  <% } else { %>
+    <div class="trophy-row">
+      <% trophies.forEach((trophy) => { %>
+        <div class="trophy" title="<%= trophy.crownName %> · <%= trophy.points %> pts · <%= trophy.datesLabel %><%= trophy.kingParks.length ? ' · King of ' + trophy.kingParks.join(', ') : '' %>">
+          <div class="trophy-icon">
+            <%- include('partials/crown-icon', { size: 28, fill: trophy.fill, stroke: trophy.stroke }) %>
+          </div>
+          <div class="trophy-month"><%= trophy.monthLabel %></div>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+
+  <% if (ladder) { %>
+    <div class="section">The ladder</div>
+    <%- include('partials/tier-ladder', { ladder: ladder }) %>
+  <% } %>
 
   <div class="section">Crown perks</div>
   <% perks.forEach((perk) => { %>

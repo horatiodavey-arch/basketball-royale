@@ -673,3 +673,55 @@ a.royale-brand { color: inherit; text-decoration: none; }
   .page { padding: 36px 32px 120px; }
   .leaflet-map { height: 520px; }
 }
+
+/* Part B: tiers, trophies, funnel */
+.royale-trophy-note {
+  font-size: 12px; color: var(--text2); text-align: center; margin: -8px 8px 16px;
+}
+
+/* Tier badge next to a name (profile, leaderboard) */
+.tier-badge-sm {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 10px; padding: 2px 8px; letter-spacing: 0.03em; vertical-align: middle;
+}
+
+/* Trophies — one crown per finished season */
+.trophy-row { display: flex; gap: 14px; overflow-x: auto; padding: 2px 0 8px; }
+.trophy { flex: none; width: 68px; text-align: center; }
+.trophy-icon {
+  width: 48px; height: 48px; border-radius: 50%; background: var(--kotc-gray);
+  display: flex; align-items: center; justify-content: center; margin: 0 auto 5px;
+}
+.trophy-month { font-size: 11px; font-weight: 600; }
+.trophy-rule { font-size: 13px; font-weight: 600; margin-top: 10px; }
+
+/* The ladder: Rookie -> Starter -> Star -> Superstar */
+.ladder-step {
+  display: flex; align-items: flex-start; gap: 12px; padding: 12px;
+  border: 1px solid var(--border); border-radius: 12px; margin-bottom: 6px;
+}
+.ladder-step-current { background: var(--accent-bg); border-color: var(--accent); }
+.ladder-step-passed { color: var(--green-text); }
+.ladder-step-locked { background: var(--kotc-gray); border-color: transparent; color: var(--muted); }
+.ladder-icon { flex: none; width: 22px; display: flex; justify-content: center; padding-top: 2px; }
+.ladder-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); margin-top: 3px; }
+.ladder-main { flex: 1; min-width: 0; }
+.ladder-name { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ladder-step-current .ladder-name { color: var(--accent); }
+.ladder-here {
+  font-size: 11px; font-weight: 700; background: var(--accent); color: #FFFFFF;
+  padding: 2px 8px; border-radius: 999px;
+}
+.ladder-progress { font-size: 13px; color: var(--text); margin-top: 3px; }
+.ladder-rule { font-size: 12px; color: var(--text2); margin-top: 8px; }
+
+/* Organizer funnel (/admin/stats) */
+.funnel-step { margin-bottom: 12px; }
+.funnel-step:last-child { margin-bottom: 0; }
+.funnel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+.funnel-label { font-size: 13px; font-weight: 600; }
+.funnel-count { font-size: 18px; font-weight: 700; color: var(--accent); }
+.funnel-pct { font-size: 11px; font-weight: 500; color: var(--text2); margin-left: 4px; }
+.funnel-step .bar { margin-bottom: 0; }
+.funnel-step .bar .fill { background: var(--accent); }
+

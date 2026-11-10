@@ -306,6 +306,29 @@ function ensureKingOfTheCourtTables() {
         created_at            TEXT NOT NULL DEFAULT (datetime('now')),
         reviewed_at           TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS trophies (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_id     INTEGER NOT NULL REFERENCES players(id),
+        season_start  TEXT NOT NULL,
+        season_end    TEXT NOT NULL,
+        crown_name    TEXT NOT NULL,
+        points        REAL NOT NULL,
+        king_parks    TEXT NOT NULL DEFAULT '[]',
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (player_id, season_start)
+    );
+
+    CREATE TABLE IF NOT EXISTS closed_seasons (
+        season_start  TEXT PRIMARY KEY,
+        closed_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS player_active_days (
+        player_id  INTEGER NOT NULL REFERENCES players(id),
+        day        TEXT NOT NULL,
+        PRIMARY KEY (player_id, day)
+    );
   `);
 }
 
@@ -336,7 +359,14 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('lobbies', 'park_id', 'INTEGER REFERENCES parks(id)');
   addColumnIfMissing('parks', 'city', 'TEXT');
   addColumnIfMissing('parks', 'cover_photo_id', 'INTEGER REFERENCES park_photos(id)');
+  addColumnIfMissing('tiers', 'trophies_to_promote', 'INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS idx_parks_osm_id ON parks(osm_id)');
+
+  // Rookie -> Starter is now "10 paid games OR trophies", not "5 wins or
+  // 10 games". Once only, so a later change to the tiers table sticks.
+  runOnce('rookie_rank_up_paid_games', () => {
+    db.prepare("UPDATE tiers SET wins_to_promote = NULL, games_to_promote = 10 WHERE name = 'rookie'").run();
+  });
 
   // The check-in radius default changed 150 -> 250. Any park still sitting
   // at the old factory default (never customized by an organizer) picks up

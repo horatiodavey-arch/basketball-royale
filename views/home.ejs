@@ -12,7 +12,7 @@
 <body class="kotc">
 <div class="page map-page">
 
-  <%- include('partials/royale-header') %>
+  <%- include('partials/royale-header', { trophyNote: true }) %>
 
   <div class="hero-standing">
     <div class="hero-crown-level heading"><%= crown ? crown.name : 'No crown yet' %></div>
@@ -161,6 +161,7 @@
 <%- include('partials/bottom-nav', { active: 'map' }) %>
 
 <script src="/geo.js"></script>
+<script src="/track.js"></script>
 <% if (pins.length > 0) { %>
 <script src="/vendor/leaflet/leaflet.js"></script>
 <script src="/vendor/maplibre-gl/maplibre-gl.js"></script>
@@ -499,6 +500,7 @@
         var parkName = <%- JSON.stringify(sheet.park.name).replace(/</g, '\\u003c') %>;
         var url = window.location.origin + '/parks/' + selectedParkData.id;
         var text = 'Pull up to ' + parkName + ". Let's see who takes the crown.";
+        RoyaleTrack.report('invite_friends');
         if (navigator.share) {
           navigator.share({ title: 'Basketball Royale', text: text, url: url }).catch(function () {});
         } else if (navigator.clipboard) {

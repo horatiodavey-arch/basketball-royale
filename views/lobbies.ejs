@@ -28,10 +28,14 @@
     <div class="card">
       <div class="progress-head">
         <span class="label">Road to <%= nextTier.name[0].toUpperCase() + nextTier.name.slice(1) %></span>
-        <span class="value"><%= profile.wins %> of <%= winsNeeded %> wins</span>
+        <% if (paidGamesNeeded) { %>
+          <span class="value"><%= paidGames %> of <%= paidGamesNeeded %> paid games</span>
+        <% } %>
       </div>
       <div class="bar"><div class="fill" style="width: <%= progressPercent %>%;"></div></div>
-      <div class="fine">or <%= profile.games_played %> of <%= gamesNeeded %> games played &middot; promotion pays 1 free entry</div>
+      <div class="fine">
+        <% if (paidGamesNeeded) { %>Rank up with <%= paidGamesNeeded %> paid games or by earning trophies. <% } %>Promotion pays 1 free entry.
+      </div>
     </div>
   <% } else { %>
     <div class="card">
@@ -112,8 +116,8 @@
         <% if (tier.max_stake_cents === null) { %>
           The top
         <% } else if (tier.rank === profile.tier_rank + 1) { %>
-          <% if (winsNeeded && gamesNeeded) { %>
-            <%= winsNeeded %> wins or <%= gamesNeeded %> games
+          <% if (paidGamesNeeded) { %>
+            <%= paidGamesNeeded %> paid games or trophies
           <% } else { %>
             Criteria TBD
           <% } %>
@@ -127,10 +131,12 @@
 </div>
 <%- include('partials/bottom-nav', { active: active }) %>
 
+<script src="/track.js"></script>
 <script>
   function inviteToLobby(joinCode) {
     const url = window.location.origin + '/signup?code=' + encodeURIComponent(joinCode);
     const text = "Join my run on Basketball Royale — code " + joinCode;
+    RoyaleTrack.report('invite_friends');
     if (navigator.share) {
       navigator.share({ title: 'Basketball Royale', text: text, url: url }).catch(function () {});
     } else if (navigator.clipboard) {
