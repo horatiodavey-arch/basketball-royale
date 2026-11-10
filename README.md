@@ -33,7 +33,7 @@ To wipe and reseed: `npm run db:reset`.
   `parks` row via `lobbies.park_id` — the card shows the park's name and
   "Get directions" opens a Google Maps directions link to the park's actual
   lat/lng (the old free-text `location` column is still there but unused for
-  display). The demo "Sunday run" lobby is linked to Lauderhill Parks &
+  display). The demo "Sunday run" lobby is linked to Lauderdale Lakes
   Recreation.
 - **Join a lobby**: the schema has no separate "lobby roster" table — a
   lobby's roster before teams are drafted is the `game_players` for its one
@@ -92,6 +92,75 @@ existing database picks them up with no `npm run db:reset` needed.
 joining) show up via a 15-second auto-refresh and your own action redirects,
 not a live push — fine for a single-court demo, worth revisiting for a real
 multi-user deploy.
+
+## The two preset parks
+
+The app ships with exactly two parks, both organizer-suggested:
+
+- **Lauderdale Lakes Recreation** — 4331 NW 36th St, Lauderdale Lakes (Main
+  and Side courts).
+- **Sunrise Athletic Complex (SAC)** — 11501 NW 44th St, Sunrise (Court 1–4).
+  Searching "SAC" on the Runs tab finds it (the search box matches name,
+  city, and address).
+
+Earlier versions seeded Lauderhill Parks & Recreation and Markham Park. On
+every boot `consolidatePresetParks()` (`db/index.js`) folds any old copies
+into the two above in one transaction — courts, games, check-ins, the
+next-line queue, runs, follows, lobbies, and the demo Sunday run all move
+with them, and the old park rows are deleted — so existing databases end up
+identical to fresh ones and the leaderboard / Double Crown demo still work.
+It does nothing once it has run, and leaves parks players created themselves
+(from an OpenStreetMap pin or an approved suggestion) alone. A park's city
+("Lauderdale Lakes", "Sunrise") shows next to its name wherever parks are
+listed.
+
+**Addresses to pins.** A park with an address but no coordinates (SAC, out of
+the box) is looked up on the server with OpenStreetMap's
+[Nominatim](https://nominatim.org/) geocoder (`db/geocode.js`) shortly after
+the server starts. It sends an identifying `User-Agent` (override with
+`GEOCODER_USER_AGENT`), makes at most one request a second, and caches every
+answer in `geocode_cache`, so an address is only ever asked about once. If
+Nominatim can't be reached the app starts and runs normally, retries a few
+times, and the organizer can place the pin by hand. In the Organizer Courts
+tab, typing an address (or tapping "Find on map") drops the pin there, and
+you drag it onto the actual courts and Save.
+
+## Park photos
+
+Each park's page and bottom sheet has a small camera button that opens the
+phone's camera (organizers get the photo picker instead). Only players
+currently checked in at that park can add a photo; organizers can from
+anywhere (`POST /parks/:id/photos`, enforced on the server, not just by
+hiding the button).
+
+Photos are resized to at most 1600px wide and re-encoded as JPEG with
+[`sharp`](https://sharp.pixelplumbing.com/) — which also strips the phone's
+embedded GPS and device metadata — then stored under `DATA_DIR/park-photos/`
+(the persistent volume on Railway), with a row in `park_photos`. A new photo
+is invisible to everyone but organizers and the person who took it until an
+organizer approves it in the Organizer Courts tab; the first approved photo
+becomes the park's cover, and "Set as cover" switches it. Rejecting a photo
+deletes it. The cover shows at the top of the park page and as a thumbnail on
+park cards in Runs; with none, it says "No photo yet. Be the first to add
+one."
+
+## Location accuracy
+
+Every place the app reads the phone's location goes through `public/geo.js`:
+`enableHighAccuracy: true`, a 10-second timeout, and a 15-second
+`maximumAge`. Distances are straight-line and labeled so ("2.0 mi away
+(straight line)" in the bottom sheet and on Runs cards, "~2 mi" on map
+pins). On check-in, a position the phone itself says is worse than 100m
+accurate shows "Getting a better GPS signal…" and takes one fresh reading
+before the app decides the player is outside the radius (and a rough reading
+never hides the Check in button as "too far"). Every Organizer tab shows a
+"My location" line with your latitude, longitude, and accuracy, for telling a
+misplaced pin apart from a weak signal.
+
+## ROYALE header
+
+The ROYALE bar (logo plus "Crowns reset in N days.") is at the top of every
+page, including sign-up, and the logo links back to the map (`/`).
 
 ## Home screen (the map)
 
@@ -292,7 +361,7 @@ the list is set) — so there's no manual DB edit needed either way.
 ## Deploying on Railway
 
 - Mount a persistent volume at `/data`.
-- Set `DATA_DIR=/data` so the SQLite file lives on the volume instead of the
+- Set `DATA_DIR=/data` so the SQLite file and uploaded park photos live on the volume instead of the
   repo (the app creates the folder if it doesn't exist).
 - Set `SESSION_SECRET` to a fixed random string, so sessions survive restarts
   and deploys instead of invalidating every time the random fallback changes.

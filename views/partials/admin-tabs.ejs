@@ -3,3 +3,19 @@
   <a class="tab <%= tab === 'timer' ? 'active' : '' %>" href="/admin/timer">Timer</a>
   <a class="tab <%= tab === 'courts' ? 'active' : '' %>" href="/admin/courts">Courts</a>
 </div>
+<%# Debug readout: exactly what the phone is reporting right now, read the
+    same way a check-in reads it — for telling a wrong pin apart from a
+    weak GPS signal when someone can't check in. %>
+<div id="adminMyLocation" class="admin-my-location">My location: finding&hellip;</div>
+<script src="/geo.js"></script>
+<script>
+  (function () {
+    var el = document.getElementById('adminMyLocation');
+    RoyaleGeo.getPosition(function (pos) {
+      el.textContent = 'My location: ' + pos.coords.latitude.toFixed(6) + ', ' + pos.coords.longitude.toFixed(6) +
+        ' · accurate to ±' + Math.round(pos.coords.accuracy) + ' m';
+    }, function (err) {
+      el.textContent = 'My location: ' + (err && err.code === 1 ? 'permission denied' : 'unavailable');
+    });
+  })();
+</script>

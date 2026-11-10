@@ -12,10 +12,7 @@
 <body class="kotc">
 <div class="page map-page">
 
-  <div class="royale-bar">
-    <div class="royale-brand"><span class="royale-dot"></span>ROYALE</div>
-    <div class="royale-reset">Crowns reset in <%= season.daysLeft %> day<%= season.daysLeft === 1 ? '' : 's' %>.</div>
-  </div>
+  <%- include('partials/royale-header') %>
 
   <div class="hero-standing">
     <div class="hero-crown-level heading"><%= crown ? crown.name : 'No crown yet' %></div>
@@ -68,12 +65,16 @@
 
     <div class="bottom-sheet">
       <div class="sheet-handle"></div>
-      <div class="sheet-park-name heading"><%= sheet.park.name %></div>
+      <div class="park-title-row">
+        <div class="sheet-park-name heading"><%- include('partials/park-name', { name: sheet.park.name, city: sheet.park.city }) %></div>
+        <%- include('partials/park-photo-button', { parkId: sheet.park.id, canAdd: canAddPhoto, isOrganizer: !!profile.is_organizer, statusId: 'sheetPhotoStatus' }) %>
+      </div>
       <div class="sheet-meta">
         <span class="sheet-dot <%= sheet.activeCount > 0 ? 'sheet-dot-active' : 'sheet-dot-idle' %>"></span>
         <%= sheet.activeCount %> active now &middot; <%= sheet.liveCount %> game<%= sheet.liveCount === 1 ? '' : 's' %> live
-        <span id="sheetDistance" class="sheet-distance"></span>
       </div>
+      <div id="sheetDistance" class="sheet-distance"></div>
+      <div id="sheetPhotoStatus" class="park-photo-status"></div>
 
       <% if (sheet.king) { %>
         <div class="king-card sheet-king-card">
@@ -159,10 +160,13 @@
 </div>
 <%- include('partials/bottom-nav', { active: 'map' }) %>
 
+<script src="/geo.js"></script>
 <% if (pins.length > 0) { %>
 <script src="/vendor/leaflet/leaflet.js"></script>
 <script src="/vendor/maplibre-gl/maplibre-gl.js"></script>
 <script src="/vendor/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
+<script src="/map-tiles.js"></script>
+<script src="/park-photo.js"></script>
 <script>
   (function () {
     var pins = <%- JSON.stringify(pins).replace(/</g, '\\u003c') %>;
@@ -195,7 +199,7 @@
       var stroke = (pin.king && pin.king.crown) ? pin.king.crown.stroke : '#9C9A92';
       var dotClass = pin.activeCount > 0 ? 'pin-dot-active' : 'pin-dot-idle';
       var label = pin.king ? pin.king.name : pin.name;
-      var distanceHtml = miles != null ? '<div class="pin-distance">' + miles.toFixed(1) + ' mi away</div>' : '';
+      var distanceHtml = miles != null ? '<div class="pin-distance">' + RoyaleGeo.pinDistanceLabel(miles) + '</div>' : '';
       var runHtml = pin.nextRun
         ? '<div class="pin-run">' + formatRunTimeShort(pin.nextRun.scheduledAt) + ' · ' + pin.nextRun.rsvpCount + ' coming</div>'
         : '';
@@ -207,21 +211,13 @@
     }
 
     function openCourtPinHtml(court, miles) {
-      var distanceHtml = miles != null ? '<div class="pin-distance">' + miles.toFixed(1) + ' mi away</div>' : '';
+      var distanceHtml = miles != null ? '<div class="pin-distance">' + RoyaleGeo.pinDistanceLabel(miles) + '</div>' : '';
       return '<div class="kotc-marker-content"><div class="pin pin-open"><span class="pin-dot pin-dot-open"></span></div>' +
         '<div class="pin-label pin-label-open">' + escapeHtml(court.name) +
         '<span class="pin-sub-open">Open court &middot; No king yet</span>' + distanceHtml + '</div></div>';
     }
 
-    function haversineMiles(lat1, lng1, lat2, lng2) {
-      var R = 3958.8;
-      var toRad = function (d) { return (d * Math.PI) / 180; };
-      var dLat = toRad(lat2 - lat1);
-      var dLng = toRad(lng2 - lng1);
-      var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
+    var haversineMiles = RoyaleGeo.haversineMiles;
 
     function showToast(message, ms) {
       var toast = document.getElementById('toast');
@@ -244,17 +240,7 @@
     }
     setTimeout(refreshMapSize, 300);
     setTimeout(refreshMapSize, 1000);
-    // OpenFreeMap's free, no-key "Positron" vector style, rendered by
-    // MapLibre GL and dropped into this Leaflet map via the
-    // maplibre-gl-leaflet bridge layer — Leaflet still owns markers,
-    // circles, clicks, and pan/zoom exactly as before; only the base
-    // tiles underneath come from a vector style instead of a raster
-    // tile layer. (CARTO's raster tiles required an API key we don't
-    // have; OpenFreeMap needs none.)
-    L.maplibreGL({
-      style: 'https://tiles.openfreemap.org/styles/positron',
-      attributionControl: { customAttribution: 'OpenFreeMap &copy; OpenMapTiles Data from OpenStreetMap' },
-    }).addTo(map);
+    RoyaleMap.addBaseLayer(map);
 
     var parkMarkers = {};
     pins.forEach(function (pin) {
@@ -289,7 +275,10 @@
     // "too far to check in" message once we know the real distance).
     // Returns the nearest-with-activity park (falling back to nearest
     // overall) so the caller can decide whether to jump to its sheet.
-    function updateDistancesAndFindNearest(playerLat, playerLng) {
+    // `confident` is false for a rough GPS fix: distances still show, but
+    // the Check in button stays, so tapping it can retry for a better
+    // signal instead of the page deciding "too far" on a bad reading.
+    function updateDistancesAndFindNearest(playerLat, playerLng, confident) {
       var nearest = null;
       pins.forEach(function (pin) {
         if (pin.lat == null || pin.lng == null) return;
@@ -307,14 +296,14 @@
         }
         if (pin.id === selectedParkData.id) {
           var sheetDistanceEl = document.getElementById('sheetDistance');
-          if (sheetDistanceEl) sheetDistanceEl.textContent = '· ' + miles.toFixed(1) + ' mi away';
+          if (sheetDistanceEl) sheetDistanceEl.textContent = RoyaleGeo.distanceLabel(miles);
 
           var normal = document.getElementById('sheetCheckInNormal');
           var tooFar = document.getElementById('sheetTooFar');
-          if (normal && tooFar && miles * 1609.34 > selectedParkData.checkInRadiusMeters) {
+          if (confident && normal && tooFar && miles * 1609.34 > selectedParkData.checkInRadiusMeters) {
             normal.style.display = 'none';
             document.getElementById('sheetTooFarMsg').textContent =
-              "You're " + miles.toFixed(1) + ' mi away. Check in opens when you get to the court.';
+              "You're " + RoyaleGeo.distanceLabel(miles) + '. Check in opens when you get to the court.';
             tooFar.style.display = 'block';
           }
         }
@@ -332,14 +321,14 @@
             var miles = haversineMiles(playerLat, playerLng, court.lat, court.lng);
             var icon = L.divIcon({ className: 'kotc-marker', html: openCourtPinHtml(court, miles), iconSize: [0, 0] });
             var marker = L.marker([court.lat, court.lng], { icon: icon }).addTo(map);
-            marker.on('click', function () { showOpenCourtPanel(court, playerLat, playerLng); });
+            marker.on('click', function () { showOpenCourtPanel(court); });
             openCourtMarkers[court.osmId] = marker;
           });
         })
         .catch(function () {});
     }
 
-    function showOpenCourtPanel(court, playerLat, playerLng) {
+    function showOpenCourtPanel(court) {
       closeSuggestPanel();
       var panel = document.getElementById('openCourtPanel');
       var nameEl = document.getElementById('openCourtName');
@@ -371,31 +360,27 @@
           .catch(function () { followBtn.disabled = false; });
       };
 
+      // A fresh reading at the moment of the tap — not the one from when
+      // the map loaded, which could be minutes and blocks out of date.
       checkInBtn.onclick = function () {
         checkInBtn.disabled = true;
-        checkInBtn.textContent = 'Checking in…';
-        fetch('/open-courts/check-in', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            osmId: court.osmId, name: court.name, lat: court.lat, lng: court.lng,
-            playerLat: playerLat, playerLng: playerLng,
-          }),
-        })
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            if (data.ok) {
-              window.location.href = '/?park=' + data.parkId;
-            } else {
-              checkInBtn.disabled = false;
-              checkInBtn.textContent = 'Check in';
-              nameEl.textContent = data.error || 'Could not check in.';
-            }
-          })
-          .catch(function () {
+        RoyaleGeo.checkIn({
+          url: '/open-courts/check-in',
+          body: function (pos) {
+            return {
+              osmId: court.osmId, name: court.name, lat: court.lat, lng: court.lng,
+              playerLat: pos.coords.latitude, playerLng: pos.coords.longitude,
+              accuracy: pos.coords.accuracy,
+            };
+          },
+          onStatus: function (text) { checkInBtn.textContent = text; },
+          onDone: function (data) { window.location.href = '/?park=' + data.parkId; },
+          onFail: function (message) {
             checkInBtn.disabled = false;
             checkInBtn.textContent = 'Check in';
-          });
+            nameEl.textContent = message;
+          },
+        });
       };
     }
     document.getElementById('openCourtCancel').addEventListener('click', function () {
@@ -530,7 +515,7 @@
     // resolve), then re-center on the player once/if it does.
     setFallbackView();
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(function (pos) {
+      RoyaleGeo.getPosition(function (pos) {
         var youIcon = L.divIcon({
           className: 'kotc-marker',
           html: '<div class="kotc-dot-content"><div class="you-dot"></div></div>',
@@ -539,7 +524,7 @@
         L.marker([pos.coords.latitude, pos.coords.longitude], { icon: youIcon, zIndexOffset: 1000 }).addTo(map);
         map.setView([pos.coords.latitude, pos.coords.longitude], 13);
 
-        var nearest = updateDistancesAndFindNearest(pos.coords.latitude, pos.coords.longitude);
+        var nearest = updateDistancesAndFindNearest(pos.coords.latitude, pos.coords.longitude, !RoyaleGeo.isRoughFix(pos));
         var urlHasPark = new URLSearchParams(window.location.search).has('park');
         if (!urlHasPark && nearest && nearest.id !== selectedParkData.id) {
           window.location.href = '/?park=' + nearest.id;
@@ -554,7 +539,7 @@
           banner.textContent = 'Turn on location to see courts near you.';
           banner.style.display = 'block';
         }
-      }, { timeout: 8000 });
+      });
     }
   })();
 </script>
@@ -564,56 +549,22 @@
   (function () {
     var parkId = <%= selectedPark ? selectedPark.id : 'null' %>;
 
-    function startHeartbeat() {
-      setInterval(function () {
-        if (!navigator.geolocation) return;
-        navigator.geolocation.getCurrentPosition(function (pos) {
-          fetch('/parks/' + parkId + '/heartbeat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-          }).catch(function () {});
-        }, function () {
-          // Couldn't get a fresh position this cycle — skip.
-        });
-      }, 60000);
-    }
-
     var btn = document.getElementById('homeCheckInBtn');
     if (!btn || btn.disabled) {
-      <% if (sheet && sheet.checkedIn) { %>startHeartbeat();<% } %>
+      <% if (sheet && sheet.checkedIn) { %>RoyaleGeo.startHeartbeat(parkId);<% } %>
       return;
     }
     btn.addEventListener('click', function () {
       var statusEl = document.getElementById('homeCheckInStatus');
-      if (!navigator.geolocation) {
-        statusEl.textContent = 'Location not available on this device.';
-        return;
-      }
       btn.disabled = true;
-      statusEl.textContent = 'Finding you…';
-      navigator.geolocation.getCurrentPosition(function (pos) {
-        fetch('/parks/' + parkId + '/check-in', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        })
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            if (data.ok) {
-              location.reload();
-            } else {
-              btn.disabled = false;
-              statusEl.textContent = data.error || 'Could not check in.';
-            }
-          })
-          .catch(function () {
-            btn.disabled = false;
-            statusEl.textContent = 'Could not check in.';
-          });
-      }, function () {
-        btn.disabled = false;
-        statusEl.textContent = 'Location permission denied.';
+      RoyaleGeo.checkIn({
+        url: '/parks/' + parkId + '/check-in',
+        onStatus: function (text) { statusEl.textContent = text; },
+        onDone: function () { location.reload(); },
+        onFail: function (message) {
+          btn.disabled = false;
+          statusEl.textContent = message;
+        },
       });
     });
   })();

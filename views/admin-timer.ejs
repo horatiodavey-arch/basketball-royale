@@ -9,6 +9,7 @@
 </head>
 <body class="kotc">
 <div class="page">
+  <%- include('partials/royale-header') %>
   <div class="page-title heading">Organizer</div>
   <div class="page-sub">Between-games countdowns across every court, live.</div>
   <%- include('partials/admin-tabs', { tab: 'timer' }) %>
@@ -19,7 +20,7 @@
   <% courts.forEach((c) => { %>
     <div class="timer-row">
       <div class="timer-main">
-        <div class="timer-court"><%= c.parkName %> &middot; <%= c.courtName %></div>
+        <div class="timer-court"><%- include('partials/park-name', { name: c.parkName, city: c.parkCity }) %> &middot; <%= c.courtName %></div>
         <div class="timer-sub">Time between games: <%= c.betweenGamesMinutes %> min</div>
       </div>
       <div class="timer-status">

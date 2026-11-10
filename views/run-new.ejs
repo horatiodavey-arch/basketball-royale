@@ -9,10 +9,11 @@
 </head>
 <body class="kotc">
 <div class="page">
+  <%- include('partials/royale-header') %>
   <div class="page-title heading">Start a run</div>
   <div class="page-sub">
     <% if (courtName) { %>
-      <%= parkName %> &middot; <%= courtName %>
+      <%- include('partials/park-name', { name: parkName, city: parkCity }) %> &middot; <%= courtName %>
     <% } else { %>
       <%= osmName %>
     <% } %>

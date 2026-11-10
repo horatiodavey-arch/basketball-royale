@@ -537,7 +537,10 @@ body.kotc { background: #FFFFFF; padding: 0; }
 }
 .pin-distance { font-size: 9px; font-weight: 700; color: var(--muted); margin-top: 1px; }
 .pin-run { font-size: 9px; font-weight: 700; color: var(--accent); margin-top: 1px; }
-.sheet-distance { font-weight: 600; color: var(--text2); }
+/* On its own line, tucked close under the "active now" line (it's too
+   long now to share that line on a phone). Empty until location is known. */
+.sheet-distance { font-size: 13px; font-weight: 600; color: var(--text2); }
+.sheet-distance:not(:empty) { margin: -10px 0 14px; }
 
 .pin-open { background: #FFFFFF; opacity: 0.9; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); }
 .pin-dot-open { background: var(--muted); }
@@ -588,6 +591,67 @@ body.kotc { background: #FFFFFF; padding: 0; }
   background: var(--accent-bg); border-radius: 12px; padding: 12px; margin-bottom: 14px;
 }
 .too-far-msg { font-size: 13px; font-weight: 600; color: var(--accent); }
+
+/* ROYALE header — on every page; the logo is the way back to the map */
+a.royale-brand { color: inherit; text-decoration: none; }
+
+/* A park's city, next to its name wherever parks are listed */
+.park-city {
+  font-size: 0.72em; font-weight: 500; color: var(--text2); letter-spacing: 0;
+  white-space: nowrap; /* "· City" wraps as one piece, never leaving the dot behind */
+}
+
+.park-search {
+  width: 100%; box-sizing: border-box; padding: 10px 12px; margin-bottom: 10px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--card);
+  font-size: 14px; font-family: inherit;
+}
+
+/* Park photos — cover, thumbnails, and the camera button */
+.park-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.park-title-row > :first-child { min-width: 0; }
+.camera-btn {
+  flex: none; width: 36px; height: 36px; border-radius: 50%;
+  border: 1px solid var(--border); background: #FFFFFF; color: var(--accent);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.camera-btn:disabled { opacity: 0.5; cursor: default; }
+.park-photo-status { font-size: 12px; color: var(--text2); }
+.park-photo-status:not(:empty) { margin-bottom: 10px; }
+.park-cover {
+  display: block; width: 100%; height: 180px; object-fit: cover;
+  border-radius: 14px; margin-bottom: 14px; background: var(--kotc-gray);
+}
+.park-cover-empty {
+  background: var(--kotc-gray); border-radius: 14px; padding: 22px 16px;
+  margin-bottom: 14px; text-align: center; font-size: 13px; color: var(--text2);
+}
+.park-link-with-thumb { display: flex; align-items: center; gap: 12px; }
+.park-link-body { flex: 1; min-width: 0; }
+.park-thumb {
+  flex: none; width: 56px; height: 56px; border-radius: 10px; object-fit: cover;
+  background: var(--kotc-gray);
+}
+.park-thumb-empty {
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  font-size: 9px; font-weight: 600; line-height: 1.2; color: var(--muted); padding: 4px;
+}
+.admin-photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
+.admin-photo img {
+  display: block; width: 100%; height: 88px; object-fit: cover; border-radius: 10px;
+  margin-bottom: 6px; background: var(--kotc-gray);
+}
+.admin-photo .tiny-btn { width: 100%; margin-bottom: 4px; }
+.admin-photo-meta { font-size: 11px; color: var(--text2); margin-bottom: 6px; }
+
+/* Organizer park editor — address lookup and the "My location" line */
+.address-row { display: flex; gap: 8px; align-items: center; }
+.address-row input { flex: 1; min-width: 0; }
+.admin-pin-status { font-size: 12px; color: var(--text2); margin-bottom: 8px; }
+.admin-my-location {
+  font-size: 12px; color: var(--text2); margin: -8px 2px 16px; font-variant-numeric: tabular-nums;
+}
+
 
 /* ============================================================
    RESPONSIVE — every screen is one centered column (the .phone /

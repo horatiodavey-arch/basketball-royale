@@ -14,6 +14,31 @@ const isNewDb = !fs.existsSync(DB_PATH);
 const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA foreign_keys = ON;');
 
+// The only parks this app ships with. `replaces` lists earlier preset
+// parks whose courts, games, and everything else fold into this one on
+// boot (see consolidatePresetParks). A preset with no lat/lng gets its
+// pin from its address — db/geocode.js looks it up once the server is up.
+// (Declared up here, above the boot calls below: a const isn't hoisted
+// the way the functions that use it are.)
+const PRESET_PARKS = [
+  {
+    name: 'Lauderdale Lakes Recreation',
+    location: '4331 NW 36th St, Lauderdale Lakes, FL 33319',
+    lat: 26.17172,
+    lng: -80.20678,
+    courts: [[1, 'Main'], [2, 'Side']],
+    replaces: ['Lauderhill Parks & Recreation', 'Lauderdale Lakes Park'],
+  },
+  {
+    name: 'Sunrise Athletic Complex (SAC)',
+    location: '11501 NW 44th St, Sunrise, FL 33323',
+    lat: null,
+    lng: null,
+    courts: [[1, null], [2, null], [3, null], [4, null]],
+    replaces: ['Markham Park'],
+  },
+];
+
 if (isNewDb) {
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
   db.exec(schema);
@@ -27,8 +52,30 @@ if (isNewDb) {
 // EXISTS is a no-op once the table is there.
 ensureKingOfTheCourtTables();
 migrateKingOfTheCourtColumns();
+consolidatePresetParks();
+backfillParkCities();
 seedKingOfTheCourtDemoData();
 applyOrganizerPhones();
+
+function getMeta(key) {
+  const row = db.prepare('SELECT value FROM app_meta WHERE key = ?').get(key);
+  return row ? row.value : null;
+}
+
+function setMeta(key, value) {
+  db.prepare(
+    'INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  ).run(key, String(value));
+}
+
+// For a change that must happen once per database, ever — as opposed to
+// the idempotent every-boot checks around it. Used where re-running would
+// undo something an organizer has since changed by hand.
+function runOnce(key, fn) {
+  if (getMeta(key)) return;
+  fn();
+  setMeta(key, new Date().toISOString());
+}
 
 // Reused as the lobby's shared "roster" before teams are drafted.
 // Joining a lobby = joining this forming game with team left unassigned.
@@ -234,6 +281,31 @@ function ensureKingOfTheCourtTables() {
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         UNIQUE (player_id, court_id)
     );
+
+    CREATE TABLE IF NOT EXISTS app_meta (
+        key    TEXT PRIMARY KEY,
+        value  TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS geocode_cache (
+        query       TEXT PRIMARY KEY,
+        lat         REAL,
+        lng         REAL,
+        city        TEXT,
+        found       INTEGER NOT NULL DEFAULT 1,
+        fetched_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS park_photos (
+        id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+        park_id               INTEGER NOT NULL REFERENCES parks(id),
+        player_id             INTEGER NOT NULL REFERENCES players(id),
+        filename              TEXT NOT NULL UNIQUE,
+        status                TEXT NOT NULL DEFAULT 'pending',
+        reviewed_by_player_id INTEGER REFERENCES players(id),
+        created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+        reviewed_at           TEXT
+    );
   `);
 }
 
@@ -262,6 +334,8 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('parks', 'is_suggested', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing('court_suggestions', 'photo_url', 'TEXT');
   addColumnIfMissing('lobbies', 'park_id', 'INTEGER REFERENCES parks(id)');
+  addColumnIfMissing('parks', 'city', 'TEXT');
+  addColumnIfMissing('parks', 'cover_photo_id', 'INTEGER REFERENCES park_photos(id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_parks_osm_id ON parks(osm_id)');
 
   // The check-in radius default changed 150 -> 250. Any park still sitting
@@ -277,44 +351,118 @@ function migrateKingOfTheCourtColumns() {
   ).run();
 }
 
-// Creates a park plus its default Court 1 "Main", unless a park with
-// that name already exists. Returns the park's id either way — and
-// backfills lat/lng on an existing row from before check-in needed them.
-function findOrCreatePark(name, location, checkInRadiusMeters, leaveRadiusMeters, lat, lng) {
-  const existing = db.prepare('SELECT id, lat FROM parks WHERE name = ?').get(name);
-  if (existing) {
-    if (existing.lat === null) {
-      db.prepare('UPDATE parks SET lat = ?, lng = ? WHERE id = ?').run(lat, lng, existing.id);
-    }
-    return existing.id;
-  }
-
-  db.prepare(
-    'INSERT INTO parks (name, location, lat, lng, check_in_radius_meters, leave_radius_meters) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(name, location, lat, lng, checkInRadiusMeters, leaveRadiusMeters);
-  const parkId = lastId();
-
-  db.prepare(
-    "INSERT INTO courts (park_id, number, nickname) VALUES (?, 1, 'Main')"
-  ).run(parkId);
-
-  return parkId;
+// "4331 NW 36th St, Lauderdale Lakes, FL 33319" -> "Lauderdale Lakes";
+// "Sunrise, FL" -> "Sunrise". Null when the text has no "City, ST" in it.
+function cityFromAddress(location) {
+  if (!location) return null;
+  const parts = location.split(',').map((part) => part.trim()).filter(Boolean);
+  const stateIndex = parts.findIndex((part) => /^[A-Za-z]{2}(\s+\d{5}(-\d{4})?)?$/.test(part));
+  return stateIndex >= 1 ? parts[stateIndex - 1] : null;
 }
 
-// One-time rename: an earlier version seeded this park under a
-// fictional name. Swaps in the real address without losing the park's
-// id, so its existing demo game history (which references park_id, not
-// the name) stays attached. No-ops once the rename has already happened.
-function renameParkIfExists(oldName, newName, newLocation, newLat, newLng) {
-  const existing = db.prepare('SELECT id FROM parks WHERE name = ?').get(oldName);
-  if (!existing) return;
-  db.prepare('UPDATE parks SET name = ?, location = ?, lat = ?, lng = ? WHERE id = ?').run(
-    newName,
-    newLocation,
-    newLat,
-    newLng,
-    existing.id
-  );
+function parkIdByName(name) {
+  const row = db.prepare('SELECT id FROM parks WHERE name = ? ORDER BY id ASC LIMIT 1').get(name);
+  return row ? row.id : null;
+}
+
+// Folds one park into another without losing anything attached to it:
+// games, check-ins, the next-line queue, runs, follows, lobbies, photos.
+// A court whose number the target already has is merged into that court;
+// one it doesn't have just moves across.
+function mergePark(fromId, toId) {
+  const fromCourts = db.prepare('SELECT id, number FROM courts WHERE park_id = ? ORDER BY number ASC').all(fromId);
+  for (const court of fromCourts) {
+    const target = db.prepare('SELECT id FROM courts WHERE park_id = ? AND number = ?').get(toId, court.number);
+    if (!target) {
+      db.prepare('UPDATE courts SET park_id = ? WHERE id = ?').run(toId, court.id);
+      continue;
+    }
+    for (const table of ['game_results', 'next_line', 'live_games', 'runs']) {
+      db.prepare(`UPDATE ${table} SET court_id = ? WHERE court_id = ?`).run(target.id, court.id);
+    }
+    // court_follows is UNIQUE (player_id, court_id) — a player following
+    // both courts keeps one follow, not a constraint error.
+    db.prepare('UPDATE OR IGNORE court_follows SET court_id = ? WHERE court_id = ?').run(target.id, court.id);
+    db.prepare('DELETE FROM court_follows WHERE court_id = ?').run(court.id);
+    db.prepare('DELETE FROM courts WHERE id = ?').run(court.id);
+  }
+
+  for (const table of ['game_results', 'live_games', 'court_suggestions', 'lobbies', 'park_photos']) {
+    db.prepare(`UPDATE ${table} SET park_id = ? WHERE park_id = ?`).run(toId, fromId);
+  }
+  // One check-in row per player per park is what checkIn() maintains.
+  db.prepare(
+    'DELETE FROM check_ins WHERE park_id = ? AND player_id IN (SELECT player_id FROM check_ins WHERE park_id = ?)'
+  ).run(fromId, toId);
+  db.prepare('UPDATE check_ins SET park_id = ? WHERE park_id = ?').run(toId, fromId);
+
+  // Whatever the target doesn't have yet, it inherits: a cover photo, and
+  // the OSM id (so the map doesn't offer that same court as "open" again).
+  db.prepare(
+    `UPDATE parks SET
+       cover_photo_id = COALESCE(cover_photo_id, (SELECT cover_photo_id FROM parks WHERE id = ?)),
+       osm_id = COALESCE(osm_id, (SELECT osm_id FROM parks WHERE id = ?))
+     WHERE id = ?`
+  ).run(fromId, fromId, toId);
+  db.prepare('DELETE FROM parks WHERE id = ?').run(fromId);
+}
+
+// Leaves exactly the PRESET_PARKS as this app's preset parks, on a fresh
+// database and an existing one alike: creates any that are missing, folds
+// the presets they replace into them, and folds in same-name duplicates.
+// Parks players created themselves (from an OpenStreetMap pin or an
+// approved suggestion) are never touched. A no-op once it has run.
+function consolidatePresetParks() {
+  db.exec('BEGIN');
+  try {
+    for (const preset of PRESET_PARKS) {
+      let parkId = parkIdByName(preset.name);
+      if (!parkId) {
+        db.prepare(
+          'INSERT INTO parks (name, location, city, lat, lng, is_suggested) VALUES (?, ?, ?, ?, ?, 1)'
+        ).run(preset.name, preset.location, cityFromAddress(preset.location), preset.lat, preset.lng);
+        parkId = lastId();
+      }
+      // Before merging, so a replaced park's "Main" court lands in this
+      // park's own Court 1 rather than moving across under its old name.
+      for (const [number, nickname] of preset.courts) findOrCreateCourt(parkId, number, nickname);
+
+      const replaced = db
+        .prepare(
+          `SELECT id FROM parks
+           WHERE id != ? AND osm_id IS NULL AND added_by_player_id IS NULL
+             AND name IN (${preset.replaces.map(() => '?').join(', ')})`
+        )
+        .all(parkId, ...preset.replaces);
+      const duplicates = db
+        .prepare('SELECT id FROM parks WHERE id != ? AND name = ? COLLATE NOCASE')
+        .all(parkId, preset.name);
+      for (const { id } of [...replaced, ...duplicates]) mergePark(id, parkId);
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+
+  // Both presets are organizer-suggested out of the box. Once only — an
+  // organizer who later un-ticks one in /admin/courts keeps that choice.
+  runOnce('preset_parks_suggested', () => {
+    const flag = db.prepare('UPDATE parks SET is_suggested = 1 WHERE name = ?');
+    for (const preset of PRESET_PARKS) flag.run(preset.name);
+  });
+}
+
+// Fills in a park's city from its address wherever that's possible
+// without asking anyone — a park with coordinates but no address gets
+// its city from the geocoder instead (db/geocode.js).
+function backfillParkCities() {
+  const parks = db.prepare("SELECT id, location FROM parks WHERE city IS NULL AND location IS NOT NULL").all();
+  const setCity = db.prepare('UPDATE parks SET city = ? WHERE id = ?');
+  for (const park of parks) {
+    const city = cityFromAddress(park.location);
+    if (city) setCity.run(city, park.id);
+  }
 }
 
 // Flags any account whose phone is in ORGANIZER_PHONES (comma-separated)
@@ -349,56 +497,20 @@ function findOrCreateCourt(parkId, number, nickname) {
 }
 
 function seedKingOfTheCourtDemoData() {
-  renameParkIfExists(
-    'Lauderdale Lakes Park',
-    'Lauderhill Parks & Recreation',
-    '4141 NW 16th St, Lauderhill, FL 33313',
-    26.1466558,
-    -80.206011
-  );
-  const lauderhillId = findOrCreatePark(
-    'Lauderhill Parks & Recreation',
-    '4141 NW 16th St, Lauderhill, FL 33313',
-    250,
-    400,
-    26.1466558,
-    -80.206011
-  );
-  const mainCourtId = findOrCreateCourt(lauderhillId, 1, 'Main');
-  findOrCreateCourt(lauderhillId, 2, 'Side');
-  // Organizer-curated pick for the Runs tab's "Suggested parks" section.
-  db.prepare('UPDATE parks SET is_suggested = 1 WHERE id = ?').run(lauderhillId);
+  // Both parks already exist by now — consolidatePresetParks() runs first.
+  const lakesId = parkIdByName('Lauderdale Lakes Recreation');
+  const lakesMainCourtId = findOrCreateCourt(lakesId, 1, 'Main');
+  const sacId = parkIdByName('Sunrise Athletic Complex (SAC)');
+  const sacCourtOneId = findOrCreateCourt(sacId, 1, null);
 
-  // The demo Sunday run lobby plays at Lauderhill — linked here (rather
-  // than at lobby-creation time in seedDemoData(), which runs before this
-  // park exists) so /lobbies can show its real name and directions
-  // instead of the old free-text "Home court".
+  // The demo Sunday run lobby plays at Lauderdale Lakes — linked here
+  // (rather than at lobby-creation time in seedDemoData(), which runs
+  // before any park exists) so /lobbies can show its real name and
+  // directions. On an existing database the lobby already followed its
+  // old park here when that park was merged.
   db.prepare(
     `UPDATE lobbies SET park_id = ? WHERE name = 'Sunday run' AND park_id IS NULL`
-  ).run(lauderhillId);
-
-  // Sunrise Athletic Complex (11501 NW 44th St, Sunrise, FL 33323) is the
-  // second organizer-suggested park, but isn't seeded yet — its exact
-  // coordinates (at the courts, not the facility entrance) are pending
-  // confirmation. Add it here with findOrCreatePark(...) + is_suggested=1
-  // once they're available, same pattern as Lauderhill above.
-
-  // A second always-on preset park — distinct from Lauderhill Parks &
-  // Recreation above, a few miles away in the neighboring city.
-  const lauderdaleLakesId = findOrCreatePark(
-    'Lauderdale Lakes Recreation',
-    '4331 NW 36th St, Lauderdale Lakes, FL 33319',
-    250,
-    400,
-    26.17172,
-    -80.20678
-  );
-  findOrCreateCourt(lauderdaleLakesId, 1, 'Main');
-
-  // Second demo park, so the leaderboard has somewhere for a player to
-  // earn a Double Crown (king of two parks in the same season).
-  const markhamParkId = findOrCreatePark('Markham Park', 'Sunrise, FL', 250, 400, 26.1256, -80.3104);
-  const markhamMainCourtId = findOrCreateCourt(markhamParkId, 1, 'Main');
+  ).run(lakesId);
 
   const alreadySeeded = db.prepare('SELECT 1 FROM game_results LIMIT 1').get();
   if (alreadySeeded) return;
@@ -443,25 +555,25 @@ function seedKingOfTheCourtDemoData() {
     }
   }
 
-  // Lauderhill, Main court — Darius plays (and mostly wins) a lot
+  // Lauderdale Lakes, Main court — Darius plays (and mostly wins) a lot
   // here, which is what makes him king of this park this season.
-  playGame(lauderhillId, mainCourtId, [D, C], [M, T], 60);
-  playGame(lauderhillId, mainCourtId, [D, M], [C, T], 60);
-  playGame(lauderhillId, mainCourtId, [D], [C], 45);
-  playGame(lauderhillId, mainCourtId, [D, T], [C, M], 60);
-  playGame(lauderhillId, mainCourtId, [D], [M], 50);
-  playGame(lauderhillId, mainCourtId, [C, M], [D, J], 55);
-  playGame(lauderhillId, mainCourtId, [D, C], [T, J], 60);
+  playGame(lakesId, lakesMainCourtId, [D, C], [M, T], 60);
+  playGame(lakesId, lakesMainCourtId, [D, M], [C, T], 60);
+  playGame(lakesId, lakesMainCourtId, [D], [C], 45);
+  playGame(lakesId, lakesMainCourtId, [D, T], [C, M], 60);
+  playGame(lakesId, lakesMainCourtId, [D], [M], 50);
+  playGame(lakesId, lakesMainCourtId, [C, M], [D, J], 55);
+  playGame(lakesId, lakesMainCourtId, [D, C], [T, J], 60);
 
-  // Markham Park, Main court — Darius shows up here too, earning him a
-  // Double Crown (king of both parks in the same season).
-  playGame(markhamParkId, markhamMainCourtId, [D, T], [C, M], 60);
-  playGame(markhamParkId, markhamMainCourtId, [D], [J], 40);
-  playGame(markhamParkId, markhamMainCourtId, [D, C], [M, T], 60);
-  playGame(markhamParkId, markhamMainCourtId, [D, C], [M, T], 60);
-  playGame(markhamParkId, markhamMainCourtId, [D], [C], 30);
-  playGame(markhamParkId, markhamMainCourtId, [M], [T], 45);
-  playGame(markhamParkId, markhamMainCourtId, [C, M], [T, J], 60);
+  // SAC, Court 1 — Darius shows up here too, earning him a Double Crown
+  // (king of both parks in the same season).
+  playGame(sacId, sacCourtOneId, [D, T], [C, M], 60);
+  playGame(sacId, sacCourtOneId, [D], [J], 40);
+  playGame(sacId, sacCourtOneId, [D, C], [M, T], 60);
+  playGame(sacId, sacCourtOneId, [D, C], [M, T], 60);
+  playGame(sacId, sacCourtOneId, [D], [C], 30);
+  playGame(sacId, sacCourtOneId, [M], [T], 45);
+  playGame(sacId, sacCourtOneId, [C, M], [T, J], 60);
 }
 
-module.exports = { db, formingGameFor, lastId };
+module.exports = { db, formingGameFor, lastId, DATA_DIR, cityFromAddress, runOnce };

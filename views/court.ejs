@@ -9,7 +9,19 @@
 </head>
 <body class="kotc">
 <div class="page">
-  <div class="page-title heading"><%= park.name %></div>
+  <%- include('partials/royale-header') %>
+
+  <% if (park.cover_filename) { %>
+    <img src="/park-photos/<%= park.cover_filename %>" alt="<%= park.name %>" class="park-cover">
+  <% } else { %>
+    <div class="park-cover-empty">No photo yet. Be the first to add one.</div>
+  <% } %>
+
+  <div class="park-title-row">
+    <div class="page-title heading"><%- include('partials/park-name', { name: park.name, city: park.city }) %></div>
+    <%- include('partials/park-photo-button', { parkId: park.id, canAdd: canAddPhoto, isOrganizer: !!profile.is_organizer, statusId: 'parkPhotoStatus' }) %>
+  </div>
+  <div id="parkPhotoStatus" class="park-photo-status"></div>
   <% if (park.added_by_name) { %>
     <div class="page-sub">Court added by <%= park.added_by_name %></div>
   <% } %>
@@ -209,91 +221,52 @@
 </div>
 <%- include('partials/bottom-nav', { active: 'runs' }) %>
 
+<script src="/geo.js"></script>
+<script src="/park-photo.js"></script>
 <script>
   (function () {
     var parkId = <%= park.id %>;
     var checkedIn = <%= checkedIn ? 'true' : 'false' %>;
 
-    function startHeartbeat() {
-      setInterval(function () {
-        if (!navigator.geolocation) return;
-        navigator.geolocation.getCurrentPosition(function (pos) {
-          fetch('/parks/' + parkId + '/heartbeat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-          }).catch(function () {});
-        }, function () {
-          // Couldn't get a fresh position this cycle — skip; the "inside"
-          // clock just won't be extended until the next successful one.
-        });
-      }, 60000);
-    }
-
     var checkInBtn = document.getElementById('checkInBtn');
     if (checkInBtn) {
       checkInBtn.addEventListener('click', function () {
         var statusEl = document.getElementById('checkInStatus');
-        if (!navigator.geolocation) {
-          statusEl.textContent = 'Location not available on this device.';
-          return;
-        }
         checkInBtn.disabled = true;
-        statusEl.textContent = 'Finding you…';
-        navigator.geolocation.getCurrentPosition(function (pos) {
-          fetch('/parks/' + parkId + '/check-in', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-          })
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-              if (data.ok) {
-                location.reload();
-              } else {
-                checkInBtn.disabled = false;
-                statusEl.textContent = data.error || 'Could not check in.';
-              }
-            })
-            .catch(function () {
-              checkInBtn.disabled = false;
-              statusEl.textContent = 'Could not check in.';
-            });
-        }, function () {
-          checkInBtn.disabled = false;
-          statusEl.textContent = 'Location permission denied.';
+        RoyaleGeo.checkIn({
+          url: '/parks/' + parkId + '/check-in',
+          onStatus: function (text) { statusEl.textContent = text; },
+          onDone: function () { location.reload(); },
+          onFail: function (message) {
+            checkInBtn.disabled = false;
+            statusEl.textContent = message;
+          },
         });
       });
     } else if (checkedIn) {
-      startHeartbeat();
+      RoyaleGeo.startHeartbeat(parkId);
     }
 
     // Proactively swap the Check-in button for a distance message when
     // we're confident the player is outside the radius — rather than
     // waiting for them to tap Check in and hit the server-side error.
+    // A rough fix isn't confident: the button stays, and tapping it goes
+    // through the retry-for-a-better-signal path instead.
     var parkLat = <%- park.lat != null ? park.lat : 'null' %>;
     var parkLng = <%- park.lng != null ? park.lng : 'null' %>;
     var checkInRadiusMeters = <%= park.check_in_radius_meters %>;
-    if (checkInBtn && parkLat != null && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(function (pos) {
-        var R = 3958.8;
-        var toRad = function (d) { return (d * Math.PI) / 180; };
-        var dLat = toRad(parkLat - pos.coords.latitude);
-        var dLng = toRad(parkLng - pos.coords.longitude);
-        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(toRad(pos.coords.latitude)) * Math.cos(toRad(parkLat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-        var miles = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    if (checkInBtn && parkLat != null) {
+      RoyaleGeo.getPosition(function (pos) {
+        if (RoyaleGeo.isRoughFix(pos)) return;
+        var miles = RoyaleGeo.haversineMiles(pos.coords.latitude, pos.coords.longitude, parkLat, parkLng);
         if (miles * 1609.34 > checkInRadiusMeters) {
           document.getElementById('checkInNormal').style.display = 'none';
           var tooFar = document.getElementById('checkInTooFar');
           document.getElementById('tooFarMsg').textContent =
-            "You're " + miles.toFixed(1) + ' mi away. Check in opens when you get to the court.';
+            "You're " + RoyaleGeo.distanceLabel(miles) + '. Check in opens when you get to the court.';
           tooFar.style.display = 'block';
         }
-      }, function () {
-        // Denied/unavailable — leave the normal Check in button as is;
-        // tapping it still falls back to the server-side distance check.
-      }, { timeout: 8000 });
+      });
     }
 
     var countdownEl = document.getElementById('countdown');

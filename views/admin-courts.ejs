@@ -6,12 +6,14 @@
 <title>Courts — Basketball Royale</title>
 <%- include('partials/fonts') %>
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/vendor/maplibre-gl/maplibre-gl.css">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body class="kotc">
 <div class="page">
+  <%- include('partials/royale-header') %>
   <div class="page-title heading">Organizer</div>
-  <div class="page-sub">Suggestions to review, and every park's own settings &mdash; organizer-only.</div>
+  <div class="page-sub">Suggestions and photos to review, and every park's own settings &mdash; organizer-only.</div>
   <%- include('partials/admin-tabs', { tab: 'courts' }) %>
 
   <div class="section">Suggestions</div>
@@ -45,11 +47,33 @@
     </div>
   <% }); %>
 
+  <div class="section">Photos to review</div>
+  <% if (pendingPhotos.length === 0) { %>
+    <div class="empty-board">No photos waiting.</div>
+  <% } %>
+  <% pendingPhotos.forEach((photo) => { %>
+    <div class="stats-card">
+      <div class="stats-label" style="margin-bottom: 2px;"><%- include('partials/park-name', { name: photo.park_name, city: photo.park_city }) %></div>
+      <div class="suggestion-meta">Taken by <%= photo.player_name %></div>
+      <img src="/park-photos/<%= photo.filename %>" alt="Photo of <%= photo.park_name %>" class="suggestion-photo">
+      <div class="declare-row" style="margin-top: 10px;">
+        <form method="POST" action="/admin/photos/<%= photo.id %>/approve">
+          <button type="submit" class="small-btn small-btn-accent">Approve</button>
+        </form>
+        <form method="POST" action="/admin/photos/<%= photo.id %>/remove">
+          <button type="submit" class="small-btn">Reject</button>
+        </form>
+      </div>
+    </div>
+  <% }); %>
+
   <div class="section">Parks</div>
   <% parks.forEach((p) => { %>
-    <details class="admin-park-card">
+    <% const hasPin = p.lat !== null && p.lng !== null; %>
+    <% const photos = approvedPhotos.get(p.id) || []; %>
+    <details class="admin-park-card" data-park-id="<%= p.id %>">
       <summary class="admin-park-summary">
-        <span class="admin-park-name"><%= p.name %></span>
+        <span class="admin-park-name"><%- include('partials/park-name', { name: p.name, city: p.city }) %></span>
         <span class="source-badge source-badge-<%= p.source %>">
           <% if (p.source === 'auto') { %>Auto-created
           <% } else if (p.source === 'suggested') { %>Suggested by <%= p.added_by_name || 'a player' %>
@@ -57,6 +81,7 @@
           <% } %>
         </span>
         <% if (p.is_suggested) { %><span class="source-badge source-badge-featured">Featured</span><% } %>
+        <% if (!hasPin) { %><span class="source-badge">No pin yet</span><% } %>
       </summary>
 
       <form method="POST" action="/admin/parks/<%= p.id %>/update" class="settings-form admin-park-form">
@@ -66,13 +91,23 @@
         </div>
         <div class="form-group">
           <label for="location-<%= p.id %>">Address</label>
-          <input type="text" id="location-<%= p.id %>" name="location" value="<%= p.location || '' %>">
+          <div class="address-row">
+            <input type="text" id="location-<%= p.id %>" name="location" value="<%= p.location || '' %>" class="admin-address">
+            <button type="button" class="tiny-btn admin-find-btn">Find on map</button>
+          </div>
         </div>
         <div class="form-group">
-          <label>Pin location &mdash; drag the marker onto the actual courts</label>
-          <div id="admin-map-<%= p.id %>" class="admin-pin-map" data-park-id="<%= p.id %>" data-lat="<%= p.lat %>" data-lng="<%= p.lng %>"></div>
-          <input type="hidden" id="lat-<%= p.id %>" name="lat" value="<%= p.lat %>">
-          <input type="hidden" id="lng-<%= p.id %>" name="lng" value="<%= p.lng %>">
+          <label for="city-<%= p.id %>">City</label>
+          <input type="text" id="city-<%= p.id %>" name="city" value="<%= p.city || '' %>" class="admin-city">
+        </div>
+        <div class="form-group">
+          <label>Pin location</label>
+          <div class="admin-pin-status"><%= hasPin
+            ? 'Drag the marker onto the actual courts, then Save.'
+            : 'No pin yet. Tap "Find on map" to place it from the address, or tap the map where the courts are.' %></div>
+          <div class="admin-pin-map"></div>
+          <input type="hidden" name="lat" value="<%= hasPin ? p.lat : '' %>" class="admin-lat">
+          <input type="hidden" name="lng" value="<%= hasPin ? p.lng : '' %>" class="admin-lng">
         </div>
         <div class="form-group">
           <label for="checkin-<%= p.id %>">Check-in radius (meters)</label>
@@ -88,47 +123,126 @@
         </label>
         <button type="submit" class="small-btn small-btn-accent" style="margin-top: 10px;">Save</button>
       </form>
+
+      <div class="section">Photos</div>
+      <% if (photos.length === 0) { %>
+        <div class="next-action-note" style="padding-top: 0;">No approved photos yet.</div>
+      <% } else { %>
+        <div class="admin-photo-grid">
+          <% photos.forEach((photo) => { %>
+            <div class="admin-photo">
+              <img src="/park-photos/<%= photo.filename %>" alt="Photo of <%= p.name %>" loading="lazy">
+              <div class="admin-photo-meta">By <%= photo.player_name %></div>
+              <% if (photo.is_cover) { %>
+                <div class="source-badge source-badge-featured" style="display: block; text-align: center; margin-bottom: 4px;">Cover</div>
+              <% } else { %>
+                <form method="POST" action="/admin/photos/<%= photo.id %>/cover">
+                  <button type="submit" class="tiny-btn">Set as cover</button>
+                </form>
+              <% } %>
+              <form method="POST" action="/admin/photos/<%= photo.id %>/remove">
+                <button type="submit" class="tiny-btn">Remove</button>
+              </form>
+            </div>
+          <% }); %>
+        </div>
+      <% } %>
     </details>
   <% }); %>
 </div>
 <%- include('partials/bottom-nav', { active: active }) %>
 
 <script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/vendor/maplibre-gl/maplibre-gl.js"></script>
+<script src="/vendor/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
+<script src="/map-tiles.js"></script>
 <script>
   (function () {
-    var maps = {};
+    // Where a park with no pin yet starts out — the area this app is
+    // played in, same fallback center as the home map.
+    var FORT_LAUDERDALE = [26.1224, -80.1373];
+    var editors = {};
 
-    document.querySelectorAll('.admin-park-card').forEach(function (details) {
-      details.addEventListener('toggle', function () {
-        if (!details.open) return;
-        var mapDiv = details.querySelector('.admin-pin-map');
-        var parkId = mapDiv.getAttribute('data-park-id');
+    // One pin editor per park card, built the first time it's needed
+    // (a map can't measure itself inside a closed <details>).
+    function editorFor(card) {
+      var parkId = card.getAttribute('data-park-id');
+      if (editors[parkId]) return editors[parkId];
 
-        if (maps[parkId]) {
-          setTimeout(function () { maps[parkId].invalidateSize(); }, 50);
-          return;
+      var latInput = card.querySelector('.admin-lat');
+      var lngInput = card.querySelector('.admin-lng');
+      var statusEl = card.querySelector('.admin-pin-status');
+      var lat = parseFloat(latInput.value);
+      var lng = parseFloat(lngInput.value);
+      var hasPin = !isNaN(lat) && !isNaN(lng);
+
+      var map = L.map(card.querySelector('.admin-pin-map'), { zoomControl: true })
+        .setView(hasPin ? [lat, lng] : FORT_LAUDERDALE, hasPin ? 17 : 11);
+      RoyaleMap.addBaseLayer(map);
+
+      var marker = null;
+      function placePin(latlng, message) {
+        if (marker) {
+          marker.setLatLng(latlng);
+        } else {
+          marker = L.marker(latlng, { draggable: true }).addTo(map);
+          marker.on('dragend', function () { placePin(marker.getLatLng(), 'Pin moved. Save to keep it.'); });
         }
+        var pos = marker.getLatLng();
+        latInput.value = pos.lat;
+        lngInput.value = pos.lng;
+        if (message) statusEl.textContent = message;
+      }
+      if (hasPin) placePin([lat, lng]);
 
-        var lat = parseFloat(mapDiv.getAttribute('data-lat'));
-        var lng = parseFloat(mapDiv.getAttribute('data-lng'));
-        if (isNaN(lat) || isNaN(lng)) return;
+      // Tapping the map only places a pin that doesn't exist yet — once
+      // there is one, it moves by dragging, so a stray tap can't shift it.
+      map.on('click', function (e) {
+        if (!marker) placePin(e.latlng, 'Pin placed. Drag it onto the courts, then Save.');
+      });
 
-        var map = L.map(mapDiv, { zoomControl: true }).setView([lat, lng], 17);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-          maxZoom: 19,
-          subdomains: 'abcd',
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        }).addTo(map);
+      editors[parkId] = {
+        map: map,
+        placePin: placePin,
+        hasPin: function () { return !!marker; },
+        say: function (text) { statusEl.textContent = text; },
+      };
+      return editors[parkId];
+    }
 
-        var marker = L.marker([lat, lng], { draggable: true }).addTo(map);
-        marker.on('dragend', function () {
-          var pos = marker.getLatLng();
-          document.getElementById('lat-' + parkId).value = pos.lat;
-          document.getElementById('lng-' + parkId).value = pos.lng;
-        });
+    // Looks the typed address up on the server and drops the pin there.
+    function findOnMap(card) {
+      var editor = editorFor(card);
+      var address = card.querySelector('.admin-address').value.trim();
+      if (!address) { editor.say('Type an address first.'); return; }
 
-        maps[parkId] = map;
-        setTimeout(function () { map.invalidateSize(); }, 50);
+      editor.say('Looking up that address…');
+      fetch('/admin/geocode?address=' + encodeURIComponent(address))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok) { editor.say(data.error); return; }
+          editor.placePin([data.lat, data.lng], 'Pin placed from the address. Drag it onto the courts, then Save.');
+          editor.map.setView([data.lat, data.lng], 17);
+          var cityInput = card.querySelector('.admin-city');
+          if (data.city && !cityInput.value.trim()) cityInput.value = data.city;
+        })
+        .catch(function () { editor.say("Couldn't look up that address. Tap the map to place the pin yourself."); });
+    }
+
+    document.querySelectorAll('.admin-park-card').forEach(function (card) {
+      card.addEventListener('toggle', function () {
+        if (!card.open) return;
+        var editor = editorFor(card);
+        setTimeout(function () { editor.map.invalidateSize(); }, 50);
+      });
+
+      card.querySelector('.admin-find-btn').addEventListener('click', function () { findOnMap(card); });
+
+      // Typing an address into a park that has no pin yet places one
+      // without a second tap. A park that already has a pin keeps it
+      // until "Find on map" is tapped on purpose.
+      card.querySelector('.admin-address').addEventListener('change', function () {
+        if (!editorFor(card).hasPin()) findOnMap(card);
       });
     });
   })();

@@ -111,8 +111,9 @@ CREATE TABLE ledger (
 CREATE TABLE IF NOT EXISTS parks (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
     name                   TEXT NOT NULL,
-    location               TEXT,
-    lat                    REAL,               -- for check-in geofencing
+    location               TEXT,               -- street address
+    city                   TEXT,               -- shown next to the name wherever parks are listed
+    lat                    REAL,               -- for check-in geofencing; NULL until geocoded or pinned
     lng                    REAL,
     check_in_radius_meters INTEGER NOT NULL DEFAULT 250,  -- must be within this to check in
     leave_radius_meters    INTEGER NOT NULL DEFAULT 400,  -- must be outside this 5+ min to lose your spot
@@ -120,7 +121,8 @@ CREATE TABLE IF NOT EXISTS parks (
     between_games_seconds  INTEGER NOT NULL DEFAULT 180,  -- winners-stay-on countdown
     osm_id                 TEXT,               -- set when auto-created from an Overpass court
     added_by_player_id     INTEGER REFERENCES players(id), -- set when created from an approved suggestion
-    is_suggested           INTEGER NOT NULL DEFAULT 0 -- organizer-curated pick, shown atop /runs
+    is_suggested           INTEGER NOT NULL DEFAULT 0, -- organizer-curated pick, shown atop /runs
+    cover_photo_id         INTEGER REFERENCES park_photos(id) -- organizer-chosen cover; NULL = no photo yet
 );
 
 -- 9. COURTS — a park can have more than one court (e.g. Main, Side)
@@ -268,6 +270,37 @@ CREATE TABLE IF NOT EXISTS court_follows (
     court_id   INTEGER NOT NULL REFERENCES courts(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (player_id, court_id)
+);
+
+-- 22. APP_META — one-time migration flags ("this cleanup already ran")
+CREATE TABLE IF NOT EXISTS app_meta (
+    key    TEXT PRIMARY KEY,
+    value  TEXT
+);
+
+-- 23. GEOCODE_CACHE — Nominatim answers, so the same address or spot is
+-- only ever looked up once. found = 0 remembers "nothing there" for a while.
+CREATE TABLE IF NOT EXISTS geocode_cache (
+    query       TEXT PRIMARY KEY,
+    lat         REAL,
+    lng         REAL,
+    city        TEXT,
+    found       INTEGER NOT NULL DEFAULT 1,
+    fetched_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 24. PARK_PHOTOS — player photos of a park. The file itself lives under
+-- DATA_DIR/park-photos; nobody but organizers (and the uploader) sees a
+-- photo until it's approved. A rejected photo is deleted outright.
+CREATE TABLE IF NOT EXISTS park_photos (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    park_id               INTEGER NOT NULL REFERENCES parks(id),
+    player_id             INTEGER NOT NULL REFERENCES players(id),
+    filename              TEXT NOT NULL UNIQUE,
+    status                TEXT NOT NULL DEFAULT 'pending', -- pending / approved
+    reviewed_by_player_id INTEGER REFERENCES players(id),
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    reviewed_at           TEXT
 );
 
 -- ============================================================

@@ -1,0 +1,5 @@
+<% if (park.cover_filename) { %>
+  <img src="/park-photos/<%= park.cover_filename %>" alt="" class="park-thumb" loading="lazy">
+<% } else { %>
+  <div class="park-thumb park-thumb-empty">No photo yet</div>
+<% } %>

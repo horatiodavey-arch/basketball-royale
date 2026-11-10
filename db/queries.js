@@ -1,4 +1,4 @@
-const { db, formingGameFor, lastId } = require('./index');
+const { db, formingGameFor, lastId, cityFromAddress } = require('./index');
 
 function getUserByPhone(phone) {
   return db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
@@ -77,7 +77,8 @@ function getTiers() {
 function getOpenLobbies() {
   return db
     .prepare(
-      `SELECT l.*, p.name AS park_name, p.location AS park_location, p.lat AS park_lat, p.lng AS park_lng
+      `SELECT l.*, p.name AS park_name, p.city AS park_city, p.location AS park_location,
+              p.lat AS park_lat, p.lng AS park_lng
        FROM lobbies l
        LEFT JOIN parks p ON p.id = l.park_id
        WHERE l.status = 'open'
@@ -142,17 +143,27 @@ function getLobbyById(id) {
 // KING OF THE COURT
 // ============================================================
 
+// cover_filename is the organizer-chosen cover photo's file (served at
+// /park-photos/<filename>), or null when the park has no photo yet.
 function getParks() {
-  return db.prepare('SELECT * FROM parks ORDER BY name ASC').all();
+  return db
+    .prepare(
+      `SELECT p.*, ph.filename AS cover_filename
+       FROM parks p
+       LEFT JOIN park_photos ph ON ph.id = p.cover_photo_id
+       ORDER BY p.name ASC`
+    )
+    .all();
 }
 
 function getParkById(id) {
   return db
     .prepare(
-      `SELECT p.*, u.name AS added_by_name
+      `SELECT p.*, u.name AS added_by_name, ph.filename AS cover_filename
        FROM parks p
        LEFT JOIN players pl ON pl.id = p.added_by_player_id
        LEFT JOIN users u ON u.id = pl.user_id
+       LEFT JOIN park_photos ph ON ph.id = p.cover_photo_id
        WHERE p.id = ?`
     )
     .get(id);
@@ -502,9 +513,16 @@ function haversineMeters(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// A fix worse than this isn't trusted to say "you're outside" on its own
+// — the client retries once for a better one first (public/geo.js), and
+// if the best it got is still this rough, the player is told why.
+const POOR_GPS_ACCURACY_METERS = 100;
+
 // Checks the player's reported lat/lng against the park's radius, then
 // upserts check_ins (no DB-level UNIQUE on player+park, so check first).
-function checkIn(playerId, parkId, lat, lng) {
+// `accuracy` is the phone's own estimate of how far off that position
+// could be, in meters — optional, and only used to explain a rejection.
+function checkIn(playerId, parkId, lat, lng, accuracy) {
   const park = getParkById(parkId);
   if (!park) return { ok: false, error: 'Park not found.' };
   if (park.lat === null || park.lng === null) {
@@ -513,7 +531,14 @@ function checkIn(playerId, parkId, lat, lng) {
 
   const distance = haversineMeters(lat, lng, park.lat, park.lng);
   if (distance > park.check_in_radius_meters) {
-    return { ok: false, error: `You're ${Math.round(distance)}m from ${park.name} — get within ${park.check_in_radius_meters}m to check in.` };
+    const weakSignal =
+      typeof accuracy === 'number' && accuracy > POOR_GPS_ACCURACY_METERS
+        ? ` Your GPS signal is weak (accurate to about ${Math.round(accuracy)}m) — step into the open and try again.`
+        : '';
+    return {
+      ok: false,
+      error: `You're ${Math.round(distance)}m from ${park.name} — get within ${park.check_in_radius_meters}m to check in.${weakSignal}`,
+    };
   }
 
   const existing = db
@@ -1097,7 +1122,8 @@ function getCourtScreen(courtId, viewerPlayerId) {
 function getAllCourtsTimerStatus() {
   const courts = db
     .prepare(
-      `SELECT c.id, c.number, c.nickname, p.id AS park_id, p.name AS park_name, p.between_games_seconds
+      `SELECT c.id, c.number, c.nickname, p.id AS park_id, p.name AS park_name, p.city AS park_city,
+              p.between_games_seconds
        FROM courts c
        JOIN parks p ON p.id = c.park_id
        ORDER BY p.name ASC, c.number ASC`
@@ -1122,6 +1148,7 @@ function getAllCourtsTimerStatus() {
       courtName: court.nickname || `Court ${court.number}`,
       parkId: court.park_id,
       parkName: court.park_name,
+      parkCity: court.park_city,
       betweenGamesMinutes: Math.round(court.between_games_seconds / 60),
       status,
       countdownEndsAtIso,
@@ -1283,12 +1310,12 @@ function findOrCreateParkAndCourtFromOsm(osmId, name, lat, lng) {
 
 // First check-in at an Overpass-sourced court creates a real park for it,
 // then checks the player in normally.
-function checkInAtOpenCourt(playerId, osmId, name, lat, lng, playerLat, playerLng) {
+function checkInAtOpenCourt(playerId, osmId, name, lat, lng, playerLat, playerLng, accuracy) {
   if (typeof lat !== 'number' || typeof lng !== 'number') {
     return { ok: false, error: 'This court has no location.' };
   }
   const { parkId } = findOrCreateParkAndCourtFromOsm(osmId, name, lat, lng);
-  return { ...checkIn(playerId, parkId, playerLat, playerLng), parkId };
+  return { ...checkIn(playerId, parkId, playerLat, playerLng, accuracy), parkId };
 }
 
 function createCourtSuggestion(playerId, name, lat, lng, photoUrl) {
@@ -1371,15 +1398,28 @@ function getAllParksForAdmin() {
     .map((park) => ({ ...park, source: parkSource(park) }));
 }
 
-// The admin park editor: name, address, pin location, both radii, and the
-// organizer-curated "Suggested" flag — a superset of updateParkSettings
-// above, which only the court screen's own "Game settings" form uses.
-function updateParkAdmin(parkId, { name, location, lat, lng, checkInRadiusMeters, leaveRadiusMeters, isSuggested }) {
+// The admin park editor: name, address, city, pin location, both radii,
+// and the organizer-curated "Suggested" flag — a superset of
+// updateParkSettings above, which only the court screen's own "Game
+// settings" form uses. lat/lng may be null (a park with an address whose
+// pin hasn't been placed yet); a blank city falls back to the one in the
+// address.
+function updateParkAdmin(parkId, { name, location, city, lat, lng, checkInRadiusMeters, leaveRadiusMeters, isSuggested }) {
   db.prepare(
-    `UPDATE parks SET name = ?, location = ?, lat = ?, lng = ?,
+    `UPDATE parks SET name = ?, location = ?, city = ?, lat = ?, lng = ?,
        check_in_radius_meters = ?, leave_radius_meters = ?, is_suggested = ?
      WHERE id = ?`
-  ).run(name, location, lat, lng, checkInRadiusMeters, leaveRadiusMeters, isSuggested ? 1 : 0, parkId);
+  ).run(
+    name,
+    location || null,
+    city || cityFromAddress(location),
+    lat,
+    lng,
+    checkInRadiusMeters,
+    leaveRadiusMeters,
+    isSuggested ? 1 : 0,
+    parkId
+  );
   return { ok: true };
 }
 
@@ -1420,7 +1460,7 @@ function getRunById(runId, viewerPlayerId) {
     .prepare(
       `SELECT r.id, r.scheduled_at, r.note, r.court_id, r.organizer_player_id,
               c.number AS court_number, c.nickname AS court_nickname,
-              p.id AS park_id, p.name AS park_name, p.location AS park_location,
+              p.id AS park_id, p.name AS park_name, p.city AS park_city, p.location AS park_location,
               u.name AS organizer_name
        FROM runs r
        JOIN courts c ON c.id = r.court_id
@@ -1452,6 +1492,7 @@ function getRunById(runId, viewerPlayerId) {
     courtName: run.court_nickname || `Court ${run.court_number}`,
     parkId: run.park_id,
     parkName: run.park_name,
+    parkCity: run.park_city,
     parkLocation: run.park_location,
     organizerName: run.organizer_name,
     rsvps,
@@ -1514,7 +1555,7 @@ function followCourt(playerId, courtId) {
 function getFollowedCourtsForPlayer(playerId, seasonStart) {
   const courts = db
     .prepare(
-      `SELECT c.id AS court_id, c.number, c.nickname, p.id AS park_id, p.name AS park_name
+      `SELECT c.id AS court_id, c.number, c.nickname, p.id AS park_id, p.name AS park_name, p.city AS park_city
        FROM court_follows cf
        JOIN courts c ON c.id = cf.court_id
        JOIN parks p ON p.id = c.park_id
@@ -1536,6 +1577,7 @@ function getFollowedCourtsForPlayer(playerId, seasonStart) {
       courtName: c.nickname || `Court ${c.number}`,
       parkId: c.park_id,
       parkName: c.park_name,
+      parkCity: c.park_city,
       king: getParkKing(c.park_id, seasonStart),
       nextRun: nextRun ? { id: nextRun.id, scheduledAt: nextRun.scheduled_at } : null,
     };
@@ -1549,7 +1591,7 @@ function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
   const candidates = db
     .prepare(
       `SELECT r.id, r.scheduled_at, r.note, c.id AS court_id, c.number, c.nickname,
-              p.id AS park_id, p.name AS park_name, p.lat, p.lng
+              p.id AS park_id, p.name AS park_name, p.city AS park_city, p.lat, p.lng
        FROM runs r
        JOIN courts c ON c.id = r.court_id
        JOIN parks p ON p.id = c.park_id
@@ -1567,6 +1609,7 @@ function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
       courtName: r.nickname || `Court ${r.number}`,
       parkId: r.park_id,
       parkName: r.park_name,
+      parkCity: r.park_city,
       distanceMeters: haversineMeters(lat, lng, r.lat, r.lng),
       rsvpCount: rsvpCount.get(r.id).c,
     }))
