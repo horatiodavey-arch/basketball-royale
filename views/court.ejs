@@ -24,7 +24,7 @@
   <div id="parkPhotoStatus" class="park-photo-status"></div>
   <div class="park-now">
     <% if (parkKing) { %>King of the Court: <span class="king-name-text"><%= parkKing.name %></span><% } else { %>No king yet. Be the first.<% } %>
-    <% if (courtLive) { %><span class="live-badge">Live</span><% } %>
+    <% if (parkLive) { %><span class="live-badge">Live</span><% } %>
   </div>
   <% if (park.added_by_name) { %>
     <div class="page-sub">Court added by <%= park.added_by_name %></div>

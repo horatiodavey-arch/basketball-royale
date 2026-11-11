@@ -488,6 +488,7 @@ app.get('/runs', requireAuth, (req, res) => {
     const pin = pinsById.get(sp.park.id) || {};
     return pin.live ? 0 : pin.nextRun ? 1 : 2;
   };
+  for (const sp of suggestedParks) sp.live = !!(pinsById.get(sp.park.id) || {}).live;
   suggestedParks.sort((a, b) => rankSuggested(a) - rankSuggested(b));
   res.render('runs', {
     active: 'runs',
@@ -673,6 +674,7 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
     active: 'runs',
     parkKing: getParkKing(court.park_id, getSeasonWindow().startSql),
     courtLive: getLiveCourtIds().has(court.id),
+    parkLive: getLiveParkIds().has(court.park_id),
     countdownEndsAtIso,
     error: req.query.error || null,
     formatRunTime,

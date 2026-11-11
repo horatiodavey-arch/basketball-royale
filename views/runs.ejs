@@ -21,7 +21,7 @@
         <div class="park-link-with-thumb">
           <%- include('partials/park-thumb', { park: sp.park }) %>
           <div class="park-link-body">
-            <div class="stats-label" style="margin-bottom: 2px;"><%- include('partials/park-name', { name: sp.park.name, city: sp.park.city }) %></div>
+            <div class="stats-label" style="margin-bottom: 2px;"><%- include('partials/park-name', { name: sp.park.name, city: sp.park.city }) %><% if (sp.live) { %><span class="live-badge">Live</span><% } %></div>
             <div class="suggestion-meta">
               <span class="suggested-distance"></span>
               <%= sp.king ? ('King: ' + sp.king.name) : 'No king yet' %>
