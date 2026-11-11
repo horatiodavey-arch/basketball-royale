@@ -775,3 +775,7 @@ a.royale-brand { color: inherit; text-decoration: none; }
 .event-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 14px; }
 .event-picker label { color: var(--muted); }
 .event-picker select { flex: 1 1 200px; min-width: 0; padding: 8px; font-size: 16px; }
+
+/* Progress section under the runs: long perk hints wrap instead of widening the page. */
+.runs-engagement .perk-status { max-width: 46%; }
+.runs-engagement .perk-hint { white-space: normal; text-align: right; }

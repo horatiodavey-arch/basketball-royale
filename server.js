@@ -459,6 +459,11 @@ app.get('/runs', requireAuth, (req, res) => {
     followedCourts: getFollowedCourtsForPlayer(profile.player_id, season.startSql),
     suggestedParks: getSuggestedParks(season.startSql, profile.player_id),
     cancelledRuns: getCancelledRunsForPlayer(profile.player_id),
+    // Progress: crowns and points still to go, the ladder, perks and trophies.
+    crowns: getFormatSummary(profile.player_id, season.startSql).filter((f) => f.points > 0 || f.trophies > 0),
+    ladder: getTierLadder(profile),
+    perks: getCrownPerks(profile.player_id, season.startSql),
+    trophies: getTrophies(profile.player_id),
     formatRunTime,
   });
 });

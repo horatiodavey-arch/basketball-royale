@@ -99,6 +99,7 @@
       <a href="/admin/stats" class="player-link" style="color: var(--accent); font-weight: 600;">Organizer &rsaquo;</a>
     </div>
   <% } %>
+<%- include('partials/runs-engagement', { crowns: crowns, ladder: ladder, trophies: trophies, perks: perks }) %>
 </div>
 <%- include('partials/bottom-nav', { active: 'runs' }) %>
 
