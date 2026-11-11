@@ -245,6 +245,19 @@ recorded from this change on, so older history shows zero for those.
 
 Migration (additive, run on boot): `events.park_id`. No tables are dropped.
 
+## Live leaderboard and profiles
+
+When a result locks, the leaderboard, crowns and player profiles update on
+open screens without a reload. Each open page checks every 15 seconds (the
+same cadence the court and timer screens already use, but fetching the
+changed data rather than reloading the page). It only checks while the page
+is visible. The server first compares a cheap version number (results and
+trophies recorded); the HTML for a section is rendered only when that version
+has changed. A row whose rank moves is highlighted briefly. Shared partials
+(`partials/board-live`, `partials/profile-header-live`,
+`partials/profile-body-live`) render both the first page load and the live
+updates, so the two always match.
+
 ## Tiers and trophies
 
 The ladder is Rookie → Starter → Star → Superstar. Rookie → Starter is **10

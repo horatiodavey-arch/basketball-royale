@@ -36,44 +36,9 @@
 
     <div class="season-note">Resets in <%= season.daysLeft %> day<%= season.daysLeft === 1 ? '' : 's' %>.</div>
 
-    <% if (rows.length === 0) { %>
-      <div class="empty-board">No games recorded yet this season.</div>
-    <% } else { %>
-      <% const king = rows[0]; %>
-      <div class="king-card">
-        <div class="king-label">KING OF THE COURT</div>
-        <div class="king-crown">
-          <%- include('partials/crown-icon', { size: 36, fill: king.crown ? king.crown.fill : 'none', stroke: king.crown ? king.crown.stroke : 'var(--muted)' }) %>
-        </div>
-        <div class="king-name heading">
-          <a class="player-link" href="/players/<%= king.playerId %>?from=board"><%= king.name %></a>
-          <span class="tier-badge tier-badge-sm"><%= king.tier %></span>
-          <% if (profile && king.playerId === profile.player_id) { %><span class="lb-you-tag">(You)</span><% } %>
-          <% if (king.badge) { %><span class="crown-badge <%= king.badge === 'Triple Crown' ? 'triple' : 'double' %>"><%= king.badge %></span><% } %>
-        </div>
-        <div class="king-level"><%= king.crown ? king.crown.name : (king.pointsToCrown + ' pts to a crown') %></div>
-        <div class="king-points heading"><%= king.points %> <span>pts</span></div>
-      </div>
-
-      <% rows.slice(1).forEach((row) => { %>
-        <div class="lb-row <%= profile && row.playerId === profile.player_id ? 'you' : '' %>">
-          <div class="lb-rank"><%= row.rank %></div>
-          <div class="lb-crown">
-            <%- include('partials/crown-icon', { size: 22, fill: row.crown ? row.crown.fill : 'none', stroke: row.crown ? row.crown.stroke : 'var(--muted)' }) %>
-          </div>
-          <div class="lb-main">
-            <div class="lb-name">
-              <a class="player-link" href="/players/<%= row.playerId %>?from=board"><%= row.name %></a>
-              <span class="tier-badge tier-badge-sm"><%= row.tier %></span>
-              <% if (profile && row.playerId === profile.player_id) { %><span class="lb-you-tag">(You)</span><% } %>
-              <% if (row.badge) { %><span class="crown-badge <%= row.badge === 'Triple Crown' ? 'triple' : 'double' %>"><%= row.badge %></span><% } %>
-            </div>
-            <div class="lb-level"><%= row.crown ? row.crown.name : (row.pointsToCrown + ' pts to a crown') %></div>
-          </div>
-          <div class="lb-points heading"><%= row.points %></div>
-        </div>
-      <% }); %>
-    <% } %>
+    <div class="live-part" data-live-key="body" data-live-url="<%= liveUrl %>" data-live-v="<%= liveVersion %>">
+      <%- include('partials/board-live', { rows: rows, profile: profile }) %>
+    </div>
   <% } %>
 
   <div class="crowns-info">
@@ -88,5 +53,6 @@
   </div>
 </div>
 <%- include('partials/bottom-nav', { active: 'board' }) %>
+<script src="/live.js"></script>
 </body>
 </html>

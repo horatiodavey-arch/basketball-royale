@@ -1,0 +1,67 @@
+  <div class="profile-crown-card">
+    <%- include('crown-icon', { size: 30, fill: crown ? crown.fill : 'none', stroke: crown ? crown.stroke : 'var(--muted)' }) %>
+    <div class="profile-crown-main">
+      <div class="profile-crown-level"><%= crown ? crown.name : 'No crown yet' %></div>
+      <div class="profile-crown-points"><%= points %> pts this season</div>
+    </div>
+  </div>
+  <div class="format-crowns">
+    <% formats.forEach((f) => { %>
+      <div class="format-crown-row">
+        <span class="format-name"><%= f.format %></span>
+        <% if (f.crown) { %>
+          <%- include('crown-icon', { size: 16, fill: f.crown.fill, stroke: f.crown.stroke }) %>
+          <span><%= f.crown.name %></span>
+        <% } else { %>
+          <span class="perk-hint"><%= f.pointsToCrown %> pts to a crown</span>
+        <% } %>
+        <span class="format-trophies"><%= f.trophies %> trophy<%= f.trophies === 1 ? '' : 'ies' %></span>
+      </div>
+    <% }); %>
+  </div>
+  <div class="season-note">Resets in <%= season.daysLeft %> day<%= season.daysLeft === 1 ? '' : 's' %>.</div>
+
+  <div class="section">Trophies</div>
+  <% if (trophies.length === 0) { %>
+    <div class="next-action-note">Finish the month with a crown to earn your first trophy.</div>
+  <% } else { %>
+    <div class="trophy-row">
+      <% trophies.forEach((trophy) => { %>
+        <div class="trophy" title="<%= trophy.crownName %> · <%= trophy.points %> pts · <%= trophy.datesLabel %><%= trophy.kingParks.length ? ' · King of ' + trophy.kingParks.join(', ') : '' %>">
+          <div class="trophy-icon">
+            <%- include('crown-icon', { size: 28, fill: trophy.fill, stroke: trophy.stroke }) %>
+          </div>
+          <div class="trophy-month"><%= trophy.monthLabel %></div>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+
+  <% if (ladder) { %>
+    <div class="section">The ladder</div>
+    <%- include('tier-ladder', { ladder: ladder }) %>
+  <% } %>
+
+  <div class="section">Crown perks</div>
+  <% perks.forEach((perk) => { %>
+    <div class="perk-row <%= perk.earned ? 'earned' : 'locked' %>">
+      <div class="perk-icon">
+        <% if (perk.earned) { %>
+          <%- include('crown-icon', { size: 26, fill: perk.fill, stroke: perk.stroke }) %>
+        <% } else { %>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        <% } %>
+      </div>
+      <div class="perk-main">
+        <div class="perk-name"><%= perk.name %></div>
+        <div class="perk-desc"><%= perk.description %></div>
+      </div>
+      <div class="perk-status">
+        <% if (perk.earned) { %>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green-text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <% } else { %>
+          <span class="perk-hint"><%= perk.lockedHint %></span>
+        <% } %>
+      </div>
+    </div>
+  <% }); %>
