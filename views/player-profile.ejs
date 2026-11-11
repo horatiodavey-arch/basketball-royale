@@ -7,31 +7,33 @@
 <%- include('partials/fonts') %>
 <link rel="stylesheet" href="/style.css">
 </head>
-<body class="kotc">
+<body class="kotc profile-page">
 <div class="page">
   <%- include('partials/royale-header', { trophyNote: true }) %>
+
   <div class="live-part" data-live-key="header" data-live-url="/live/profile/<%= player.player_id %>" data-live-v="<%= liveVersion %>">
-    <%- include('partials/profile-header-live', { player: player, initials: initials, isSelf: isSelf }) %>
+    <%- include('partials/profile-header-live', { player: player, initials: initials, tierLabel: tierLabel }) %>
   </div>
 
-  <% if (isSelf) { %><span class="lb-you-tag">(You)</span><% } %>
-      </div>
-      <div class="profile-record"><%= player.wins %>W &ndash; <%= player.losses %>L &middot; <%= player.games_played %> games</div>
-    </div>
+  <div class="live-part" data-live-key="body">
+    <%- include('partials/profile-body-live', { kingRows: kingRows, trophyCount: trophyCount, trophyByFormat: trophyByFormat, gamesThisSeason: gamesThisSeason, topBreakdown: topBreakdown, badges: badges }) %>
   </div>
 
   <% if (isSelf) { %>
-    <form method="POST" action="/profile/name" class="settings-form" style="margin-bottom: 14px;">
-      <div class="form-group">
-        <label for="displayName">Display name</label>
-        <input type="text" id="displayName" name="name" value="<%= player.base_name %>" maxlength="30" required>
-      </div>
-      <button type="submit" class="small-btn">Save name</button>
-      <% if (nameError) { %><div class="error-msg" style="margin-top: 8px;"><%= nameError %></div><% } %>
-    </form>
+    <details class="pf-details" <%= nameError ? 'open' : '' %>>
+      <summary class="pf-details-summary">Edit display name</summary>
+      <form method="POST" action="/profile/name" class="settings-form" style="margin-top: 10px;">
+        <div class="form-group">
+          <label for="displayName">Display name</label>
+          <input type="text" id="displayName" name="name" value="<%= player.base_name %>" maxlength="30" required>
+        </div>
+        <button type="submit" class="small-btn">Save name</button>
+        <% if (nameError) { %><div class="error-msg" style="margin-top: 8px;"><%= nameError %></div><% } %>
+      </form>
+    </details>
   <% } %>
   <% if (isSelf && inviteTag) { %>
-    <button type="button" id="inviteHooperBtn" class="small-btn" style="margin-bottom: 14px;">Invite a hooper</button>
+    <button type="button" id="inviteHooperBtn" class="small-btn pf-invite">Invite a hooper</button>
     <script src="/track.js"></script>
     <script>
       (function () {
@@ -50,9 +52,6 @@
       })();
     </script>
   <% } %>
-  <div class="live-part" data-live-key="body">
-    <%- include('partials/profile-body-live', { crown: crown, points: points, formats: formats, season: season, trophies: trophies, ladder: ladder, perks: perks }) %>
-  </div>
 </div>
 <%- include('partials/bottom-nav', { active: 'profile' }) %>
 <script src="/live.js"></script>

@@ -332,6 +332,19 @@ Profile, player profiles, and the leaderboard.
 The ROYALE bar (logo plus "Crowns reset in N days.") is at the top of every
 page, including sign-up, and the logo links back to the map (`/`).
 
+## Fonts and the profile page
+
+Oswald 700 is used for the ROYALE header, page and section titles, player
+names and big numbers. Inter (400, 500, 600) is used for everything else.
+Fallbacks: Oswald → Inter → sans-serif; Inter → system-ui → sans-serif.
+
+The profile page shows a player card (initials, name with tag, tier), King of
+the court (one row per format with points, highest crown first), Trophies and
+Games cards, the points breakdown for the highest-crown format (its rows add up
+to its total, so court hours appear as a row), and four locked badges. Your own
+profile also has a collapsed "Edit display name" and the "Invite a hooper"
+button. The tier ladder and crown perks moved off the profile page.
+
 ## Home screen (the map)
 
 `/` is now the King of the Court map, not the old lobby list. It leads with
