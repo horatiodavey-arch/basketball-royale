@@ -472,6 +472,9 @@ function migrateKingOfTheCourtColumns() {
   // Every account gets a unique 4-digit tag shown after its display name.
   // Existing accounts are backfilled here, once, then the index enforces it.
   addColumnIfMissing('users', 'tag', 'TEXT');
+  // Events can name the park they happened at (NULL for older events and for
+  // taps that aren't about a park).
+  addColumnIfMissing('events', 'park_id', 'INTEGER');
   for (const user of db.prepare('SELECT id FROM users WHERE tag IS NULL').all()) {
     db.prepare('UPDATE users SET tag = ? WHERE id = ?').run(newUniqueTag(), user.id);
   }

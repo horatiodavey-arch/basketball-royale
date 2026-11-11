@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc">
+<div class="page">
+  <div class="page-title heading">Admin</div>
+  <% if (!configured) { %>
+    <div class="error-msg">Set ADMIN_PASSWORD in the environment to enable the admin dashboard.</div>
+  <% } else { %>
+    <div class="page-sub">Private. Owner only.</div>
+    <% if (error) { %><div class="error-msg"><%= error %></div><% } %>
+    <form method="POST" action="/admin/login" class="settings-form">
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autofocus required>
+      </div>
+      <button type="submit" class="submit-btn">Open dashboard</button>
+    </form>
+  <% } %>
+</div>
+</body>
+</html>
