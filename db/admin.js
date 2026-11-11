@@ -4,37 +4,12 @@
 const { db } = require('./index');
 const { formatAggregate, FORMATS, CROWN_LEVELS, getCrownLevel, getSeasonWindow } = require('./queries');
 
-const TZ = process.env.APP_TIMEZONE || 'America/New_York';
-const dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+const { buildRetention, parseSql, toSql, weekOf, addWeeks, pct, TZ, DAY } = require('./retention');
+
 const hourFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' });
 const weekdayFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' });
 const NAME = "(u.name || ' #' || u.tag)";
 const RANGE_DAYS = { 7: 7, 30: 30, all: null };
-const DAY = 86400000;
-
-function parseSql(text) {
-  return new Date(text.replace(' ', 'T') + 'Z');
-}
-function toSql(date) {
-  return date.toISOString().slice(0, 19).replace('T', ' ');
-}
-function localDay(date) {
-  return dayFmt.format(date);
-}
-// The Monday (YYYY-MM-DD) of the week a moment falls in, in the app's timezone.
-function weekOf(date) {
-  const d = new Date(localDay(date) + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
-  return d.toISOString().slice(0, 10);
-}
-function addWeeks(week, n) {
-  const d = new Date(week + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + 7 * n);
-  return d.toISOString().slice(0, 10);
-}
-function pct(part, whole) {
-  return whole > 0 ? `${Math.round((part / whole) * 100)}%` : '—';
-}
 
 function resolveRange(range) {
   const key = Object.prototype.hasOwnProperty.call(RANGE_DAYS, range) ? range : '30';
@@ -68,14 +43,11 @@ function buildDashboard(range) {
   const signupWeek = new Map(signupRows.map((r) => [r.player, weekOf(parseSql(r.at))]));
   const names = new Map(signupRows.map((r) => [r.player, r.name]));
 
-  const weeksByPlayer = new Map();
   const activeByWeek = new Map();
   for (const row of activity) {
     const week = weekOf(parseSql(row.at));
     if (!activeByWeek.has(week)) activeByWeek.set(week, new Set());
     activeByWeek.get(week).add(row.player);
-    if (!weeksByPlayer.has(row.player)) weeksByPlayer.set(row.player, new Set());
-    weeksByPlayer.get(row.player).add(week);
   }
 
   // Weeks to show: the range's weeks, or every week with data for "all time".
@@ -105,33 +77,8 @@ function buildDashboard(range) {
     signupsByPark.set(label, (signupsByPark.get(label) || 0) + 1);
   }
 
-  // --- Retention
-  const retentionRows = shownWeeks.map((week) => {
-    const active = activeByWeek.get(week) || new Set();
-    let fresh = 0;
-    for (const player of active) if (signupWeek.get(player) === week) fresh += 1;
-    const next = activeByWeek.get(addWeeks(week, 1)) || new Set();
-    const cameBack = week === thisWeek ? null : [...active].filter((p) => next.has(p)).length;
-    return {
-      week,
-      active: active.size,
-      fresh,
-      returning: active.size - fresh,
-      returnRate: cameBack === null ? '—' : pct(cameBack, active.size),
-    };
-  });
-
-  const cohortWeeks = shownWeeks.filter((w) => signupWeek && [...signupWeek.values()].includes(w));
-  const cohortRows = cohortWeeks.map((cohort) => {
-    const members = [...signupWeek.entries()].filter(([, w]) => w === cohort).map(([p]) => p);
-    const cells = [1, 2, 3, 4].map((k) => {
-      const target = addWeeks(cohort, k);
-      if (target > thisWeek) return '—';
-      const back = members.filter((p) => (weeksByPlayer.get(p) || new Set()).has(target)).length;
-      return pct(back, members.length);
-    });
-    return { cohort, size: members.length, cells };
-  });
+  // --- Retention, headline and activation funnel (db/retention.js)
+  const retention = buildRetention({ since, sinceWeek, weeks: shownWeeks, now });
 
   // --- Activity
   const checkinsInRange = activity.filter((r) => r.game === null && inRange(r.at));
@@ -250,15 +197,13 @@ function buildDashboard(range) {
     .filter((r) => inRange(r.at));
 
   const newSignups = signupsInRange.length;
-  const thisWeekActive = (activeByWeek.get(thisWeek) || new Set()).size;
-  const lastFullWeek = addWeeks(thisWeek, -1);
-  const lastRate = retentionRows.find((r) => r.week === lastFullWeek);
 
   return {
     range: key,
     rangeLabel: key === 'all' ? 'All time' : `Last ${key} days`,
     generatedAt: toSql(now),
     tables: {
+      ...retention.tables,
       'signups-weekly': {
         title: 'New signups per week',
         headers: ['Week of', 'New signups'],
@@ -268,16 +213,6 @@ function buildDashboard(range) {
         title: 'Signups by park (first park checked in at)',
         headers: ['Park', 'Players'],
         rows: [...signupsByPark.entries()].sort((a, b) => b[1] - a[1]),
-      },
-      'retention-weekly': {
-        title: 'Weekly activity and return rate',
-        headers: ['Week of', 'Active players', 'New', 'Returning', 'Came back the next week'],
-        rows: retentionRows.map((r) => [r.week, r.active, r.fresh, r.returning, r.returnRate]),
-      },
-      cohorts: {
-        title: 'Cohorts: share of each signup week still active',
-        headers: ['Signed up week of', 'Players', 'Week 1', 'Week 2', 'Week 3', 'Week 4'],
-        rows: cohortRows.map((c) => [c.cohort, c.size, ...c.cells]),
       },
       'checkins-park': {
         title: 'Check-ins per park',
@@ -344,6 +279,9 @@ function buildDashboard(range) {
       },
     },
     sections: [
+      retention.headlineSection,
+      retention.retentionSection,
+      retention.activationSection,
       {
         title: 'Growth',
         big: [
@@ -351,15 +289,6 @@ function buildDashboard(range) {
           { label: 'Players in total', value: signupRows.length },
         ],
         tables: ['signups-weekly', 'signups-park'],
-      },
-      {
-        title: 'Retention',
-        big: [
-          { label: 'Active this week', value: thisWeekActive },
-          { label: 'Came back, last full week', value: lastRate ? lastRate.returnRate : '—' },
-        ],
-        tables: ['retention-weekly', 'cohorts'],
-        note: 'Active = checked in or played a game. A week counts as "came back" when the player is active the following week.',
       },
       {
         title: 'Activity',

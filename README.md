@@ -258,6 +258,23 @@ them. Players get an "Invite a hooper" button on their own profile that copies
 database named `br-backup-YYYY-MM-DD.db`, made with SQLite's `VACUUM INTO`
 while the app runs. The copy includes player phone numbers, so keep it private.
 
+**Retention, headline and funnel** (/admin, range filter 7 days / 30 days /
+all time). Weeks run Monday to Sunday and months are calendar months, in
+`APP_TIMEZONE`. A player is *active* in a week with a check-in or a played game.
+- **Headline** (ignores the range): total players, weekly active (last full
+  week), week-over-week return rate (of players active the week before last,
+  the share active last week), stickiness (players active in the last 7 days ÷
+  the last 30 days), games this month, and games per active player last week.
+- **Retention**: weekly and monthly active charts, new (first time active) vs
+  returning per week, cohorts by signup week with the share still active in
+  weeks 1–8, churned (quiet for 3 weeks), resurrected (back after 3+ weeks
+  away), and the longest streak of active weeks per player (2, 3, 4+).
+- **Activation funnel** for players who signed up in range: opened the app →
+  signed up → first check-in → first game → active in a second week, with the
+  share who make each step and the median days from signup to first game.
+
+Every table has an Export CSV button. Read-only, and names are shown with tags.
+
 Migrations (additive, run on boot): `events.park_id`, `users.source`,
 `users.referred_by_player_id`, and the `player_milestones` table (backfilled
 once from existing data). No tables are dropped.
