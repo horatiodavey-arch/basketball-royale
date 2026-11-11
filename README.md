@@ -22,6 +22,15 @@ and five demo players already "locked in" (matching the mockup's roster).
 
 To wipe and reseed: `npm run db:reset`.
 
+**Demo data is opt-in.** The demo players (Darius Reed and friends, phones
+`5550000001`–`5550000005`), the demo "Sunday run" lobby, and their game
+history are only created when `SEED_DEMO=true`. Without it, a fresh database
+starts with just the two preset parks. An existing database that still has
+the demo players loses them once, on the next boot without `SEED_DEMO=true`:
+their game history, check-ins, runs and RSVPs, follows, queue and live-game
+seats, and the demo lobby go too, while anything a real player did is kept
+(`removeDemoData` in `db/index.js`, recorded in `app_meta` so it runs once).
+
 ## How it maps to the schema
 
 - **Sign up** creates a `users` row and a matching `players` row (tier
@@ -394,6 +403,8 @@ the list is set) — so there's no manual DB edit needed either way.
 - Mount a persistent volume at `/data`.
 - Set `DATA_DIR=/data` so the SQLite file and uploaded park photos live on the volume instead of the
   repo (the app creates the folder if it doesn't exist).
+- Leave `SEED_DEMO` unset in production, so no demo players, games, runs or
+  lobbies are created (see *Run it* above).
 - Set `SESSION_SECRET` to a fixed random string, so sessions survive restarts
   and deploys instead of invalidating every time the random fallback changes.
 - Set `ORGANIZER_PHONES` to your own phone number (and any other organizers',

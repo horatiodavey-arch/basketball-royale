@@ -39,10 +39,16 @@ const PRESET_PARKS = [
   },
 ];
 
+// Demo players, lobby, and game history are for local development and
+// demos only. Production (anything that doesn't set SEED_DEMO=true) starts
+// with none of them, and loses any left over from earlier versions.
+const SEED_DEMO = process.env.SEED_DEMO === 'true';
+const DEMO_PHONES = ['5550000001', '5550000002', '5550000003', '5550000004', '5550000005'];
+
 if (isNewDb) {
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
   db.exec(schema);
-  seedDemoData();
+  if (SEED_DEMO) seedDemoData();
 }
 
 // King of the Court's tables ship via CREATE TABLE IF NOT EXISTS so a
@@ -54,8 +60,71 @@ ensureKingOfTheCourtTables();
 migrateKingOfTheCourtColumns();
 consolidatePresetParks();
 backfillParkCities();
+if (!SEED_DEMO) runOnce('demo_data_removed', removeDemoData);
 seedKingOfTheCourtDemoData();
 applyOrganizerPhones();
+
+// Deletes the demo players and everything they did: their game history,
+// check-ins, runs and RSVPs, follows, queue and live-game seats, lobby
+// entries, and the demo "Sunday run" lobby. Anything a real player did
+// is left alone. Runs once per database (see runOnce above).
+function removeDemoData() {
+  const phones = DEMO_PHONES.map((p) => `'${p}'`).join(',');
+  const demoPlayers = `(SELECT p.id FROM players p JOIN users u ON u.id = p.user_id WHERE u.phone IN (${phones}))`;
+  const demoLobbies = `(SELECT id FROM lobbies WHERE name = 'Sunday run' AND join_code = 'SUN24')`;
+  const demoGames = `(SELECT id FROM games WHERE lobby_id IN ${demoLobbies})`;
+  const demoRuns = `(SELECT id FROM runs WHERE organizer_player_id IN ${demoPlayers})`;
+  const demoPhotos = `(SELECT id FROM park_photos WHERE player_id IN ${demoPlayers})`;
+
+  const photoFiles = db.prepare(`SELECT filename FROM park_photos WHERE id IN ${demoPhotos}`).all();
+
+  db.exec('BEGIN');
+  try {
+    db.exec(`
+      UPDATE parks SET cover_photo_id = NULL WHERE cover_photo_id IN ${demoPhotos};
+      UPDATE park_photos SET reviewed_by_player_id = NULL WHERE reviewed_by_player_id IN ${demoPlayers};
+      DELETE FROM park_photos WHERE id IN ${demoPhotos};
+      UPDATE parks SET added_by_player_id = NULL WHERE added_by_player_id IN ${demoPlayers};
+
+      DELETE FROM run_rsvps WHERE run_id IN ${demoRuns} OR player_id IN ${demoPlayers};
+      DELETE FROM runs WHERE organizer_player_id IN ${demoPlayers};
+
+      DELETE FROM ledger WHERE player_id IN ${demoPlayers} OR game_id IN ${demoGames};
+      DELETE FROM game_players WHERE game_id IN ${demoGames} OR player_id IN ${demoPlayers};
+      DELETE FROM games WHERE id IN ${demoGames};
+      DELETE FROM lobbies WHERE id IN ${demoLobbies};
+
+      DELETE FROM game_results WHERE player_id IN ${demoPlayers};
+
+      DELETE FROM next_line_members WHERE player_id IN ${demoPlayers}
+        OR next_line_id IN (SELECT id FROM next_line WHERE captain_player_id IN ${demoPlayers});
+      DELETE FROM next_line WHERE captain_player_id IN ${demoPlayers};
+
+      DELETE FROM live_game_players WHERE player_id IN ${demoPlayers};
+      DELETE FROM live_games WHERE id NOT IN (SELECT live_game_id FROM live_game_players);
+
+      DELETE FROM check_ins WHERE player_id IN ${demoPlayers};
+      DELETE FROM court_follows WHERE player_id IN ${demoPlayers};
+      DELETE FROM events WHERE player_id IN ${demoPlayers};
+      DELETE FROM player_active_days WHERE player_id IN ${demoPlayers};
+      DELETE FROM trophies WHERE player_id IN ${demoPlayers};
+
+      UPDATE court_suggestions SET reviewed_by_player_id = NULL WHERE reviewed_by_player_id IN ${demoPlayers};
+      DELETE FROM court_suggestions WHERE player_id IN ${demoPlayers};
+
+      DELETE FROM players WHERE id IN ${demoPlayers};
+      DELETE FROM users WHERE phone IN (${phones});
+    `);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+
+  for (const { filename } of photoFiles) {
+    fs.rm(path.join(DATA_DIR, 'park-photos', filename), { force: true }, () => {});
+  }
+}
 
 function getMeta(key) {
   const row = db.prepare('SELECT value FROM app_meta WHERE key = ?').get(key);
