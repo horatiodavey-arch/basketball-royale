@@ -12,6 +12,52 @@
   <div class="page-title heading">Admin</div>
   <div class="page-sub"><%= dashboard.rangeLabel %> &middot; updated <%= dashboard.generatedAt %> UTC &middot; read-only</div>
 
+  <div class="section admin-section">Tracking check</div>
+  <div class="admin-big">
+    <div class="admin-stat">
+      <div class="admin-stat-value heading"><%= tracking.totalPlayers %></div>
+      <div class="admin-stat-label">Total players</div>
+    </div>
+    <% tracking.milestones.forEach((m) => { %>
+      <div class="admin-stat">
+        <div class="admin-stat-value heading"><%= m.players %></div>
+        <div class="admin-stat-label"><%= m.label %></div>
+      </div>
+    <% }); %>
+  </div>
+  <div class="season-note">Milestones count each player once, the first time it happened. Ever, not this range.</div>
+
+  <div class="admin-table-head">
+    <span class="admin-table-title">Every event, all time</span>
+  </div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead><tr><th>Event</th><th>Taps</th><th>Unique players</th><th>Per day</th></tr></thead>
+      <tbody>
+        <% tracking.events.forEach((e) => { %>
+          <tr><td><%= e.label %></td><td><%= e.totalTaps %></td><td><%= e.uniquePlayers %></td><td><%= e.tapsPerDay %></td></tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="admin-table-head">
+    <span class="admin-table-title">Where players came from</span>
+  </div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead><tr><th>Source</th><th>Players</th></tr></thead>
+      <tbody>
+        <% tracking.bySource.forEach((s) => { %>
+          <tr><td><%= s.source %></td><td><%= s.players %></td></tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+
+  <a class="small-btn" href="/admin/backup" style="display: inline-block; margin: 14px 0 6px;">Download backup</a>
+  <div class="season-note">A full copy of the database, dated today. It contains player phone numbers, so keep it private.</div>
+
   <div class="range-tabs">
     <% [['7', 'Last 7 days'], ['30', 'Last 30 days'], ['all', 'All time']].forEach(([key, label]) => { %>
       <a class="range-tab <%= dashboard.range === key ? 'active' : '' %>" href="/admin?range=<%= key %>"><%= label %></a>

@@ -60,6 +60,16 @@ ensureKingOfTheCourtTables();
 migrateKingOfTheCourtColumns();
 consolidatePresetParks();
 backfillParkCities();
+// Funnel milestones reference players, so this table must exist before the
+// demo-data cleanup below deletes any demo players.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS player_milestones (
+      player_id  INTEGER NOT NULL REFERENCES players(id),
+      milestone  TEXT NOT NULL,
+      at         TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (player_id, milestone)
+  );
+`);
 if (!SEED_DEMO) runOnce('demo_data_removed', removeDemoData);
 seedKingOfTheCourtDemoData();
 applyOrganizerPhones();
@@ -95,6 +105,7 @@ function removeDemoData() {
       DELETE FROM lobbies WHERE id IN ${demoLobbies};
 
       DELETE FROM game_results WHERE player_id IN ${demoPlayers};
+      DELETE FROM player_milestones WHERE player_id IN ${demoPlayers};
 
       DELETE FROM next_line_members WHERE player_id IN ${demoPlayers}
         OR next_line_id IN (SELECT id FROM next_line WHERE captain_player_id IN ${demoPlayers});
@@ -475,6 +486,19 @@ function migrateKingOfTheCourtColumns() {
   // Events can name the park they happened at (NULL for older events and for
   // taps that aren't about a park).
   addColumnIfMissing('events', 'park_id', 'INTEGER');
+  // Where a player came from. Existing accounts read as 'direct' (the default),
+  // and referred_by_player_id stays NULL for anyone who didn't use an invite.
+  addColumnIfMissing('users', 'source', "TEXT DEFAULT 'direct'");
+  addColumnIfMissing('users', 'referred_by_player_id', 'INTEGER');
+  // One row per player per milestone, written the first time it happens.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS player_milestones (
+        player_id  INTEGER NOT NULL REFERENCES players(id),
+        milestone  TEXT NOT NULL,
+        at         TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (player_id, milestone)
+    );
+  `);
   for (const user of db.prepare('SELECT id FROM users WHERE tag IS NULL').all()) {
     db.prepare('UPDATE users SET tag = ? WHERE id = ?').run(newUniqueTag(), user.id);
   }
@@ -485,6 +509,24 @@ function migrateKingOfTheCourtColumns() {
   // 10 games". Once only, so a later change to the tiers table sticks.
   runOnce('rookie_rank_up_paid_games', () => {
     db.prepare("UPDATE tiers SET wins_to_promote = NULL, games_to_promote = 10 WHERE name = 'rookie'").run();
+  });
+
+  // Funnel milestones for players who joined before they were recorded.
+  // Only the milestones the existing data can answer; "result confirmed"
+  // starts from the day it shipped.
+  runOnce('milestones_backfill_v1', () => {
+    db.exec(`
+      INSERT OR IGNORE INTO player_milestones (player_id, milestone, at)
+        SELECT p.id, 'signup', COALESCE(u.created_at, datetime('now'))
+        FROM players p JOIN users u ON u.id = p.user_id;
+      INSERT OR IGNORE INTO player_milestones (player_id, milestone, at)
+        SELECT player_id, 'first_open', MIN(created_at) FROM events
+        WHERE event_name = 'app_open' GROUP BY player_id;
+      INSERT OR IGNORE INTO player_milestones (player_id, milestone, at)
+        SELECT player_id, 'first_checkin', MIN(time_in) FROM check_ins GROUP BY player_id;
+      INSERT OR IGNORE INTO player_milestones (player_id, milestone, at)
+        SELECT player_id, 'first_game', MIN(date) FROM game_results GROUP BY player_id;
+    `);
   });
 
   // The check-in radius default changed 150 -> 250. Any park still sitting
@@ -725,4 +767,12 @@ function seedKingOfTheCourtDemoData() {
   playGame(sacId, sacCourtOneId, [C, M], [T, J], 60);
 }
 
-module.exports = { db, formingGameFor, lastId, DATA_DIR, cityFromAddress, runOnce, newUniqueTag };
+// A consistent copy of the whole database, written to filePath. VACUUM INTO
+// reads through SQLite's own snapshot, so it is safe while the app is running
+// (copying the raw file could catch a half-written page). Read-only for the
+// live data: nothing in the database changes.
+function writeBackup(filePath) {
+  db.prepare('VACUUM INTO ?').run(filePath);
+}
+
+module.exports = { db, formingGameFor, lastId, DATA_DIR, cityFromAddress, runOnce, newUniqueTag, writeBackup };

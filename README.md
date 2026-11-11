@@ -243,7 +243,24 @@ Activity counted for retention is a check-in or a played game. App opens
 (the first open of each day), result events and park tags on events are
 recorded from this change on, so older history shows zero for those.
 
-Migration (additive, run on boot): `events.park_id`. No tables are dropped.
+**Tracking check** (top of /admin): total players, how many reached each
+funnel milestone (opened the app, signed up, first check-in, first game,
+first confirmed result), where players came from (`?src=` on their first
+visit, "direct" otherwise), and every tracked event with total taps, unique
+players and taps per day. Each milestone counts a player once, ever.
+
+**Invites and sources.** A link with `?src=instagram` (or any short name)
+saves that source on the account at signup. `?ref=<tag>` saves who invited
+them. Players get an "Invite a hooper" button on their own profile that copies
+`/?ref=<their tag>`.
+
+**Download backup** (/admin, or `/admin/backup`) downloads a full copy of the
+database named `br-backup-YYYY-MM-DD.db`, made with SQLite's `VACUUM INTO`
+while the app runs. The copy includes player phone numbers, so keep it private.
+
+Migrations (additive, run on boot): `events.park_id`, `users.source`,
+`users.referred_by_player_id`, and the `player_milestones` table (backfilled
+once from existing data). No tables are dropped.
 
 ## Live leaderboard and profiles
 

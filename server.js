@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const crypto = require('node:crypto');
 const path = require('node:path');
+const fs = require('node:fs');
 
 const {
   getUserByPhone,
@@ -75,7 +76,10 @@ const {
   CLIENT_REPORTED_EVENTS,
   recordActiveDay,
   getFunnel,
+  getPlayerIdByTag,
+  getTrackingCheck,
 } = require('./db/queries');
+const { DATA_DIR, writeBackup } = require('./db/index');
 const { geocodeAddress, fillMissingParkLocations, startBackgroundGeocoding } = require('./db/geocode');
 const parkPhotos = require('./db/park-photos');
 const { getTrophies, getTierLadder } = require('./db/trophies');
@@ -107,8 +111,28 @@ app.use((req, res, next) => {
   res.locals.season = getSeasonWindow();
   // Opening the owner's dashboard isn't player activity.
   if (req.session.userId && !req.path.startsWith('/admin')) recordActiveDay(req.session.userId);
+  // Where a new player came from. The first ?src= and ?ref= a visitor
+  // arrives with are kept in their session until they sign up.
+  if (req.method === 'GET') {
+    const src = cleanSource(req.query.src);
+    if (src && !req.session.src) req.session.src = src;
+    const ref = cleanInviteTag(req.query.ref);
+    if (ref && !req.session.ref) req.session.ref = ref;
+  }
   next();
 });
+
+// Short, plain values only: a link can't stuff arbitrary text into the database.
+function cleanSource(value) {
+  if (typeof value !== 'string') return null;
+  const source = value.trim().toLowerCase();
+  return /^[a-z0-9_-]{1,40}$/.test(source) ? source : null;
+}
+
+function cleanInviteTag(value) {
+  if (typeof value !== 'string') return null;
+  return /^\d{4}$/.test(value.trim()) ? value.trim() : null;
+}
 
 // A city only a lookup can supply (a park made from an OpenStreetMap pin
 // or an approved suggestion has coordinates but no address) is filled in
@@ -220,7 +244,11 @@ app.post('/signup', (req, res) => {
   if (nameProblem) {
     return res.render('signup', { error: nameProblem, name, phone, returnTo });
   }
-  const { userId } = createUserAndPlayer(name, phone);
+  const referrerPlayerId = req.session.ref ? getPlayerIdByTag(req.session.ref) : null;
+  const { userId } = createUserAndPlayer(name, phone, {
+    source: req.session.src || 'direct',
+    referrerPlayerId,
+  });
   req.session.userId = userId;
   syncOrganizerFlag(phone);
   res.redirect(returnTo || '/');
@@ -228,6 +256,11 @@ app.post('/signup', (req, res) => {
 
 app.post('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/signup'));
+});
+
+// Railway healthcheck. Public on purpose: no session, no database writes.
+app.get('/health', (req, res) => {
+  res.status(200).json({ ok: true });
 });
 
 app.get('/', requireAuth, (req, res) => {
@@ -361,6 +394,8 @@ app.get('/lobbies', requireAuth, (req, res) => {
 app.post('/lobbies/:id/join', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   const lobby = getLobbyById(req.params.id);
+  // Counted whether or not the join goes through: the tap is the signal.
+  if (profile) logEvent(profile.player_id, 'lobby_join_try', pagePathFromReferer(req, '/lobbies'));
 
   if (!profile || !lobby) return res.redirect('/lobbies');
   if (lobby.tier !== profile.tier) return res.redirect('/lobbies');
@@ -391,6 +426,7 @@ function boardContext(query, profile) {
 
 app.get('/board', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
+  logEvent(profile.player_id, 'leaderboard_view', '/board');
   res.render('board', { ...boardContext(req.query, profile), liveVersion: getLiveVersion() });
 });
 
@@ -803,6 +839,8 @@ function profileContext(playerId, viewer, query) {
   return {
     active: 'profile',
     isSelf,
+    // Your own invite code, for the "Invite a hooper" link (own profile only).
+    inviteTag: isSelf ? viewer.tag : null,
     nameError: query.nameError || null,
     player,
     points,
@@ -826,6 +864,7 @@ app.get('/players/:id', requireAuth, (req, res) => {
   }
   const ctx = profileContext(Number(req.params.id), viewer, req.query);
   if (!ctx) return res.redirect('/profile');
+  logEvent(viewer.player_id, 'profile_view', `/players/${ctx.player.player_id}`);
   res.render('player-profile', { ...ctx, liveVersion: getLiveVersion() });
 });
 
@@ -884,7 +923,27 @@ app.post('/admin/logout', (req, res) => {
 
 app.get('/admin', requireAdmin, (req, res) => {
   const dashboard = buildDashboard(req.query.range);
-  res.render('admin-dashboard', { dashboard, active: '' });
+  res.render('admin-dashboard', { dashboard, tracking: getTrackingCheck(), active: '' });
+});
+
+// A full copy of the database for safekeeping. Written to a temporary file
+// with SQLite's own backup-safe copy, sent, then deleted. Nothing is changed.
+app.get('/admin/backup', requireAdmin, (req, res) => {
+  const day = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  const tempFile = path.join(DATA_DIR, `backup-${crypto.randomBytes(6).toString('hex')}.db`);
+  try {
+    writeBackup(tempFile);
+  } catch {
+    return res.status(500).send('Backup failed. Try again in a moment.');
+  }
+  res.download(tempFile, `br-backup-${day}.db`, () => {
+    fs.rm(tempFile, { force: true }, () => {});
+  });
 });
 
 function csvCell(value) {
