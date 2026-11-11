@@ -20,10 +20,8 @@ const {
   getCourtById,
   getCourtsByPark,
   getSeasonWindow,
-  getCrownLevel,
   getLeaderboard,
   getCrownPerks,
-  getPlayerSeasonPoints,
   getNextCrownProgress,
   getAllCourtsTimerStatus,
   getParkMapPins,
@@ -63,13 +61,20 @@ const {
   getSuggestedParks,
   getCheckIn,
   getPaidGamesPlayed,
+  getFormatSummary,
+  getCourtLabelsByPark,
+  courtFormatLabel,
+  removeSquadMember,
+  confirmSquad,
+  handOffCaptain,
+  FORMATS,
   CLIENT_REPORTED_EVENTS,
   recordActiveDay,
   getFunnel,
 } = require('./db/queries');
 const { geocodeAddress, fillMissingParkLocations, startBackgroundGeocoding } = require('./db/geocode');
 const parkPhotos = require('./db/park-photos');
-const { closeFinishedSeasonsIfDue, getTrophies, getTierLadder } = require('./db/trophies');
+const { getTrophies, getTierLadder } = require('./db/trophies');
 
 const app = express();
 
@@ -93,9 +98,6 @@ app.use(
 
 // Runs for every page and action (static files were already served above).
 app.use((req, res, next) => {
-  // A season that has ended gets its trophies handed out before anything
-  // reads standings — a no-op except the first request of a new season.
-  closeFinishedSeasonsIfDue();
   // The ROYALE header is on every page and shows "Crowns reset in N days".
   res.locals.season = getSeasonWindow();
   if (req.session.userId) recordActiveDay(req.session.userId);
@@ -225,9 +227,10 @@ app.get('/', requireAuth, (req, res) => {
   }
 
   const season = getSeasonWindow();
-  const totalPoints = getPlayerSeasonPoints(profile.player_id, season.startSql);
-  const crown = getCrownLevel(totalPoints);
-  const nextCrown = getNextCrownProgress(totalPoints);
+  const formatSummary = getFormatSummary(profile.player_id, season.startSql);
+  const totalPoints = formatSummary.reduce((sum, f) => sum + f.points, 0);
+  const crown = bestFormatCrown(formatSummary);
+  const nextCrown = getNextCrownProgress(Math.max(0, ...formatSummary.map((f) => f.points)));
   const parks = getParks();
 
   if (parks.length === 0) {
@@ -276,6 +279,15 @@ app.get('/', requireAuth, (req, res) => {
 // organizer can from anywhere.
 function canAddParkPhoto(profile, parkId) {
   return !!profile.is_organizer || !!getCheckIn(profile.player_id, parkId);
+}
+
+// The highest crown held in any format, labelled with that format.
+function bestFormatCrown(formatSummary) {
+  const best = formatSummary
+    .filter((f) => f.crown)
+    .sort((a, b) => b.crown.min - a.crown.min || b.points - a.points)[0];
+  if (!best) return null;
+  return { name: `${best.format} · ${best.crown.name}`, fill: best.crown.fill, stroke: best.crown.stroke };
 }
 
 app.get('/how-it-works', requireAuth, (req, res) => {
@@ -371,12 +383,15 @@ app.get('/board', requireAuth, (req, res) => {
   const scope = req.query.scope === 'city' ? 'city' : 'court';
   const requestedParkId = Number(req.query.park);
   const selectedPark = parks.find((p) => p.id === requestedParkId) || parks[0];
-  const rows = getLeaderboard({ scope, parkId: selectedPark.id, seasonStart: season.startSql });
+  const format = FORMATS.includes(req.query.format) ? req.query.format : null;
+  const rows = getLeaderboard({ scope, parkId: selectedPark.id, seasonStart: season.startSql, format });
 
   res.render('board', {
     parks,
     rows,
     scope,
+    format,
+    formats: FORMATS,
     selectedPark,
     season,
     crownLevels: CROWN_LEVELS,
@@ -392,7 +407,7 @@ app.get('/runs', requireAuth, (req, res) => {
   const season = getSeasonWindow();
   res.render('runs', {
     active: 'runs',
-    parks: getParks(),
+    parks: getParks().map((park) => ({ ...park, courts: getCourtLabelsByPark(park.id) })),
     profile,
     followedCourts: getFollowedCourtsForPlayer(profile.player_id, season.startSql),
     suggestedParks: getSuggestedParks(season.startSql, profile.player_id),
@@ -421,6 +436,8 @@ app.get('/runs/new', requireAuth, (req, res) => {
 
   res.render('run-new', {
     active: 'runs',
+    formats: FORMATS,
+    defaultFormat: (courtId && getCourtById(courtId).format) || '5v5',
     courtId,
     courtName,
     parkName,
@@ -451,8 +468,12 @@ app.post('/runs', requireAuth, (req, res) => {
     const back = `/runs/new?courtId=${courtId}&error=${encodeURIComponent('Pick a date and time.')}`;
     return res.redirect(back);
   }
+  if (!FORMATS.includes(req.body.format)) {
+    const back = `/runs/new?courtId=${courtId}&error=${encodeURIComponent('Pick a game format.')}`;
+    return res.redirect(back);
+  }
 
-  const runId = createRun(courtId, profile.player_id, scheduledAt, req.body.note);
+  const runId = createRun(courtId, profile.player_id, scheduledAt, req.body.note, req.body.format);
   logEvent(profile.player_id, 'start_a_run', pagePathFromReferer(req, '/runs/new'));
   res.redirect(`/runs/${runId}`);
 });
@@ -527,6 +548,7 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
   res.render('court', {
     ...screen,
     profile,
+    formatLabel: courtFormatLabel(court),
     active: 'runs',
     countdownEndsAtIso,
     error: req.query.error || null,
@@ -699,6 +721,24 @@ app.post('/next_line/:id/members', requireAuth, (req, res) => {
   redirectWithResult(req, res, result, '/runs');
 });
 
+app.post('/next_line/:id/remove', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const result = removeSquadMember(Number(req.params.id), Number(req.body.playerId), profile.player_id);
+  redirectWithResult(req, res, result, '/runs');
+});
+
+app.post('/next_line/:id/confirm', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const result = confirmSquad(Number(req.params.id), profile.player_id);
+  redirectWithResult(req, res, result, '/runs');
+});
+
+app.post('/next_line/:id/captain', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const result = handOffCaptain(Number(req.params.id), Number(req.body.playerId), profile.player_id);
+  redirectWithResult(req, res, result, '/runs');
+});
+
 app.post('/live_games/:id/left', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   const result = markLeft(Number(req.params.id), Number(req.body.playerId), profile.player_id);
@@ -740,7 +780,8 @@ app.get('/players/:id', requireAuth, (req, res) => {
   }
 
   const season = getSeasonWindow();
-  const points = getPlayerSeasonPoints(player.player_id, season.startSql);
+  const formatSummary = getFormatSummary(player.player_id, season.startSql);
+  const points = formatSummary.reduce((sum, f) => sum + f.points, 0);
   const isSelf = player.player_id === viewer.player_id;
 
   res.render('player-profile', {
@@ -748,7 +789,8 @@ app.get('/players/:id', requireAuth, (req, res) => {
     isSelf,
     player,
     points,
-    crown: getCrownLevel(points),
+    crown: bestFormatCrown(formatSummary),
+    formats: formatSummary,
     perks: getCrownPerks(player.player_id, season.startSql),
     season,
     initials: initials(player.name),

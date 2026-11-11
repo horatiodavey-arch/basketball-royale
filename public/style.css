@@ -725,3 +725,22 @@ a.royale-brand { color: inherit; text-decoration: none; }
 .funnel-step .bar { margin-bottom: 0; }
 .funnel-step .bar .fill { background: var(--accent); }
 
+
+/* Game formats (courts, run form, board filter, profile crowns) */
+.court-format-line { font-size: 12px; font-weight: 600; color: var(--accent); margin-top: 4px; }
+.format-picker { display: flex; gap: 6px; flex-wrap: wrap; }
+.format-option { flex: 1; min-width: 56px; }
+.format-option input { position: absolute; opacity: 0; pointer-events: none; }
+.format-option span {
+  display: block; text-align: center; padding: 10px 0; border-radius: 999px;
+  border: 1px solid var(--border); font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.format-option input:checked + span { background: var(--accent); border-color: var(--accent); color: #fff; }
+.format-tabs { margin-top: 8px; }
+.format-crowns { margin: 10px 0 14px; }
+.format-crown-row {
+  display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 2px;
+  border-bottom: 1px solid var(--bg);
+}
+.format-name { font-weight: 700; min-width: 34px; }
+.format-trophies { margin-left: auto; font-size: 12px; color: var(--text2); }

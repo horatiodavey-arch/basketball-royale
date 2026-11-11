@@ -325,9 +325,121 @@ function getCrownBadges(seasonStart) {
   return badges;
 }
 
+// --- Per-format crowns and trophies. Each format (1v1..5v5) keeps its own
+// points. They restart every season, and again each time the player earns
+// a trophy in that format (purple, 55 pts). Trophies never reset. Only
+// results recorded with a format count here; legacy results (no format)
+// stay in the all-formats view.
+const PURPLE_MIN_POINTS = CROWN_LEVELS[0].min;
+
+// A player's points in one format this season, optionally at one park,
+// counting only games since their last trophy in that format.
+function formatAggregate(playerId, format, seasonStart, parkId = null) {
+  const last = db
+    .prepare('SELECT MAX(earned_at) AS at FROM format_trophies WHERE player_id = ? AND format = ?')
+    .get(playerId, format).at;
+  const rows = db
+    .prepare(
+      `SELECT gr.result, gr.minutes_played FROM game_results gr
+       WHERE gr.player_id = ? AND gr.format = ? AND gr.date >= ?
+         AND (? IS NULL OR gr.date > ?)
+         AND (? IS NULL OR gr.park_id = ?)`
+    )
+    .all(playerId, format, seasonStart, last, last, parkId, parkId);
+  const wins = rows.filter((r) => r.result === 'win').length;
+  const games = rows.length;
+  const minutes = rows.reduce((sum, r) => sum + r.minutes_played, 0);
+  const hours = roundTenth(minutes / 60);
+  return { wins, games, hours, points: wins * 3 + games + hours };
+}
+
+// Standings for one format this season (optionally at one park).
+function formatStandings(format, seasonStart, parkId = null) {
+  const players = db
+    .prepare(
+      `SELECT DISTINCT gr.player_id AS playerId, u.name, p.tier
+       FROM game_results gr
+       JOIN players p ON p.id = gr.player_id
+       JOIN users u ON u.id = p.user_id
+       WHERE gr.format = ? AND gr.date >= ? AND (? IS NULL OR gr.park_id = ?)`
+    )
+    .all(format, seasonStart, parkId, parkId);
+  return players
+    .map((player) => ({ ...player, ...formatAggregate(player.playerId, format, seasonStart, parkId) }))
+    .filter((row) => row.games > 0)
+    .sort((a, b) => b.points - a.points || b.hours - a.hours);
+}
+
+// Every format, with this player's points, crown and trophy count in each.
+function getFormatSummary(playerId, seasonStart) {
+  return FORMATS.map((format) => {
+    const { points } = formatAggregate(playerId, format, seasonStart);
+    const crown = getCrownLevel(points);
+    const trophies = db
+      .prepare('SELECT COUNT(*) AS n FROM format_trophies WHERE player_id = ? AND format = ?')
+      .get(playerId, format).n;
+    return {
+      format,
+      points,
+      crown,
+      pointsToCrown: crown ? null : roundTenth(CROWN_MIN_POINTS - points),
+      trophies,
+    };
+  });
+}
+
+// Called after a format game locks: any player who just reached purple in
+// that format earns a trophy, and their progress in it starts over. Several
+// trophies in one month are possible.
+function awardFormatTrophies(playerIds, format) {
+  const { startSql } = getSeasonWindow();
+  for (const playerId of new Set(playerIds)) {
+    for (;;) {
+      const { points } = formatAggregate(playerId, format, startSql);
+      if (points < PURPLE_MIN_POINTS) break;
+      db.prepare('INSERT INTO format_trophies (player_id, format, points) VALUES (?, ?, ?)').run(
+        playerId,
+        format,
+        roundTenth(points)
+      );
+    }
+  }
+}
+
+// "4v4 · Court is open", or just "Court is open" for a legacy court.
+function courtFormatLabel(court) {
+  const live = getActiveLiveGame(court.id);
+  const status = !live ? 'Court is open' : live.status === 'countdown' ? 'Next game starting' : 'Game in progress';
+  return court.format ? `${court.format} · ${status}` : status;
+}
+
+function getCourtLabelsByPark(parkId) {
+  return getCourtsByPark(parkId).map((court) => ({
+    name: court.nickname || `Court ${court.number}`,
+    label: courtFormatLabel(court),
+  }));
+}
+
 // The full /board page's data: standings for the chosen scope, each
-// row carrying its own crown level (always city-wide) and badge.
-function getLeaderboard({ scope, parkId, seasonStart }) {
+// row carrying its own crown level (always city-wide) and badge. With a
+// format, standings and crowns are that format's alone.
+function getLeaderboard({ scope, parkId, seasonStart, format }) {
+  if (format) {
+    const standings = formatStandings(format, seasonStart, scope === 'city' ? null : parkId);
+    const badges = getCrownBadges(seasonStart);
+    return standings.map((row, index) => {
+      const crown = getCrownLevel(row.points);
+      return {
+        rank: index + 1,
+        ...row,
+        totalPoints: row.points,
+        crown,
+        pointsToCrown: crown ? null : roundTenth(CROWN_MIN_POINTS - row.points),
+        badge: badges.get(row.playerId) || null,
+      };
+    });
+  }
+
   const standings = scope === 'city' ? getCityStandings(seasonStart) : getParkStandings(parkId, seasonStart);
   const totalPointsByPlayer = getTotalSeasonPointsByPlayer(seasonStart);
   const badges = getCrownBadges(seasonStart);
@@ -649,8 +761,20 @@ function getSquadRoster(nextLineId) {
     .all(nextLineId, nextLineId);
 }
 
+const FORMATS = ['1v1', '2v2', '3v3', '4v4', '5v5'];
+
+// '4v4' -> 4 players per team. Null for a legacy court (no format set),
+// which keeps the old 5-a-side rules.
+function formatSize(format) {
+  return format ? Number(format.charAt(0)) : null;
+}
+
 // The waiting squads for a court, in line order, each with its roster.
+// `locked` means the squad can take the court: full for the format and
+// confirmed by its captain. Legacy courts have no confirmation step.
 function getWaitingSquads(courtId) {
+  const court = getCourtById(courtId);
+  const size = formatSize(court.format);
   const squads = db
     .prepare(
       `SELECT * FROM next_line WHERE court_id = ? AND status = 'waiting' ORDER BY position ASC`
@@ -658,7 +782,9 @@ function getWaitingSquads(courtId) {
     .all(courtId);
   return squads.map((squad) => {
     const roster = getSquadRoster(squad.id);
-    return { ...squad, roster, count: roster.length, ready: roster.length >= 5 };
+    const ready = size ? roster.length === size : roster.length >= 5;
+    const locked = size ? ready && squad.confirmed === 1 : true;
+    return { ...squad, roster, count: roster.length, ready, locked, size };
   });
 }
 
@@ -685,7 +811,7 @@ function tickQueueForCourt(courtId) {
         .prepare('SELECT player_id FROM next_line_members WHERE next_line_id = ? ORDER BY rowid ASC LIMIT 1')
         .get(squad.id);
       if (nextMember) {
-        db.prepare('UPDATE next_line SET captain_player_id = ? WHERE id = ?').run(nextMember.player_id, squad.id);
+        db.prepare('UPDATE next_line SET captain_player_id = ?, confirmed = 0 WHERE id = ?').run(nextMember.player_id, squad.id);
         db.prepare('DELETE FROM next_line_members WHERE next_line_id = ? AND player_id = ?').run(squad.id, nextMember.player_id);
       } else {
         db.prepare('DELETE FROM next_line WHERE id = ?').run(squad.id);
@@ -753,15 +879,76 @@ function addSquadMembers(nextLineId, playerIds, actorPlayerId) {
   const checkedIn = new Set(getCheckedInPlayers(court.park_id).map((p) => p.id));
   const current = getSquadRoster(nextLineId);
   const currentIds = new Set(current.map((p) => p.id));
-  let slotsLeft = 5 - current.length;
+  const size = formatSize(court.format) || 5;
+  let slotsLeft = size - current.length;
 
   const insertMember = db.prepare('INSERT OR IGNORE INTO next_line_members (next_line_id, player_id) VALUES (?, ?)');
+  let added = 0;
   for (const playerId of playerIds) {
     if (slotsLeft <= 0) break;
     if (currentIds.has(playerId) || !checkedIn.has(playerId)) continue;
     insertMember.run(nextLineId, playerId);
     currentIds.add(playerId);
     slotsLeft -= 1;
+    added += 1;
+  }
+  if (added > 0) clearRosterConfirmation(nextLineId);
+  return { ok: true };
+}
+
+function clearRosterConfirmation(nextLineId) {
+  db.prepare('UPDATE next_line SET confirmed = 0 WHERE id = ?').run(nextLineId);
+}
+
+function captainOnly(nextLineId, actorPlayerId) {
+  const squad = db.prepare('SELECT * FROM next_line WHERE id = ?').get(nextLineId);
+  if (!squad || squad.captain_player_id !== actorPlayerId) {
+    return { ok: false, error: 'Only the squad captain can do that.' };
+  }
+  return { ok: true, squad };
+}
+
+// The captain drops a teammate from their squad before confirming.
+function removeSquadMember(nextLineId, playerId, actorPlayerId) {
+  const check = captainOnly(nextLineId, actorPlayerId);
+  if (!check.ok) return check;
+  if (playerId === actorPlayerId) return { ok: false, error: "You can't remove yourself as captain." };
+  db.prepare('DELETE FROM next_line_members WHERE next_line_id = ? AND player_id = ?').run(nextLineId, playerId);
+  clearRosterConfirmation(nextLineId);
+  return { ok: true };
+}
+
+// The captain confirms the roster. Once both squads are full and
+// confirmed, the game can start (see ensureLiveGame).
+function confirmSquad(nextLineId, actorPlayerId) {
+  const check = captainOnly(nextLineId, actorPlayerId);
+  if (!check.ok) return check;
+  const court = getCourtById(check.squad.court_id);
+  const size = formatSize(court.format);
+  const count = getSquadRoster(nextLineId).length;
+  if (size && count !== size) return { ok: false, error: `Pick exactly ${size} players before confirming.` };
+  db.prepare('UPDATE next_line SET confirmed = 1 WHERE id = ?').run(nextLineId);
+  ensureLiveGame(court.id);
+  return { ok: true };
+}
+
+// The captain hands the role to a teammate. The new captain confirms again.
+function handOffCaptain(nextLineId, newCaptainPlayerId, actorPlayerId) {
+  const check = captainOnly(nextLineId, actorPlayerId);
+  if (!check.ok) return check;
+  const isMember = db
+    .prepare('SELECT 1 FROM next_line_members WHERE next_line_id = ? AND player_id = ?')
+    .get(nextLineId, newCaptainPlayerId);
+  if (!isMember) return { ok: false, error: 'Hand the captain role to someone already in your squad.' };
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM next_line_members WHERE next_line_id = ? AND player_id = ?').run(nextLineId, newCaptainPlayerId);
+    db.prepare('INSERT OR IGNORE INTO next_line_members (next_line_id, player_id) VALUES (?, ?)').run(nextLineId, actorPlayerId);
+    db.prepare('UPDATE next_line SET captain_player_id = ?, confirmed = 0 WHERE id = ?').run(newCaptainPlayerId, nextLineId);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
   }
   return { ok: true };
 }
@@ -805,7 +992,7 @@ function getLiveGamePlayers(liveGameId) {
 function ensureLiveGame(courtId) {
   if (getActiveLiveGame(courtId)) return;
 
-  const squads = getWaitingSquads(courtId);
+  const squads = getWaitingSquads(courtId).filter((squad) => squad.locked);
   if (squads.length < 2) return;
 
   const [squadA, squadB] = squads;
@@ -813,9 +1000,9 @@ function ensureLiveGame(courtId) {
   const park = getParkById(court.park_id);
 
   db.prepare(
-    `INSERT INTO live_games (court_id, park_id, target, status, started_at)
-     VALUES (?, ?, ?, 'in_progress', datetime('now'))`
-  ).run(courtId, park.id, park.game_target);
+    `INSERT INTO live_games (court_id, park_id, target, status, started_at, format)
+     VALUES (?, ?, ?, 'in_progress', datetime('now'), ?)`
+  ).run(courtId, park.id, park.game_target, court.format);
   const liveGameId = lastId();
 
   seatSquad(liveGameId, squadA, 'a', true);
@@ -874,7 +1061,7 @@ function resolveCountdown(courtId) {
   }
   db.prepare(`DELETE FROM live_game_players WHERE live_game_id = ? AND team = 'b'`).run(game.id);
 
-  const nextSquad = getWaitingSquads(courtId)[0];
+  const nextSquad = getWaitingSquads(courtId).find((squad) => squad.locked);
   if (nextSquad) {
     seatSquad(game.id, nextSquad, 'b', false);
     db.prepare('DELETE FROM next_line_members WHERE next_line_id = ?').run(nextSquad.id);
@@ -894,6 +1081,7 @@ function resolveCountdown(courtId) {
        VALUES (?, ?, ?, 'waiting', datetime('now'))`
     ).run(courtId, captain.player_id, frontPosition);
     const nextLineId = lastId();
+    db.prepare('UPDATE next_line SET confirmed = 1 WHERE id = ?').run(nextLineId);
     for (const p of teamA) {
       if (p.player_id !== captain.player_id) {
         db.prepare('INSERT INTO next_line_members (next_line_id, player_id) VALUES (?, ?)').run(nextLineId, p.player_id);
@@ -1023,8 +1211,9 @@ function lockResult(game) {
   const winningTeam = game.team_a_won ? 'a' : 'b';
   const gameId = nextGameId();
   for (const [playerId, info] of byPlayer) {
-    applyGameResult(gameId, game.park_id, game.court_id, playerId, info.team === winningTeam ? 'win' : 'loss', Math.max(info.minutes, 0));
+    applyGameResult(gameId, game.park_id, game.court_id, playerId, info.team === winningTeam ? 'win' : 'loss', Math.max(info.minutes, 0), game.format);
   }
+  if (game.format) awardFormatTrophies([...byPlayer.keys()], game.format);
 
   db.prepare(`UPDATE live_games SET status = 'done', locked_at = datetime('now') WHERE id = ?`).run(game.id);
 
@@ -1038,12 +1227,12 @@ function lockResult(game) {
 
   const captainEntry = winners.find(([, info]) => info.captain) || winners[0];
   const park = getParkById(game.park_id);
-  const nextSquad = getWaitingSquads(game.court_id)[0];
+  const nextSquad = getWaitingSquads(game.court_id).find((squad) => squad.locked);
 
   db.prepare(
-    `INSERT INTO live_games (court_id, park_id, target, status, countdown_seconds, countdown_ends_at)
-     VALUES (?, ?, ?, 'countdown', ?, datetime('now', '+' || ? || ' seconds'))`
-  ).run(game.court_id, game.park_id, park.game_target, park.between_games_seconds, park.between_games_seconds);
+    `INSERT INTO live_games (court_id, park_id, target, status, countdown_seconds, countdown_ends_at, format)
+     VALUES (?, ?, ?, 'countdown', ?, datetime('now', '+' || ? || ' seconds'), ?)`
+  ).run(game.court_id, game.park_id, park.game_target, park.between_games_seconds, park.between_games_seconds, game.format);
   const newGameId = lastId();
 
   const insertPlayer = db.prepare(
@@ -1069,6 +1258,7 @@ function lockResult(game) {
        VALUES (?, ?, ?, 'waiting', datetime('now'))`
     ).run(game.court_id, captainEntry[0], frontPosition);
     const nextLineId = lastId();
+    db.prepare('UPDATE next_line SET confirmed = 1 WHERE id = ?').run(nextLineId);
     for (const [playerId] of winners) {
       if (playerId !== captainEntry[0]) {
         db.prepare('INSERT INTO next_line_members (next_line_id, player_id) VALUES (?, ?)').run(nextLineId, playerId);
@@ -1077,11 +1267,11 @@ function lockResult(game) {
   }
 }
 
-function applyGameResult(gameId, parkId, courtId, playerId, result, minutes) {
+function applyGameResult(gameId, parkId, courtId, playerId, result, minutes, format) {
   db.prepare(
-    `INSERT INTO game_results (game_id, player_id, park_id, court_id, result, minutes_played)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(gameId, playerId, parkId, courtId, result, minutes);
+    `INSERT INTO game_results (game_id, player_id, park_id, court_id, result, minutes_played, format)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(gameId, playerId, parkId, courtId, result, minutes, format || null);
   db.prepare(
     `UPDATE players SET ${result === 'win' ? 'wins' : 'losses'} = ${result === 'win' ? 'wins' : 'losses'} + 1, games_played = games_played + 1 WHERE id = ?`
   ).run(playerId);
@@ -1576,10 +1766,12 @@ function parseScheduledAt(value) {
   return `${match[1]} ${match[2]}:00`;
 }
 
-function createRun(courtId, organizerPlayerId, scheduledAt, note) {
+function createRun(courtId, organizerPlayerId, scheduledAt, note, format) {
   db.prepare(
-    'INSERT INTO runs (court_id, organizer_player_id, scheduled_at, note) VALUES (?, ?, ?, ?)'
-  ).run(courtId, organizerPlayerId, scheduledAt, (note || '').trim() || null);
+    'INSERT INTO runs (court_id, organizer_player_id, scheduled_at, note, format) VALUES (?, ?, ?, ?, ?)'
+  ).run(courtId, organizerPlayerId, scheduledAt, (note || '').trim() || null, format || null);
+  // The court's next game takes the format the run was created with.
+  if (format) db.prepare('UPDATE courts SET format = ? WHERE id = ?').run(format, courtId);
   return lastId();
 }
 
@@ -1790,6 +1982,14 @@ module.exports = {
   getCrownPerks,
   getPlayerSeasonPoints,
   getNextCrownProgress,
+  getFormatSummary,
+  getCourtLabelsByPark,
+  courtFormatLabel,
+  formatSize,
+  removeSquadMember,
+  confirmSquad,
+  handOffCaptain,
+  FORMATS,
   getAllCourtsTimerStatus,
   getParkMapPins,
   getParkSheetDetail,

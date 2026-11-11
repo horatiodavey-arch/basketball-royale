@@ -25,9 +25,23 @@
   <div class="profile-crown-card">
     <%- include('partials/crown-icon', { size: 30, fill: crown ? crown.fill : 'none', stroke: crown ? crown.stroke : 'var(--muted)' }) %>
     <div class="profile-crown-main">
-      <div class="profile-crown-level"><%= crown ? crown.name : (perks[0].pointsNeeded + ' pts to a crown') %></div>
+      <div class="profile-crown-level"><%= crown ? crown.name : 'No crown yet' %></div>
       <div class="profile-crown-points"><%= points %> pts this season</div>
     </div>
+  </div>
+  <div class="format-crowns">
+    <% formats.forEach((f) => { %>
+      <div class="format-crown-row">
+        <span class="format-name"><%= f.format %></span>
+        <% if (f.crown) { %>
+          <%- include('partials/crown-icon', { size: 16, fill: f.crown.fill, stroke: f.crown.stroke }) %>
+          <span><%= f.crown.name %></span>
+        <% } else { %>
+          <span class="perk-hint"><%= f.pointsToCrown %> pts to a crown</span>
+        <% } %>
+        <span class="format-trophies"><%= f.trophies %> trophy<%= f.trophies === 1 ? '' : 'ies' %></span>
+      </div>
+    <% }); %>
   </div>
   <div class="season-note">Resets in <%= season.daysLeft %> day<%= season.daysLeft === 1 ? '' : 's' %>.</div>
 
