@@ -1,0 +1,15 @@
+<%# Shown once, after signup, until "Got it". Plain words for someone who has never played. %>
+<div class="intro-card">
+  <div class="intro-title heading">How Royale works</div>
+  <ol class="intro-steps">
+    <li>Find a live run near you, or create your own</li>
+    <li>Check in and play with whoever's there</li>
+    <li>Earn crowns and climb the board</li>
+  </ol>
+  <div class="intro-note">Live runs are your best bet. Look for the green Live badge.</div>
+  <div class="intro-note">Not playing? Follow a park to see who's running it.</div>
+  <form method="POST" action="/onboarding/dismiss" class="intro-form">
+    <input type="hidden" name="returnTo" value="<%= returnTo %>">
+    <button type="submit" class="submit-btn">Got it</button>
+  </form>
+</div>

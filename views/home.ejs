@@ -14,6 +14,9 @@
 
   <%- include('partials/royale-header', { trophyNote: true }) %>
 
+  <% if (showIntro) { %><%- include('partials/how-it-works-card', { returnTo: '/' }) %><% } %>
+  <% if (!anyLive) { %><div class="empty-state">No runs live right now. Follow a park to know when one starts.</div><% } %>
+
   <div class="hero-standing">
     <div class="hero-crown-level heading"><%= crown ? crown.name : 'No crown yet' %></div>
     <div class="hero-points"><%= totalPoints %> pts this season</div>
@@ -201,9 +204,11 @@
       var dotClass = pin.activeCount > 0 ? 'pin-dot-active' : 'pin-dot-idle';
       var label = pin.king ? pin.king.name : pin.name;
       var distanceHtml = miles != null ? '<div class="pin-distance">' + RoyaleGeo.pinDistanceLabel(miles) + '</div>' : '';
-      var runHtml = pin.nextRun
-        ? '<div class="pin-run">' + formatRunTimeShort(pin.nextRun.scheduledAt) + ' · ' + pin.nextRun.rsvpCount + ' coming</div>'
-        : '';
+      var runHtml = pin.live
+        ? '<div class="pin-run"><span class="live-badge">Live</span>' + (pin.nextRun ? ' ' + pin.nextRun.rsvpCount + ' coming' : '') + '</div>'
+        : (pin.nextRun
+          ? '<div class="pin-run">' + formatRunTimeShort(pin.nextRun.scheduledAt) + ' · ' + pin.nextRun.rsvpCount + ' coming</div>'
+          : '');
       return '<div class="kotc-marker-content"><div class="pin' + (isSelected ? ' pin-selected' : '') + '">' +
         crownSvg(fill, stroke, 16) +
         '<span class="pin-count">' + pin.activeCount + '</span>' +

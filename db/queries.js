@@ -54,6 +54,7 @@ function getPlayerProfile(userId) {
   return db
     .prepare(
       `SELECT u.id AS user_id, u.name AS base_name, ${DISPLAY_NAME} AS name, u.phone, u.tag,
+              u.how_it_works_shown_at, u.how_it_works_dismissed_at,
               p.id AS player_id, p.tier, p.wins, p.losses, p.games_played,
               p.is_organizer,
               t.rank AS tier_rank, t.wins_to_promote, t.games_to_promote,
@@ -390,6 +391,20 @@ function getGameCountSince(playerId, startSql) {
     .get(playerId, startSql).n;
 }
 
+// The "How it works" card: shown once. Recorded here so it never repeats.
+function markHowItWorksShown(playerId) {
+  const row = db.prepare('SELECT u.how_it_works_shown_at FROM users u JOIN players p ON p.user_id = u.id WHERE p.id = ?').get(playerId);
+  if (!row || row.how_it_works_shown_at) return false;
+  db.prepare("UPDATE users SET how_it_works_shown_at = datetime('now') WHERE id = (SELECT user_id FROM players WHERE id = ?)").run(playerId);
+  logEvent(playerId, 'how_it_works_seen', '/');
+  return true;
+}
+
+function dismissHowItWorks(playerId) {
+  db.prepare("UPDATE users SET how_it_works_dismissed_at = datetime('now') WHERE id = (SELECT user_id FROM players WHERE id = ?)").run(playerId);
+  logEvent(playerId, 'how_it_works_dismissed', '/');
+}
+
 // Standings for one format this season (optionally at one park).
 function formatStandings(format, seasonStart, parkId = null) {
   const players = db
@@ -613,6 +628,7 @@ function getParkNextRun(parkId) {
 }
 
 function getParkMapPins(seasonStart) {
+  const liveParks = getLiveParkIds();
   return getParks().map((park) => ({
     id: park.id,
     name: park.name,
@@ -623,6 +639,7 @@ function getParkMapPins(seasonStart) {
     liveCount: getLiveGameCountByPark(park.id),
     king: getParkKing(park.id, seasonStart),
     nextRun: getParkNextRun(park.id),
+    live: liveParks.has(park.id),
   }));
 }
 
@@ -1551,6 +1568,12 @@ const TRACKED_EVENTS = [
   { name: 'lobby_join_try', label: 'Try to join a lobby (paid)' },
   { name: 'run_cancelled', label: 'Run cancelled' },
   { name: 'run_edited', label: 'Run edited' },
+  { name: 'how_it_works_seen', label: 'How it works: shown' },
+  { name: 'how_it_works_dismissed', label: 'How it works: Got it' },
+  { name: 'how_it_works_reopened', label: 'How it works: reopened' },
+  { name: 'empty_view_live_run', label: 'Empty state: view live run' },
+  { name: 'empty_create_run', label: 'Empty state: create your own run' },
+  { name: 'empty_follow_park', label: 'Empty state: follow a park' },
   { name: 'result_confirmed', label: 'Confirm a result' },
   { name: 'leaderboard_view', label: 'View leaderboard' },
   { name: 'leaderboard_player_tap', label: 'Tapped a player (leaderboard)' },
@@ -1562,7 +1585,12 @@ const TRACKED_EVENTS = [
 // reaches a route of its own — an Invite button only opens the phone's
 // share sheet. A fixed list, so that endpoint can't be used to write
 // arbitrary event names.
-const CLIENT_REPORTED_EVENTS = ['invite_friends'];
+const CLIENT_REPORTED_EVENTS = [
+  'invite_friends',
+  'empty_view_live_run',
+  'empty_create_run',
+  'empty_follow_park',
+];
 
 // For /admin/stats: total taps, unique players, and an average taps/day
 // rate (total taps over the days since the event's first tap) per
@@ -2242,6 +2270,40 @@ function getFollowedCourtsForPlayer(playerId, seasonStart) {
   });
 }
 
+// A run is live from 15 minutes before its start until three hours after.
+const LIVE_BEFORE_MINUTES = 15;
+const LIVE_AFTER_MINUTES = 180;
+
+function isRunLive(scheduledAt, nowSql = appNowSql()) {
+  return addMinutesSql(scheduledAt, -LIVE_BEFORE_MINUTES) <= nowSql && nowSql <= addMinutesSql(scheduledAt, LIVE_AFTER_MINUTES);
+}
+
+// Courts with a live run right now, or a game in progress there.
+function getLiveCourtIds() {
+  const now = appNowSql();
+  const ids = new Set();
+  for (const r of db
+    .prepare('SELECT court_id, scheduled_at FROM runs WHERE cancelled_at IS NULL AND scheduled_at BETWEEN ? AND ?')
+    .all(addMinutesSql(now, -LIVE_AFTER_MINUTES), addMinutesSql(now, LIVE_BEFORE_MINUTES))) {
+    if (isRunLive(r.scheduled_at, now)) ids.add(r.court_id);
+  }
+  for (const g of db.prepare("SELECT DISTINCT court_id FROM live_games WHERE status = 'in_progress'").all()) {
+    ids.add(g.court_id);
+  }
+  return ids;
+}
+
+// Parks where something is live right now.
+function getLiveParkIds() {
+  const courtIds = getLiveCourtIds();
+  if (courtIds.size === 0) return new Set();
+  const parkIds = new Set();
+  for (const c of db.prepare('SELECT id, park_id FROM courts').all()) {
+    if (courtIds.has(c.id)) parkIds.add(c.park_id);
+  }
+  return parkIds;
+}
+
 // Upcoming runs within radiusMeters of (lat, lng), soonest first, plus
 // the single nearest park/court overall (for the "No runs near you yet —
 // be the first King of X" empty state) regardless of whether it has a run.
@@ -2255,7 +2317,7 @@ function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
        JOIN parks p ON p.id = c.park_id
        WHERE r.scheduled_at >= ? AND r.cancelled_at IS NULL AND p.lat IS NOT NULL`
     )
-    .all(appNowSql());
+    .all(addMinutesSql(appNowSql(), -LIVE_AFTER_MINUTES));
   const rsvpCount = db.prepare('SELECT COUNT(*) AS c FROM run_rsvps WHERE run_id = ?');
 
   const runs = candidates
@@ -2272,7 +2334,9 @@ function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
       rsvpCount: rsvpCount.get(r.id).c,
     }))
     .filter((r) => r.distanceMeters <= radiusMeters)
-    .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+    .map((r) => ({ ...r, live: isRunLive(r.scheduledAt) }))
+    .sort((a, b) => (b.live - a.live) || new Date(a.scheduledAt) - new Date(b.scheduledAt));
+  const liveNearby = runs.filter((r) => r.live).sort((a, b) => a.distanceMeters - b.distanceMeters)[0] || null;
 
   const parks = getParks().filter((p) => p.lat !== null);
   let nearestPark = null;
@@ -2287,12 +2351,13 @@ function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
       nearestCourt = {
         id: court.id,
         name: court.nickname || `Court ${court.number}`,
+        parkId: nearestPark.park.id,
         parkName: nearestPark.park.name,
       };
     }
   }
 
-  return { runs, nearestCourt };
+  return { runs, nearestCourt, liveNearby };
 }
 
 // Changes whenever a result or a trophy is recorded. The live pages ask this
@@ -2314,6 +2379,12 @@ module.exports = {
   getPlayerByUserId,
   createUserAndPlayer,
   getPlayerProfile,
+  getLiveParkIds,
+  getParkKing,
+  getLiveCourtIds,
+  isRunLive,
+  markHowItWorksShown,
+  dismissHowItWorks,
   getPlayerProfileByPlayerId,
   getTiers,
   getOpenLobbies,

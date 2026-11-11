@@ -345,6 +345,22 @@ to its total, so court hours appear as a row), and four locked badges. Your own
 profile also has a collapsed "Edit display name" and the "Invite a hooper"
 button. The tier ladder and crown perks moved off the profile page.
 
+## First-time guide and live-first suggestions
+
+A new player sees a "How Royale works" card once, after signing up: three
+steps, a note to look for the green Live badge, and "Got it". Tapping Got it
+saves it on the account, so it never shows again. The profile links back to
+it. Events: `how_it_works_seen`, `how_it_works_dismissed` and
+`how_it_works_reopened`.
+
+A run is live from 15 minutes before its start until three hours after, or
+while a game is in progress at its court. Anywhere the app suggests a place to
+play, live parks come first, then parks with an upcoming run, then the rest.
+Empty states point to a live run before suggesting a new one. Empty-state taps
+are logged as `empty_view_live_run`, `empty_create_run` and `empty_follow_park`.
+
+Migration (additive): `users.how_it_works_shown_at`, `users.how_it_works_dismissed_at`.
+
 ## Home screen (the map)
 
 `/` is now the King of the Court map, not the old lobby list. It leads with

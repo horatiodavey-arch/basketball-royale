@@ -26,6 +26,11 @@ const {
   getNextCrownProgress,
   getAllCourtsTimerStatus,
   getParkMapPins,
+  getParkKing,
+  getLiveParkIds,
+  getLiveCourtIds,
+  markHowItWorksShown,
+  dismissHowItWorks,
   getParkSheetDetail,
   CROWN_LEVELS,
   checkIn,
@@ -261,6 +266,13 @@ app.post('/signup', (req, res) => {
   res.redirect(returnTo || '/');
 });
 
+// "Got it" on the first-time card: it never shows again.
+app.post('/onboarding/dismiss', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  dismissHowItWorks(profile.player_id);
+  res.redirect(safeReturnTo(req.body.returnTo) || '/');
+});
+
 app.post('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/signup'));
 });
@@ -276,6 +288,7 @@ app.get('/', requireAuth, (req, res) => {
     req.session.destroy(() => res.redirect('/signup'));
     return;
   }
+  if (!profile.how_it_works_dismissed_at) markHowItWorksShown(profile.player_id);
 
   const season = getSeasonWindow();
   const formatSummary = getFormatSummary(profile.player_id, season.startSql);
@@ -295,6 +308,8 @@ app.get('/', requireAuth, (req, res) => {
       pins: [],
       selectedPark: null,
       sheet: null,
+      showIntro: !profile.how_it_works_dismissed_at,
+      anyLive: false,
     });
   }
 
@@ -323,6 +338,8 @@ app.get('/', requireAuth, (req, res) => {
     sheet,
     formatRunTime,
     canAddPhoto: canAddParkPhoto(profile, selectedPark.id),
+    showIntro: !profile.how_it_works_dismissed_at,
+    anyLive: pins.some((p) => p.live),
   });
 });
 
@@ -344,6 +361,7 @@ function bestFormatCrown(formatSummary) {
 app.get('/how-it-works', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   logEvent(profile.player_id, 'how_it_works', pagePathFromReferer(req, '/'));
+  if (req.query.from === 'profile') logEvent(profile.player_id, 'how_it_works_reopened', '/players/' + profile.player_id);
   const season = getSeasonWindow();
   res.render('how-it-works', {
     active: 'map',
@@ -428,7 +446,8 @@ function boardContext(query, profile) {
   const format = FORMATS.includes(query.format) ? query.format : null;
   const rows = getLeaderboard({ scope, parkId: selectedPark.id, seasonStart: season.startSql, format });
   const liveUrl = `/live/board?scope=${scope}&park=${selectedPark.id}${format ? '&format=' + format : ''}`;
-  return { parks, rows, scope, format, formats: FORMATS, selectedPark, season, crownLevels: CROWN_LEVELS, profile, liveUrl };
+  const onBoard = rows.some((r) => r.playerId === profile.player_id);
+  return { parks, rows, scope, format, formats: FORMATS, selectedPark, season, crownLevels: CROWN_LEVELS, profile, liveUrl, onBoard };
 }
 
 app.get('/board', requireAuth, (req, res) => {
@@ -453,13 +472,31 @@ app.get('/map', requireAuth, (req, res) => res.redirect('/'));
 
 app.get('/runs', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
+  if (!profile.how_it_works_dismissed_at) markHowItWorksShown(profile.player_id);
   const season = getSeasonWindow();
+  const pinsById = new Map(getParkMapPins(season.startSql).map((p) => [p.id, p]));
+  const parks = getParks().map((park) => {
+    const pin = pinsById.get(park.id) || {};
+    return { ...park, courts: getCourtLabelsByPark(park.id), live: !!pin.live, nextRun: pin.nextRun || null };
+  });
+  // Live first, then parks with an upcoming run, then the rest. A new run
+  // never ranks above a live one.
+  const rank = (p) => (p.live ? 0 : p.nextRun ? 1 : 2);
+  parks.sort((a, b) => rank(a) - rank(b));
+  const suggestedParks = getSuggestedParks(season.startSql, profile.player_id);
+  const rankSuggested = (sp) => {
+    const pin = pinsById.get(sp.park.id) || {};
+    return pin.live ? 0 : pin.nextRun ? 1 : 2;
+  };
+  suggestedParks.sort((a, b) => rankSuggested(a) - rankSuggested(b));
   res.render('runs', {
     active: 'runs',
-    parks: getParks().map((park) => ({ ...park, courts: getCourtLabelsByPark(park.id) })),
+    parks,
+    suggestedParks,
+    showIntro: !profile.how_it_works_dismissed_at,
+    anyLive: parks.some((p) => p.live),
     profile,
     followedCourts: getFollowedCourtsForPlayer(profile.player_id, season.startSql),
-    suggestedParks: getSuggestedParks(season.startSql, profile.player_id),
     cancelledRuns: getCancelledRunsForPlayer(profile.player_id),
     formatRunTime,
   });
@@ -603,10 +640,11 @@ app.get('/api/nearby-runs', requireAuth, (req, res) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return res.status(400).json({ ok: false, error: 'lat/lng required.' });
   }
-  const { runs, nearestCourt } = getNearbyUpcomingRuns(lat, lng, OVERPASS_RADIUS_METERS);
+  const { runs, nearestCourt, liveNearby } = getNearbyUpcomingRuns(lat, lng, OVERPASS_RADIUS_METERS);
   res.json({
     ok: true,
     runs: runs.map((r) => ({ ...r, timeLabel: formatRunTime(r.scheduledAt) })),
+    liveNearby: liveNearby ? { ...liveNearby, timeLabel: formatRunTime(liveNearby.scheduledAt) } : null,
     nearestCourt,
   });
 });
@@ -633,6 +671,8 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
     profile,
     formatLabel: courtFormatLabel(court),
     active: 'runs',
+    parkKing: getParkKing(court.park_id, getSeasonWindow().startSql),
+    courtLive: getLiveCourtIds().has(court.id),
     countdownEndsAtIso,
     error: req.query.error || null,
     formatRunTime,
@@ -921,6 +961,11 @@ function profileContext(playerId, viewer, query) {
     trophyByFormat: formatSummary.filter((f) => f.trophies > 0).map((f) => ({ format: f.format, n: f.trophies })),
     gamesThisSeason: getGameCountSince(player.player_id, season.startSql),
     badges: PROFILE_BADGES,
+    // Every crown level, lowest first; grayed out until this player has reached it.
+    crownLadder: CROWN_LEVELS.slice().reverse().map((level) => ({
+      ...level,
+      reached: formatSummary.some((f) => f.points >= level.min),
+    })),
   };
 }
 
