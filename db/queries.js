@@ -2137,7 +2137,17 @@ function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
   return { runs, nearestCourt };
 }
 
+// Changes whenever a result or a trophy is recorded. The live pages ask this
+// first, so they only re-render when something has actually moved.
+function getLiveVersion() {
+  const results = db.prepare('SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS m FROM game_results').get();
+  const formatTrophies = db.prepare('SELECT COUNT(*) AS n FROM format_trophies').get().n;
+  const seasonTrophies = db.prepare('SELECT COUNT(*) AS n FROM trophies').get().n;
+  return [results.n, results.m, formatTrophies, seasonTrophies].join(':');
+}
+
 module.exports = {
+  getLiveVersion,
   formatAggregate,
   nameInitials,
   displayNameError,

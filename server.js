@@ -66,6 +66,7 @@ const {
   getCheckIn,
   getPaidGamesPlayed,
   getFormatSummary,
+  getLiveVersion,
   getCourtLabelsByPark,
   courtFormatLabel,
   removeSquadMember,
@@ -408,40 +409,35 @@ function toArray(value) {
   return Array.isArray(value) ? value : [value];
 }
 
+// What the leaderboard shows for a request: shared by the page and its live refresh.
+function boardContext(query, profile) {
+  const parks = getParks();
+  const season = getSeasonWindow();
+  if (parks.length === 0) {
+    return { parks: [], rows: [], scope: 'court', format: null, formats: FORMATS, selectedPark: null, season, crownLevels: CROWN_LEVELS, profile, liveUrl: null };
+  }
+  const scope = query.scope === 'city' ? 'city' : 'court';
+  const selectedPark = parks.find((p) => p.id === Number(query.park)) || parks[0];
+  const format = FORMATS.includes(query.format) ? query.format : null;
+  const rows = getLeaderboard({ scope, parkId: selectedPark.id, seasonStart: season.startSql, format });
+  const liveUrl = `/live/board?scope=${scope}&park=${selectedPark.id}${format ? '&format=' + format : ''}`;
+  return { parks, rows, scope, format, formats: FORMATS, selectedPark, season, crownLevels: CROWN_LEVELS, profile, liveUrl };
+}
+
 app.get('/board', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   logEvent(profile.player_id, 'leaderboard_view', '/board');
-  const parks = getParks();
-  const season = getSeasonWindow();
+  res.render('board', { ...boardContext(req.query, profile), liveVersion: getLiveVersion() });
+});
 
-  if (parks.length === 0) {
-    return res.render('board', {
-      parks: [],
-      rows: [],
-      scope: 'court',
-      selectedPark: null,
-      season,
-      crownLevels: CROWN_LEVELS,
-      profile,
-    });
-  }
-
-  const scope = req.query.scope === 'city' ? 'city' : 'court';
-  const requestedParkId = Number(req.query.park);
-  const selectedPark = parks.find((p) => p.id === requestedParkId) || parks[0];
-  const format = FORMATS.includes(req.query.format) ? req.query.format : null;
-  const rows = getLeaderboard({ scope, parkId: selectedPark.id, seasonStart: season.startSql, format });
-
-  res.render('board', {
-    parks,
-    rows,
-    scope,
-    format,
-    formats: FORMATS,
-    selectedPark,
-    season,
-    crownLevels: CROWN_LEVELS,
-    profile,
+// The leaderboard's live refresh: nothing is rendered unless the version changed.
+app.get('/live/board', requireAuth, (req, res) => {
+  const version = getLiveVersion();
+  if (req.query.v === version) return res.json({ v: version, changed: false });
+  const profile = getPlayerProfile(req.session.userId);
+  res.render('partials/board-live', boardContext(req.query, profile), (err, html) => {
+    if (err) return res.status(500).json({ ok: false });
+    res.json({ v: version, changed: true, body: html });
   });
 });
 
@@ -832,29 +828,20 @@ app.get('/profile', requireAuth, (req, res) => {
   res.redirect(`/players/${profile.player_id}`);
 });
 
-app.get('/players/:id', requireAuth, (req, res) => {
-  const viewer = getPlayerProfile(req.session.userId);
-  const player = getPlayerProfileByPlayerId(Number(req.params.id));
-  if (!player) return res.redirect('/profile');
-
-  // Only a genuine leaderboard tap, not every visit to this page (e.g.
-  // your own profile via the bottom nav), counts as this event.
-  if (req.query.from === 'board') {
-    logEvent(viewer.player_id, 'leaderboard_player_tap', '/board');
-  }
-  logEvent(viewer.player_id, 'profile_view', `/players/${player.player_id}`);
-
+// What a player's profile shows, for the viewer. Shared by the page and its live refresh.
+function profileContext(playerId, viewer, query) {
+  const player = getPlayerProfileByPlayerId(playerId);
+  if (!player) return null;
   const season = getSeasonWindow();
   const formatSummary = getFormatSummary(player.player_id, season.startSql);
   const points = formatSummary.reduce((sum, f) => sum + f.points, 0);
   const isSelf = player.player_id === viewer.player_id;
-
-  res.render('player-profile', {
+  return {
     active: 'profile',
     isSelf,
     // Your own invite code, for the "Invite a hooper" link (own profile only).
     inviteTag: isSelf ? viewer.tag : null,
-    nameError: req.query.nameError || null,
+    nameError: query.nameError || null,
     player,
     points,
     crown: bestFormatCrown(formatSummary),
@@ -865,7 +852,38 @@ app.get('/players/:id', requireAuth, (req, res) => {
     trophies: getTrophies(player.player_id),
     // The ladder is "where am I" — shown on your own profile only.
     ladder: isSelf ? getTierLadder(player) : null,
-  });
+  };
+}
+
+app.get('/players/:id', requireAuth, (req, res) => {
+  const viewer = getPlayerProfile(req.session.userId);
+  // Only a genuine leaderboard tap, not every visit to this page (e.g.
+  // your own profile via the bottom nav), counts as this event.
+  if (req.query.from === 'board') {
+    logEvent(viewer.player_id, 'leaderboard_player_tap', '/board');
+  }
+  const ctx = profileContext(Number(req.params.id), viewer, req.query);
+  if (!ctx) return res.redirect('/profile');
+  logEvent(viewer.player_id, 'profile_view', `/players/${ctx.player.player_id}`);
+  res.render('player-profile', { ...ctx, liveVersion: getLiveVersion() });
+});
+
+// A profile's live refresh: header and body are only rendered when something changed.
+app.get('/live/profile/:id', requireAuth, async (req, res) => {
+  const version = getLiveVersion();
+  if (req.query.v === version) return res.json({ v: version, changed: false });
+  const viewer = getPlayerProfile(req.session.userId);
+  const ctx = profileContext(Number(req.params.id), viewer, {});
+  if (!ctx) return res.status(404).json({ ok: false });
+  const render = (view) =>
+    new Promise((resolve, reject) => res.render(view, ctx, (err, html) => (err ? reject(err) : resolve(html))));
+  try {
+    const header = await render('partials/profile-header-live');
+    const body = await render('partials/profile-body-live');
+    res.json({ v: version, changed: true, header, body });
+  } catch (err) {
+    res.status(500).json({ ok: false });
+  }
 });
 
 // The owner's private dashboard. The password comes from ADMIN_PASSWORD;
