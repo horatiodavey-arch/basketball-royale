@@ -275,6 +275,18 @@ all time). Weeks run Monday to Sunday and months are calendar months, in
 
 Every table has an Export CSV button. Read-only, and names are shown with tags.
 
+**Engagement, growth, parks, competition and event lookup** (/admin). The
+Engagement section shows games per active player per week, average court time,
+check-ins per player, players active at 2+ parks, and the busiest days and
+hours. Growth adds signups by source, signups from referrals, the referral rate
+and top referrers. Parks shows active parks, check-ins and games per park,
+parks created by players, and court suggestions. Competition adds the share of
+active players with at least a bronze crown this season. **Event lookup** has a
+dropdown for any event: total taps, unique players, and who tapped it (name and
+tag, park and time, newest first). Paid-game interest counts players who tapped
+the paid lobby "Join" button, and how many tapped it more than once. Every table
+exports to CSV and follows the date range.
+
 Migrations (additive, run on boot): `events.park_id`, `users.source`,
 `users.referred_by_player_id`, and the `player_milestones` table (backfilled
 once from existing data). No tables are dropped.

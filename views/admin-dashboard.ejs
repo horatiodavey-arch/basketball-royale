@@ -75,6 +75,18 @@
       <% }); %>
     </div>
     <% if (section.note) { %><div class="season-note"><%= section.note %></div><% } %>
+    <% if (section.eventPicker) { %>
+      <form method="GET" action="/admin" class="event-picker">
+        <input type="hidden" name="range" value="<%= dashboard.range %>">
+        <label for="eventPick">Event</label>
+        <select id="eventPick" name="event" onchange="this.form.submit()">
+          <% section.eventPicker.options.forEach((o) => { %>
+            <option value="<%= o.name %>" <%= o.name === section.eventPicker.selected ? 'selected' : '' %>><%= o.label %></option>
+          <% }); %>
+        </select>
+        <noscript><button type="submit" class="small-btn">Show</button></noscript>
+      </form>
+    <% } %>
     <% (section.charts || []).forEach((chart) => { const max = Math.max(1, ...chart.values); const slot = 24; %>
       <div class="admin-table-head"><span class="admin-table-title"><%= chart.title %></span></div>
       <% if (chart.values.length === 0) { %>
@@ -91,7 +103,7 @@
     <% (section.tables || []).forEach((key) => { const table = dashboard.tables[key]; %>
       <div class="admin-table-head">
         <span class="admin-table-title"><%= table.title %></span>
-        <a class="tiny-btn" href="/admin/export/<%= key %>?range=<%= dashboard.range %>">Export CSV</a>
+        <a class="tiny-btn" href="/admin/export/<%= key %>?range=<%= dashboard.range %>&event=<%= encodeURIComponent(dashboard.event || '') %>">Export CSV</a>
       </div>
       <% if (table.rows.length === 0) { %>
         <div class="next-action-note">Nothing in this range yet.</div>

@@ -770,3 +770,8 @@ a.royale-brand { color: inherit; text-decoration: none; }
 /* Live leaderboard: a row whose rank just changed flashes once */
 @keyframes liveMoved { from { background: var(--accent-bg); } to { background: transparent; } }
 .live-moved { animation: liveMoved 2.4s ease-out; border-radius: 10px; }
+
+/* Admin event picker: full width on a phone. */
+.event-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 14px; }
+.event-picker label { color: var(--muted); }
+.event-picker select { flex: 1 1 200px; min-width: 0; padding: 8px; font-size: 16px; }
