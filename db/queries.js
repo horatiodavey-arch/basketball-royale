@@ -1,4 +1,4 @@
-const { db, formingGameFor, lastId, cityFromAddress, runOnce } = require('./index');
+const { db, formingGameFor, lastId, cityFromAddress, runOnce, newUniqueTag } = require('./index');
 
 function getUserByPhone(phone) {
   return db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
@@ -8,9 +8,26 @@ function getPlayerByUserId(userId) {
   return db.prepare('SELECT * FROM players WHERE user_id = ?').get(userId);
 }
 
+// Shown after every display name, e.g. "Big Sniper #4821".
+const DISPLAY_NAME = "(u.name || ' #' || u.tag)";
+
+// Names that would be confused with the tier ladder are reserved. Matched
+// ignoring case and spaces, so "Super Star" is blocked too.
+const RESERVED_NAMES = ['rookie', 'starter', 'star', 'superstar'];
+
+function displayNameError(name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return 'Enter a name.';
+  if (trimmed.length > 30) return 'Keep names to 30 characters or fewer.';
+  if (RESERVED_NAMES.includes(trimmed.toLowerCase().replace(/\s+/g, ''))) {
+    return "That name is reserved. Pick another.";
+  }
+  return null;
+}
+
 function createUserAndPlayer(name, phone) {
-  const insertUser = db.prepare('INSERT INTO users (name, phone) VALUES (?, ?)');
-  insertUser.run(name, phone);
+  const insertUser = db.prepare('INSERT INTO users (name, phone, tag) VALUES (?, ?, ?)');
+  insertUser.run(name, phone, newUniqueTag());
   const userId = db.prepare('SELECT last_insert_rowid() AS id').get().id;
 
   db.prepare('INSERT INTO players (user_id) VALUES (?)').run(userId);
@@ -23,7 +40,7 @@ function createUserAndPlayer(name, phone) {
 function getPlayerProfile(userId) {
   return db
     .prepare(
-      `SELECT u.id AS user_id, u.name, u.phone,
+      `SELECT u.id AS user_id, u.name AS base_name, ${DISPLAY_NAME} AS name, u.phone,
               p.id AS player_id, p.tier, p.wins, p.losses, p.games_played,
               p.is_organizer,
               t.rank AS tier_rank, t.wins_to_promote, t.games_to_promote,
@@ -41,7 +58,7 @@ function getPlayerProfile(userId) {
 function getPlayerProfileByPlayerId(playerId) {
   return db
     .prepare(
-      `SELECT u.id AS user_id, u.name, u.phone,
+      `SELECT u.id AS user_id, u.name AS base_name, ${DISPLAY_NAME} AS name, u.phone,
               p.id AS player_id, p.tier, p.wins, p.losses, p.games_played,
               p.is_organizer,
               t.rank AS tier_rank, t.wins_to_promote, t.games_to_promote,
@@ -95,7 +112,7 @@ function getLobbyRoster(lobbyId) {
 
   const players = db
     .prepare(
-      `SELECT u.id AS user_id, u.name
+      `SELECT u.id AS user_id, ${DISPLAY_NAME} AS name
        FROM game_players gp
        JOIN players p ON p.id = gp.player_id
        JOIN users u ON u.id = p.user_id
@@ -174,7 +191,7 @@ function getParks() {
 function getParkById(id) {
   return db
     .prepare(
-      `SELECT p.*, u.name AS added_by_name, ph.filename AS cover_filename
+      `SELECT p.*, ${DISPLAY_NAME} AS added_by_name, ph.filename AS cover_filename
        FROM parks p
        LEFT JOIN players pl ON pl.id = p.added_by_player_id
        LEFT JOIN users u ON u.id = pl.user_id
@@ -249,7 +266,7 @@ function standingsFromGameResults(whereClause, params) {
   const rows = db
     .prepare(
       `SELECT gr.player_id AS playerId,
-              u.name,
+              ${DISPLAY_NAME} AS name,
               p.tier,
               SUM(CASE WHEN gr.result = 'win' THEN 1 ELSE 0 END) AS wins,
               COUNT(*) AS games,
@@ -357,7 +374,7 @@ function formatAggregate(playerId, format, seasonStart, parkId = null) {
 function formatStandings(format, seasonStart, parkId = null) {
   const players = db
     .prepare(
-      `SELECT DISTINCT gr.player_id AS playerId, u.name, p.tier
+      `SELECT DISTINCT gr.player_id AS playerId, ${DISPLAY_NAME} AS name, p.tier
        FROM game_results gr
        JOIN players p ON p.id = gr.player_id
        JOIN users u ON u.id = p.user_id
@@ -523,6 +540,7 @@ function getNextCrownProgress(totalPoints) {
 
 function nameInitials(name) {
   return name
+    .replace(/\s#\d{4}$/, '')
     .trim()
     .split(/\s+/)
     .slice(0, 2)
@@ -731,7 +749,7 @@ function getCheckIn(playerId, parkId) {
 function getCheckedInPlayers(parkId) {
   return db
     .prepare(
-      `SELECT p.id, u.name, c.last_seen
+      `SELECT p.id, ${DISPLAY_NAME} AS name, c.last_seen
        FROM check_ins c
        JOIN players p ON p.id = c.player_id
        JOIN users u ON u.id = p.user_id
@@ -745,13 +763,13 @@ function getCheckedInPlayers(parkId) {
 function getSquadRoster(nextLineId) {
   return db
     .prepare(
-      `SELECT u.id AS id, u.name AS name, (p.id = nl.captain_player_id) AS isCaptain
+      `SELECT u.id AS id, ${DISPLAY_NAME} AS name, (p.id = nl.captain_player_id) AS isCaptain
        FROM next_line nl
        JOIN players p ON p.id = nl.captain_player_id
        JOIN users u ON u.id = p.user_id
        WHERE nl.id = ?
        UNION ALL
-       SELECT u.id AS id, u.name AS name, 0 AS isCaptain
+       SELECT u.id AS id, ${DISPLAY_NAME} AS name, 0 AS isCaptain
        FROM next_line_members nlm
        JOIN players p ON p.id = nlm.player_id
        JOIN users u ON u.id = p.user_id
@@ -963,6 +981,30 @@ function isPlayerInActiveLiveGame(courtId, playerId) {
     .get(courtId, playerId);
 }
 
+// The latest roster changes on a game, newest first, for the court screen.
+// Changes the display name only. Tag, stats, crowns and trophies stay with
+// the account (tied to the phone number).
+function updateDisplayName(userId, name) {
+  const error = displayNameError(name);
+  if (error) return { ok: false, error };
+  db.prepare('UPDATE users SET name = ? WHERE id = ?').run(String(name).trim(), userId);
+  return { ok: true };
+}
+
+function getRosterEdits(liveGameId) {
+  return db
+    .prepare(
+      `SELECT re.team, re.action, ${DISPLAY_NAME} AS name, re.created_at,
+              (SELECT (u2.name || ' #' || u2.tag) FROM users u2 JOIN players p2 ON p2.user_id = u2.id WHERE p2.id = re.by_player_id) AS byName
+       FROM roster_edits re
+       JOIN players p ON p.id = re.player_id
+       JOIN users u ON u.id = p.user_id
+       WHERE re.live_game_id = ?
+       ORDER BY re.id DESC LIMIT 5`
+    )
+    .all(liveGameId);
+}
+
 function getActiveLiveGame(courtId) {
   return db
     .prepare(`SELECT * FROM live_games WHERE court_id = ? AND status != 'done' ORDER BY id DESC LIMIT 1`)
@@ -972,7 +1014,7 @@ function getActiveLiveGame(courtId) {
 function getLiveGamePlayers(liveGameId) {
   const rows = db
     .prepare(
-      `SELECT lgp.id, lgp.player_id AS playerId, u.name, lgp.team, lgp.captain, lgp.time_on, lgp.time_off
+      `SELECT lgp.id, lgp.player_id AS playerId, ${DISPLAY_NAME} AS name, lgp.team, lgp.captain, lgp.time_on, lgp.time_off
        FROM live_game_players lgp
        JOIN players p ON p.id = lgp.player_id
        JOIN users u ON u.id = p.user_id
@@ -1095,6 +1137,8 @@ function resolveCountdown(courtId) {
 // Runs everything time-based for a court: expire stale queue members,
 // resolve a finished countdown, then start a game if two squads are up.
 function tickCourt(courtId) {
+  const pending = getActiveLiveGame(courtId);
+  if (pending) expireStaleResult(pending);
   tickQueueForCourt(courtId);
   resolveCountdown(courtId);
   ensureLiveGame(courtId);
@@ -1106,22 +1150,57 @@ function isCaptainOf(liveGameId, playerId) {
     .get(liveGameId, playerId);
 }
 
+// The team a player is on the active roster for (not subbed off), or null.
+function activeRosterTeam(liveGameId, playerId) {
+  const row = db
+    .prepare('SELECT team FROM live_game_players WHERE live_game_id = ? AND player_id = ? AND time_off IS NULL')
+    .get(liveGameId, playerId);
+  return row ? row.team : null;
+}
+
+// Roster can change until the result locks. A change to a result that's
+// already waiting on the other team voids that result, so the other team
+// has to look at the new roster and submit again.
+function rosterCanChange(game) {
+  return game.status !== 'done';
+}
+
+function logRosterEdit(liveGameId, team, playerId, action, actorPlayerId) {
+  db.prepare(
+    'INSERT INTO roster_edits (live_game_id, team, player_id, action, by_player_id) VALUES (?, ?, ?, ?, ?)'
+  ).run(liveGameId, team, playerId, action, actorPlayerId);
+}
+
+function voidPendingResult(game, note) {
+  if (game.status !== 'awaiting_confirmation') return;
+  db.prepare(
+    `UPDATE live_games SET status = 'in_progress', team_a_won = NULL, confirmed_a = 0, confirmed_b = 0,
+       result_submitted_at = NULL, result_submitted_by = NULL, result_note = ? WHERE id = ?`
+  ).run(note, game.id);
+}
+
 // A captain marks a player "left": closes their stint if the game has
 // started, or just un-seats them if it's still the between-games wait.
 function markLeft(liveGameId, playerId, actorPlayerId) {
   const game = db.prepare('SELECT * FROM live_games WHERE id = ?').get(liveGameId);
-  if (!game || !isCaptainOf(liveGameId, actorPlayerId)) return { ok: false, error: 'Only a captain can do that.' };
+  const captain = isCaptainOf(liveGameId, actorPlayerId);
+  if (!game || !captain) return { ok: false, error: 'Only a captain can do that.' };
+  if (!rosterCanChange(game)) return { ok: false, error: 'This result is locked.' };
 
   const row = db
     .prepare('SELECT * FROM live_game_players WHERE live_game_id = ? AND player_id = ? AND time_off IS NULL')
     .get(liveGameId, playerId);
   if (!row) return { ok: false, error: 'Player not found on court.' };
+  if (row.team !== captain.team) return { ok: false, error: "You can only change your own team's roster." };
 
   if (row.time_on === null) {
     db.prepare('DELETE FROM live_game_players WHERE id = ?').run(row.id);
+    logRosterEdit(liveGameId, row.team, playerId, 'removed', actorPlayerId);
   } else {
     db.prepare("UPDATE live_game_players SET time_off = datetime('now') WHERE id = ?").run(row.id);
+    logRosterEdit(liveGameId, row.team, playerId, 'left', actorPlayerId);
   }
+  voidPendingResult(game, 'The roster changed after the result was submitted. Check the roster and submit the result again.');
   return { ok: true };
 }
 
@@ -1129,7 +1208,10 @@ function markLeft(liveGameId, playerId, actorPlayerId) {
 // during the countdown, or swaps in mid-game.
 function addSub(liveGameId, team, playerId, actorPlayerId) {
   const game = db.prepare('SELECT * FROM live_games WHERE id = ?').get(liveGameId);
-  if (!game || !isCaptainOf(liveGameId, actorPlayerId)) return { ok: false, error: 'Only a captain can do that.' };
+  const captain = isCaptainOf(liveGameId, actorPlayerId);
+  if (!game || !captain) return { ok: false, error: 'Only a captain can do that.' };
+  if (!rosterCanChange(game)) return { ok: false, error: 'This result is locked.' };
+  if (team !== captain.team) return { ok: false, error: "You can only change your own team's roster." };
 
   if (!getCheckIn(playerId, game.park_id)) return { ok: false, error: 'That player is not checked in.' };
   if (isPlayerInActiveLiveGame(game.court_id, playerId)) return { ok: false, error: 'That player is already on the court.' };
@@ -1146,32 +1228,39 @@ function addSub(liveGameId, team, playerId, actorPlayerId) {
     `INSERT INTO live_game_players (live_game_id, player_id, team, captain, time_on)
      VALUES (?, ?, ?, 0, ?)`
   ).run(liveGameId, playerId, team, game.status === 'in_progress' ? sqliteNow() : null);
+  logRosterEdit(liveGameId, team, playerId, 'added', actorPlayerId);
+  voidPendingResult(game, 'The roster changed after the result was submitted. Check the roster and submit the result again.');
   return { ok: true };
 }
 
-// A captain taps which team won; the other captain's confirm locks it.
-function declareWinner(liveGameId, team, actorPlayerId) {
+// A player on the roster says their team won. No score is entered. The
+// other team then has 20 minutes to confirm or dispute it.
+const RESULT_WINDOW_MINUTES = 20;
+
+function declareWinner(liveGameId, actorPlayerId) {
   const game = db.prepare('SELECT * FROM live_games WHERE id = ?').get(liveGameId);
   if (!game || game.status !== 'in_progress') return { ok: false, error: 'No game in progress to score.' };
-  const captainTeam = isCaptainOf(liveGameId, actorPlayerId);
-  if (!captainTeam) return { ok: false, error: 'Only a captain can declare a winner.' };
+  const team = activeRosterTeam(liveGameId, actorPlayerId);
+  if (!team) return { ok: false, error: 'Only players on this game can submit a result.' };
 
   db.prepare(
-    `UPDATE live_games SET status = 'awaiting_confirmation', team_a_won = ?, confirmed_a = ?, confirmed_b = ? WHERE id = ?`
-  ).run(team === 'a' ? 1 : 0, captainTeam.team === 'a' ? 1 : 0, captainTeam.team === 'b' ? 1 : 0, liveGameId);
+    `UPDATE live_games SET status = 'awaiting_confirmation', team_a_won = ?, confirmed_a = ?, confirmed_b = ?,
+       result_submitted_at = datetime('now'), result_submitted_by = ?, result_note = NULL WHERE id = ?`
+  ).run(team === 'a' ? 1 : 0, team === 'a' ? 1 : 0, team === 'b' ? 1 : 0, actorPlayerId, liveGameId);
   return { ok: true };
 }
 
+// The other team confirms the submitted result. Both sides agreeing locks it.
 function confirmResult(liveGameId, actorPlayerId) {
   const game = db.prepare('SELECT * FROM live_games WHERE id = ?').get(liveGameId);
   if (!game || game.status !== 'awaiting_confirmation') return { ok: false, error: 'Nothing to confirm.' };
-  const captainTeam = isCaptainOf(liveGameId, actorPlayerId);
-  if (!captainTeam) return { ok: false, error: 'Only a captain can confirm.' };
+  const team = activeRosterTeam(liveGameId, actorPlayerId);
+  if (!team) return { ok: false, error: 'Only players on this game can confirm a result.' };
 
   const declaringTeam = game.team_a_won ? 'a' : 'b';
-  if (captainTeam.team === declaringTeam) return { ok: false, error: 'Waiting on the other captain to confirm.' };
+  if (team === declaringTeam) return { ok: false, error: 'Waiting on the other team to confirm.' };
 
-  const column = captainTeam.team === 'a' ? 'confirmed_a' : 'confirmed_b';
+  const column = team === 'a' ? 'confirmed_a' : 'confirmed_b';
   db.prepare(`UPDATE live_games SET ${column} = 1 WHERE id = ?`).run(liveGameId);
 
   const updated = db.prepare('SELECT * FROM live_games WHERE id = ?').get(liveGameId);
@@ -1179,6 +1268,26 @@ function confirmResult(liveGameId, actorPlayerId) {
     lockResult(updated);
   }
   return { ok: true };
+}
+
+// The other team disputes: the result is voided and nothing is saved.
+function disputeResult(liveGameId, actorPlayerId) {
+  const game = db.prepare('SELECT * FROM live_games WHERE id = ?').get(liveGameId);
+  if (!game || game.status !== 'awaiting_confirmation') return { ok: false, error: 'Nothing to dispute.' };
+  const team = activeRosterTeam(liveGameId, actorPlayerId);
+  if (!team) return { ok: false, error: 'Only players on this game can dispute a result.' };
+  if (team === (game.team_a_won ? 'a' : 'b')) return { ok: false, error: 'Only the other team can dispute.' };
+  voidPendingResult(game, 'Disputed. The result was voided. Submit it again once both teams agree.');
+  return { ok: true };
+}
+
+// A submitted result nobody answers within the window is voided.
+function expireStaleResult(game) {
+  if (game.status !== 'awaiting_confirmation' || !game.result_submitted_at) return;
+  const submittedAt = new Date(game.result_submitted_at + 'Z').getTime();
+  if (Date.now() - submittedAt > RESULT_WINDOW_MINUTES * 60 * 1000) {
+    voidPendingResult(game, 'No answer within 20 minutes, so the result was voided. Submit it again.');
+  }
 }
 
 // Saves game_results for every player who took the court, starts the
@@ -1303,6 +1412,8 @@ function getCourtScreen(courtId, viewerPlayerId) {
       teamA: teams.a,
       teamB: teams.b,
       viewerCaptainTeam: (isCaptainOf(game.id, viewerPlayerId) || {}).team || null,
+      viewerTeam: activeRosterTeam(game.id, viewerPlayerId),
+      edits: getRosterEdits(game.id),
     };
   }
 
@@ -1651,7 +1762,7 @@ function createCourtSuggestion(playerId, name, lat, lng, photoUrl) {
 function getCourtSuggestions() {
   return db
     .prepare(
-      `SELECT cs.*, u.name AS suggested_by_name
+      `SELECT cs.*, ${DISPLAY_NAME} AS suggested_by_name
        FROM court_suggestions cs
        JOIN players p ON p.id = cs.player_id
        JOIN users u ON u.id = p.user_id
@@ -1706,7 +1817,7 @@ function parkSource(park) {
 function getAllParksForAdmin() {
   return db
     .prepare(
-      `SELECT p.*, u.name AS added_by_name
+      `SELECT p.*, ${DISPLAY_NAME} AS added_by_name
        FROM parks p
        LEFT JOIN players pl ON pl.id = p.added_by_player_id
        LEFT JOIN users u ON u.id = pl.user_id
@@ -1781,7 +1892,7 @@ function getRunById(runId, viewerPlayerId) {
       `SELECT r.id, r.scheduled_at, r.note, r.court_id, r.organizer_player_id,
               c.number AS court_number, c.nickname AS court_nickname,
               p.id AS park_id, p.name AS park_name, p.city AS park_city, p.location AS park_location,
-              u.name AS organizer_name
+              ${DISPLAY_NAME} AS organizer_name
        FROM runs r
        JOIN courts c ON c.id = r.court_id
        JOIN parks p ON p.id = c.park_id
@@ -1794,7 +1905,7 @@ function getRunById(runId, viewerPlayerId) {
 
   const rsvps = db
     .prepare(
-      `SELECT pl.id, u.name, rr.created_at
+      `SELECT pl.id, ${DISPLAY_NAME} AS name, rr.created_at
        FROM run_rsvps rr
        JOIN players pl ON pl.id = rr.player_id
        JOIN users u ON u.id = pl.user_id
@@ -1958,6 +2069,9 @@ function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
 }
 
 module.exports = {
+  nameInitials,
+  displayNameError,
+  updateDisplayName,
   getUserByPhone,
   getPlayerByUserId,
   createUserAndPlayer,
@@ -1998,6 +2112,7 @@ module.exports = {
   getCheckIn,
   getCheckedInPlayers,
   getCourtScreen,
+  disputeResult,
   iGotNext,
   addSquadMembers,
   markLeft,

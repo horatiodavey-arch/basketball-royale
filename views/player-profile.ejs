@@ -22,6 +22,16 @@
     </div>
   </div>
 
+  <% if (isSelf) { %>
+    <form method="POST" action="/profile/name" class="settings-form" style="margin-bottom: 14px;">
+      <div class="form-group">
+        <label for="displayName">Display name</label>
+        <input type="text" id="displayName" name="name" value="<%= player.base_name %>" maxlength="30" required>
+      </div>
+      <button type="submit" class="small-btn">Save name</button>
+      <% if (nameError) { %><div class="error-msg" style="margin-top: 8px;"><%= nameError %></div><% } %>
+    </form>
+  <% } %>
   <div class="profile-crown-card">
     <%- include('partials/crown-icon', { size: 30, fill: crown ? crown.fill : 'none', stroke: crown ? crown.stroke : 'var(--muted)' }) %>
     <div class="profile-crown-main">

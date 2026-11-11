@@ -36,6 +36,9 @@ const {
   addSub,
   declareWinner,
   confirmResult,
+  disputeResult,
+  displayNameError,
+  updateDisplayName,
   updateParkSettings,
   syncOrganizerFlag,
   logEvent,
@@ -145,6 +148,7 @@ function pagePathFromReferer(req, fallback) {
 
 function initials(name) {
   return name
+    .replace(/\s#\d{4}$/, '')
     .trim()
     .split(/\s+/)
     .slice(0, 2)
@@ -209,6 +213,10 @@ app.post('/signup', (req, res) => {
     return res.redirect(returnTo || '/');
   }
 
+  const nameProblem = displayNameError(name);
+  if (nameProblem) {
+    return res.render('signup', { error: nameProblem, name, phone, returnTo });
+  }
   const { userId } = createUserAndPlayer(name, phone);
   req.session.userId = userId;
   syncOrganizerFlag(phone);
@@ -753,8 +761,22 @@ app.post('/live_games/:id/sub', requireAuth, (req, res) => {
 
 app.post('/live_games/:id/declare', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  const result = declareWinner(Number(req.params.id), req.body.team, profile.player_id);
+  const result = declareWinner(Number(req.params.id), profile.player_id);
   redirectWithResult(req, res, result, '/runs');
+});
+
+app.post('/live_games/:id/dispute', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const result = disputeResult(Number(req.params.id), profile.player_id);
+  redirectWithResult(req, res, result, '/runs');
+});
+
+// Display name only; the account, tag, stats, crowns and trophies stay put.
+app.post('/profile/name', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const result = updateDisplayName(profile.user_id, req.body.name);
+  if (!result.ok) return res.redirect(`/players/${profile.player_id}?nameError=${encodeURIComponent(result.error)}`);
+  res.redirect(`/players/${profile.player_id}`);
 });
 
 app.post('/live_games/:id/confirm', requireAuth, (req, res) => {
@@ -787,6 +809,7 @@ app.get('/players/:id', requireAuth, (req, res) => {
   res.render('player-profile', {
     active: 'profile',
     isSelf,
+    nameError: req.query.nameError || null,
     player,
     points,
     crown: bestFormatCrown(formatSummary),
