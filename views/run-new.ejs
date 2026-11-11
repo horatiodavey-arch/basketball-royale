@@ -32,10 +32,7 @@
       <input type="hidden" name="lat" value="<%= osmLat %>">
       <input type="hidden" name="lng" value="<%= osmLng %>">
     <% } %>
-    <div class="form-group">
-      <label for="scheduledAt">Date and time</label>
-      <input type="datetime-local" id="scheduledAt" name="scheduledAt" required>
-    </div>
+    <%- include('partials/run-time-fields', { prefix: 'new', date: defaultDate, time: defaultTime, todayDate: todayDate, nowTime: nowTime }) %>
     <div class="form-group">
       <label>Game format</label>
       <div class="format-picker">

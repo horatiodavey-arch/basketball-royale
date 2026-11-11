@@ -13,6 +13,13 @@
   <div class="page-title heading"><%- include('partials/park-name', { name: run.parkName, city: run.parkCity }) %></div>
   <div class="page-sub"><%= run.courtName %><% if (run.parkLocation) { %> &middot; <%= run.parkLocation %><% } %></div>
 
+  <% if (run.cancelled) { %>
+    <div class="error-msg">This run was cancelled.<% if (run.viewerComing) { %> You had said you were coming. Check the Runs page for other runs nearby.<% } %></div>
+  <% } %>
+  <% if (error) { %>
+    <div class="error-msg"><%= error %></div>
+  <% } %>
+
   <div class="live-card">
     <div class="run-time heading"><%= formatRunTime(run.scheduledAt) %></div>
     <% if (run.note) { %><div class="run-note"><%= run.note %></div><% } %>
@@ -36,7 +43,8 @@
   <% } %>
 
   <div class="sheet-actions" style="margin-top: 18px;">
-    <% if (!profile) { %>
+    <% if (run.cancelled) { %>
+    <% } else if (!profile) { %>
       <a href="/signup?returnTo=<%= encodeURIComponent('/runs/' + run.id) %>" class="submit-btn" style="text-align: center; text-decoration: none; display: block;">Sign up to say you're coming</a>
     <% } else if (run.viewerComing) { %>
       <button type="button" class="check-in-btn" disabled>You're coming!</button>
@@ -46,6 +54,23 @@
       </form>
     <% } %>
   </div>
+
+  <% if (isOrganizer && !run.cancelled) { %>
+    <% if (run.canChange) { %>
+      <details class="run-manage" style="margin-top: 14px;">
+        <summary class="small-btn" style="display: inline-block;">Change time</summary>
+        <form method="POST" action="/runs/<%= run.id %>/edit" class="settings-form" style="margin-top: 10px;">
+          <%- include('partials/run-time-fields', { prefix: 'edit', date: run.scheduledDate, time: run.scheduledTime, todayDate: todayDate, nowTime: nowTime }) %>
+          <button type="submit" class="submit-btn">Save time</button>
+        </form>
+      </details>
+      <form method="POST" action="/runs/<%= run.id %>/cancel" onsubmit="return confirm('Cancel this run? Everyone who said they are coming will see that it was cancelled.');" style="margin-top: 12px;">
+        <button type="submit" class="small-btn">Cancel run</button>
+      </form>
+    <% } else { %>
+      <div class="next-action-note">A game at this court has started, so this run can't be changed.</div>
+    <% } %>
+  <% } %>
 
   <button type="button" id="inviteBtn" class="small-btn" style="margin-top: 10px;">Invite friends</button>
 

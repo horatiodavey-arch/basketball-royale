@@ -433,6 +433,25 @@ that way. Everything else now works from anywhere, no location needed:
 local wall-clock text, not a timezone-aware instant — fine for this app's
 single-area usage, not something that would hold up across timezones.
 
+## Editing and cancelling a run
+
+The person who started a run can change its date and time, or cancel it, until
+a game at that court starts. A game counts as part of the run if it starts
+between one hour before and four hours after the scheduled time. After that,
+neither is allowed.
+
+- Times use the native date and time pickers (12- or 24-hour, per phone),
+  in 15-minute steps. The default is the next half hour, and past times are refused.
+- A cancelled run disappears from the map and the Runs page. Anyone who said
+  they were coming still sees it on the run page, and on the Runs page for
+  seven days, marked as cancelled. No new "I'm coming" taps are accepted.
+- Both actions are logged as `run_edited` and `run_cancelled` events, so they
+  show in the admin event lookup.
+- Run times are wall-clock times in `APP_TIMEZONE`. "Now" for upcoming runs
+  and the past-time check uses that timezone too, not the server's clock.
+
+Migration (additive): `runs.cancelled_at`.
+
 ## Nearby courts, from OpenStreetMap
 
 Once the player's location is known, the map also fetches real basketball

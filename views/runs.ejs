@@ -55,6 +55,16 @@
     <% }); %>
   <% } %>
 
+  <% if (cancelledRuns.length > 0) { %>
+    <div class="section">Cancelled runs you were coming to</div>
+    <% cancelledRuns.forEach((cr) => { %>
+      <a class="stats-card" href="/runs/<%= cr.id %>" style="display: block; text-decoration: none; color: inherit;">
+        <div class="stats-label"><%= cr.courtName %> &middot; <%= cr.parkName %></div>
+        <div class="suggestion-meta">Cancelled &middot; was <%= formatRunTime(cr.scheduledAt) %></div>
+      </a>
+    <% }); %>
+  <% } %>
+
   <div class="section">Runs near you</div>
   <div id="nearbyRunsLoading" class="next-action-note">Finding runs near you&hellip;</div>
   <div id="nearbyRunsList" style="display: none;"></div>

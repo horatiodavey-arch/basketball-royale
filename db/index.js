@@ -471,6 +471,9 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('courts', 'format', 'TEXT');
   addColumnIfMissing('live_games', 'format', 'TEXT');
   addColumnIfMissing('runs', 'format', 'TEXT');
+  // Set when the organizer cancels. A cancelled run stays in the table, so the
+  // people who said they're coming can still see it was cancelled.
+  addColumnIfMissing('runs', 'cancelled_at', 'TEXT');
   addColumnIfMissing('game_results', 'format', 'TEXT');
   // A squad's captain confirms the roster; any roster or captain change clears it.
   addColumnIfMissing('next_line', 'confirmed', 'INTEGER NOT NULL DEFAULT 0');

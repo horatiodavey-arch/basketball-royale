@@ -1542,6 +1542,8 @@ const TRACKED_EVENTS = [
   { name: 'add_park_photo', label: 'Add a park photo' },
   { name: 'view_lobbies', label: 'View lobbies' },
   { name: 'lobby_join_try', label: 'Try to join a lobby (paid)' },
+  { name: 'run_cancelled', label: 'Run cancelled' },
+  { name: 'run_edited', label: 'Run edited' },
   { name: 'result_confirmed', label: 'Confirm a result' },
   { name: 'leaderboard_view', label: 'View leaderboard' },
   { name: 'leaderboard_player_tap', label: 'Tapped a player (leaderboard)' },
@@ -1939,6 +1941,147 @@ function getSuggestedParks(seasonStart, viewerPlayerId) {
 // A <input type="datetime-local"> value ("YYYY-MM-DDTHH:MM") stored as
 // the organizer's own local wall-clock time — no timezone conversion,
 // same demo-mode simplicity as the rest of this schema.
+// Run times are wall-clock times in the app's timezone (APP_TIMEZONE), stored
+// as 'YYYY-MM-DD HH:MM:00' with no offset. "Now" has to be read in that same
+// timezone, not the server's (UTC on Railway), or runs get hidden or accepted
+// at the wrong time.
+const RUN_TZ = process.env.APP_TIMEZONE || 'America/New_York';
+const runClock = new Intl.DateTimeFormat('en-CA', {
+  timeZone: RUN_TZ,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+// Now in the app's timezone, as 'YYYY-MM-DD HH:MM:00'.
+function appNowSql(date = new Date()) {
+  const parts = Object.fromEntries(runClock.formatToParts(date).map((p) => [p.type, p.value]));
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:00`;
+}
+
+// A stored UTC timestamp (SQLite datetime('now')) in the app's timezone.
+function utcSqlToAppSql(utcSql) {
+  return appNowSql(new Date(utcSql.replace(' ', 'T') + 'Z'));
+}
+
+function addMinutesSql(sql, minutes) {
+  const d = new Date(sql.replace(' ', 'T') + 'Z');
+  d.setUTCMinutes(d.getUTCMinutes() + minutes);
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+// The next half hour after now (e.g. 6:10 -> 6:30, 6:40 -> 7:00), and the
+// earliest quarter hour today a time can be, for the time picker.
+function runTimeDefaults() {
+  const now = appNowSql();
+  const next = new Date(now.replace(' ', 'T') + 'Z');
+  const minute = next.getUTCMinutes();
+  next.setUTCMinutes(minute < 30 ? 30 : 60, 0, 0);
+  const quarter = new Date(now.replace(' ', 'T') + 'Z');
+  quarter.setUTCMinutes(Math.ceil(quarter.getUTCMinutes() / 15) * 15, 0, 0);
+  const iso = next.toISOString();
+  return {
+    todayDate: now.slice(0, 10),
+    nowTime: quarter.toISOString().slice(11, 16),
+    defaultDate: iso.slice(0, 10),
+    defaultTime: iso.slice(11, 16),
+  };
+}
+
+// The date and time from the form, checked: real date, 15-minute steps, and
+// not in the past. Returns { scheduledAt } or { error }.
+function checkRunTimeFields(date, time) {
+  const dateMatch = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
+  const timeMatch = typeof time === 'string' && time.match(/^(\d{2}):(\d{2})$/);
+  if (!dateMatch || !timeMatch || new Date(date + 'T00:00:00Z').toISOString().slice(0, 10) !== date) {
+    return { error: 'Pick a date and time.' };
+  }
+  if (Number(timeMatch[1]) > 23 || Number(timeMatch[2]) % 15 !== 0) {
+    return { error: 'Pick a time in 15-minute steps.' };
+  }
+  const scheduledAt = `${date} ${time}:00`;
+  if (scheduledAt < appNowSql()) return { error: 'That time has already passed. Pick a later time.' };
+  return { scheduledAt };
+}
+
+// A run is "started" once a live game starts at its court between an hour
+// before and four hours after its scheduled time. From then on it can't be
+// edited or cancelled.
+function runLockState(run) {
+  const from = addMinutesSql(run.scheduled_at, -60);
+  const to = addMinutesSql(run.scheduled_at, 240);
+  const started = db
+    .prepare('SELECT started_at FROM live_games WHERE court_id = ? AND started_at IS NOT NULL')
+    .all(run.court_id)
+    .some((g) => {
+      const local = utcSqlToAppSql(g.started_at);
+      return local >= from && local <= to;
+    });
+  return { cancelled: !!run.cancelled_at, started };
+}
+
+function loadRunForChange(runId) {
+  return db
+    .prepare(
+      `SELECT r.id, r.court_id, r.scheduled_at, r.cancelled_at, r.organizer_player_id, c.park_id
+       FROM runs r JOIN courts c ON c.id = r.court_id WHERE r.id = ?`
+    )
+    .get(runId);
+}
+
+// Only the organizer, only before a game starts, and only to a time that
+// hasn't passed. Players who said they're coming keep their place.
+function changeRunTime(runId, playerId, scheduledAt) {
+  const run = loadRunForChange(runId);
+  if (!run) return { ok: false, error: 'Run not found.' };
+  if (run.organizer_player_id !== playerId) return { ok: false, error: 'Only the person who started this run can change it.' };
+  const state = runLockState(run);
+  if (state.cancelled) return { ok: false, error: 'This run was cancelled.' };
+  if (state.started) return { ok: false, error: "A game at this court has started, so the time can't be changed." };
+  if (scheduledAt < appNowSql()) return { ok: false, error: 'That time has already passed. Pick a later time.' };
+  db.prepare('UPDATE runs SET scheduled_at = ? WHERE id = ?').run(scheduledAt, runId);
+  logEvent(playerId, 'run_edited', `/runs/${runId}`, run.park_id);
+  return { ok: true };
+}
+
+function cancelRun(runId, playerId) {
+  const run = loadRunForChange(runId);
+  if (!run) return { ok: false, error: 'Run not found.' };
+  if (run.organizer_player_id !== playerId) return { ok: false, error: 'Only the person who started this run can cancel it.' };
+  const state = runLockState(run);
+  if (state.cancelled) return { ok: false, error: 'This run is already cancelled.' };
+  if (state.started) return { ok: false, error: "A game at this court has started, so the run can't be cancelled." };
+  db.prepare("UPDATE runs SET cancelled_at = datetime('now') WHERE id = ?").run(runId);
+  logEvent(playerId, 'run_cancelled', `/runs/${runId}`, run.park_id);
+  return { ok: true };
+}
+
+// Runs this player said they were coming to that were cancelled recently,
+// so the Runs page can say so.
+function getCancelledRunsForPlayer(playerId) {
+  return db
+    .prepare(
+      `SELECT r.id, r.scheduled_at, r.cancelled_at, c.number, c.nickname, p.name AS park_name, p.city AS park_city
+       FROM run_rsvps rr
+       JOIN runs r ON r.id = rr.run_id
+       JOIN courts c ON c.id = r.court_id
+       JOIN parks p ON p.id = c.park_id
+       WHERE rr.player_id = ? AND r.cancelled_at IS NOT NULL AND r.cancelled_at >= datetime('now', '-7 days')
+       ORDER BY r.cancelled_at DESC`
+    )
+    .all(playerId)
+    .map((r) => ({
+      id: r.id,
+      scheduledAt: r.scheduled_at,
+      courtName: r.nickname || `Court ${r.number}`,
+      parkName: r.park_name,
+      parkCity: r.park_city,
+    }));
+}
+
 function parseScheduledAt(value) {
   if (!value || typeof value !== 'string') return null;
   const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/);
@@ -1958,7 +2101,7 @@ function createRun(courtId, organizerPlayerId, scheduledAt, note, format) {
 function getRunById(runId, viewerPlayerId) {
   const run = db
     .prepare(
-      `SELECT r.id, r.scheduled_at, r.note, r.court_id, r.organizer_player_id,
+      `SELECT r.id, r.scheduled_at, r.note, r.court_id, r.organizer_player_id, r.cancelled_at,
               c.number AS court_number, c.nickname AS court_nickname,
               p.id AS park_id, p.name AS park_name, p.city AS park_city, p.location AS park_location,
               ${DISPLAY_NAME} AS organizer_name
@@ -1971,6 +2114,7 @@ function getRunById(runId, viewerPlayerId) {
     )
     .get(runId);
   if (!run) return null;
+  const state = runLockState(run);
 
   const rsvps = db
     .prepare(
@@ -1998,6 +2142,12 @@ function getRunById(runId, viewerPlayerId) {
     rsvps,
     rsvpCount: rsvps.length,
     viewerComing: viewerPlayerId ? rsvps.some((r) => r.id === viewerPlayerId) : false,
+    organizerPlayerId: run.organizer_player_id,
+    cancelled: state.cancelled,
+    started: state.started,
+    canChange: !state.cancelled && !state.started,
+    scheduledDate: run.scheduled_at.slice(0, 10),
+    scheduledTime: run.scheduled_at.slice(11, 16),
   };
 }
 
@@ -2008,11 +2158,11 @@ function getUpcomingRunsForCourt(courtId, limit = 5) {
     .prepare(
       `SELECT r.id, r.scheduled_at, r.note
        FROM runs r
-       WHERE r.court_id = ? AND r.scheduled_at >= datetime('now', 'localtime')
+       WHERE r.court_id = ? AND r.scheduled_at >= ? AND r.cancelled_at IS NULL
        ORDER BY r.scheduled_at ASC
        LIMIT ?`
     )
-    .all(courtId, limit);
+    .all(courtId, appNowSql(), limit);
   const rsvpCount = db.prepare('SELECT COUNT(*) AS c FROM run_rsvps WHERE run_id = ?');
   return runs.map((r) => ({
     id: r.id,
@@ -2023,8 +2173,9 @@ function getUpcomingRunsForCourt(courtId, limit = 5) {
 }
 
 function rsvpToRun(runId, playerId) {
-  const run = db.prepare('SELECT id FROM runs WHERE id = ?').get(runId);
+  const run = db.prepare('SELECT id, cancelled_at FROM runs WHERE id = ?').get(runId);
   if (!run) return { ok: false, error: 'Run not found.' };
+  if (run.cancelled_at) return { ok: false, error: 'This run was cancelled.' };
   db.prepare('INSERT OR IGNORE INTO run_rsvps (run_id, player_id) VALUES (?, ?)').run(runId, playerId);
   return { ok: true };
 }
@@ -2068,10 +2219,10 @@ function getFollowedCourtsForPlayer(playerId, seasonStart) {
     const nextRun = db
       .prepare(
         `SELECT id, scheduled_at FROM runs
-         WHERE court_id = ? AND scheduled_at >= datetime('now', 'localtime')
+         WHERE court_id = ? AND scheduled_at >= ? AND cancelled_at IS NULL
          ORDER BY scheduled_at ASC LIMIT 1`
       )
-      .get(c.court_id);
+      .get(c.court_id, appNowSql());
     return {
       courtId: c.court_id,
       courtName: c.nickname || `Court ${c.number}`,
@@ -2095,9 +2246,9 @@ function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
        FROM runs r
        JOIN courts c ON c.id = r.court_id
        JOIN parks p ON p.id = c.park_id
-       WHERE r.scheduled_at >= datetime('now', 'localtime') AND p.lat IS NOT NULL`
+       WHERE r.scheduled_at >= ? AND r.cancelled_at IS NULL AND p.lat IS NOT NULL`
     )
-    .all();
+    .all(appNowSql());
   const rsvpCount = db.prepare('SELECT COUNT(*) AS c FROM run_rsvps WHERE run_id = ?');
 
   const runs = candidates
@@ -2232,4 +2383,10 @@ module.exports = {
   getPlayerIdByTag,
   getTrackingCheck,
   TRACKED_EVENTS,
+  runTimeDefaults,
+  checkRunTimeFields,
+  changeRunTime,
+  cancelRun,
+  getCancelledRunsForPlayer,
+  appNowSql,
 };

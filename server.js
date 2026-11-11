@@ -78,6 +78,11 @@ const {
   getFunnel,
   getPlayerIdByTag,
   getTrackingCheck,
+  runTimeDefaults,
+  checkRunTimeFields,
+  changeRunTime,
+  cancelRun,
+  getCancelledRunsForPlayer,
 } = require('./db/queries');
 const { DATA_DIR, writeBackup } = require('./db/index');
 const { geocodeAddress, fillMissingParkLocations, startBackgroundGeocoding } = require('./db/geocode');
@@ -453,6 +458,7 @@ app.get('/runs', requireAuth, (req, res) => {
     profile,
     followedCourts: getFollowedCourtsForPlayer(profile.player_id, season.startSql),
     suggestedParks: getSuggestedParks(season.startSql, profile.player_id),
+    cancelledRuns: getCancelledRunsForPlayer(profile.player_id),
     formatRunTime,
   });
 });
@@ -489,6 +495,7 @@ app.get('/runs/new', requireAuth, (req, res) => {
     osmLat: req.query.lat || '',
     osmLng: req.query.lng || '',
     error: req.query.error || null,
+    ...runTimeDefaults(),
   });
 });
 
@@ -505,9 +512,9 @@ app.post('/runs', requireAuth, (req, res) => {
   }
   if (!courtId) return res.redirect('/runs');
 
-  const scheduledAt = parseScheduledAt(req.body.scheduledAt);
-  if (!scheduledAt) {
-    const back = `/runs/new?courtId=${courtId}&error=${encodeURIComponent('Pick a date and time.')}`;
+  const timeCheck = checkRunTimeFields(req.body.scheduledDate, req.body.scheduledTime);
+  if (timeCheck.error) {
+    const back = `/runs/new?courtId=${courtId}&error=${encodeURIComponent(timeCheck.error)}`;
     return res.redirect(back);
   }
   if (!FORMATS.includes(req.body.format)) {
@@ -515,7 +522,7 @@ app.post('/runs', requireAuth, (req, res) => {
     return res.redirect(back);
   }
 
-  const runId = createRun(courtId, profile.player_id, scheduledAt, req.body.note, req.body.format);
+  const runId = createRun(courtId, profile.player_id, timeCheck.scheduledAt, req.body.note, req.body.format);
   logEvent(profile.player_id, 'start_a_run', pagePathFromReferer(req, '/runs/new'));
   res.redirect(`/runs/${runId}`);
 });
@@ -527,7 +534,35 @@ app.get('/runs/:id', (req, res) => {
   const profile = req.session.userId ? getPlayerProfile(req.session.userId) : null;
   const run = getRunById(Number(req.params.id), profile ? profile.player_id : null);
   if (!run) return res.redirect('/runs');
-  res.render('run', { active: 'runs', run, profile, formatRunTime });
+  res.render('run', {
+    active: 'runs',
+    run,
+    profile,
+    isOrganizer: !!profile && run.organizerPlayerId === profile.player_id,
+    error: req.query.error || null,
+    ...runTimeDefaults(),
+    formatRunTime,
+  });
+});
+
+// The organizer changes the time. Refused once a game at the court has started.
+app.post('/runs/:id/edit', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const runId = Number(req.params.id);
+  const timeCheck = checkRunTimeFields(req.body.scheduledDate, req.body.scheduledTime);
+  if (timeCheck.error) return res.redirect(`/runs/${runId}?error=${encodeURIComponent(timeCheck.error)}`);
+  const result = changeRunTime(runId, profile.player_id, timeCheck.scheduledAt);
+  if (!result.ok) return res.redirect(`/runs/${runId}?error=${encodeURIComponent(result.error)}`);
+  res.redirect(`/runs/${runId}`);
+});
+
+// The organizer cancels the run. Refused once a game at the court has started.
+app.post('/runs/:id/cancel', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const runId = Number(req.params.id);
+  const result = cancelRun(runId, profile.player_id);
+  if (!result.ok) return res.redirect(`/runs/${runId}?error=${encodeURIComponent(result.error)}`);
+  res.redirect(`/runs/${runId}`);
 });
 
 app.post('/runs/:id/coming', requireAuth, (req, res) => {
