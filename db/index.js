@@ -393,6 +393,14 @@ function ensureKingOfTheCourtTables() {
         closed_at     TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS format_trophies (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_id   INTEGER NOT NULL REFERENCES players(id),
+        format      TEXT NOT NULL,
+        earned_at   TEXT NOT NULL DEFAULT (datetime('now')),
+        points      REAL NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS player_active_days (
         player_id  INTEGER NOT NULL REFERENCES players(id),
         day        TEXT NOT NULL,
@@ -429,6 +437,14 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('parks', 'city', 'TEXT');
   addColumnIfMissing('parks', 'cover_photo_id', 'INTEGER REFERENCES park_photos(id)');
   addColumnIfMissing('tiers', 'trophies_to_promote', 'INTEGER');
+  // Game formats (1v1..5v5). NULL = legacy, from before formats existed:
+  // no label, and it keeps the old rules (any two squads start a game).
+  addColumnIfMissing('courts', 'format', 'TEXT');
+  addColumnIfMissing('live_games', 'format', 'TEXT');
+  addColumnIfMissing('runs', 'format', 'TEXT');
+  addColumnIfMissing('game_results', 'format', 'TEXT');
+  // A squad's captain confirms the roster; any roster or captain change clears it.
+  addColumnIfMissing('next_line', 'confirmed', 'INTEGER NOT NULL DEFAULT 0');
   db.exec('CREATE INDEX IF NOT EXISTS idx_parks_osm_id ON parks(osm_id)');
 
   // Rookie -> Starter is now "10 paid games OR trophies", not "5 wins or

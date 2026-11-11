@@ -37,6 +37,17 @@
       <input type="datetime-local" id="scheduledAt" name="scheduledAt" required>
     </div>
     <div class="form-group">
+      <label>Game format</label>
+      <div class="format-picker">
+        <% formats.forEach((f) => { %>
+          <label class="format-option">
+            <input type="radio" name="format" value="<%= f %>" <%= f === defaultFormat ? 'checked' : '' %>>
+            <span><%= f %></span>
+          </label>
+        <% }); %>
+      </div>
+    </div>
+    <div class="form-group">
       <label for="note">Note (optional)</label>
       <input type="text" id="note" name="note" maxlength="140" placeholder="Bring a ball, runs to 16">
     </div>

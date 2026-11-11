@@ -72,6 +72,9 @@
         <div class="park-link-body">
           <div class="park-link-name"><%- include('partials/park-name', { name: park.name, city: park.city }) %></div>
           <div class="park-link-location"><%= park.location %></div>
+          <% park.courts.forEach((court) => { %>
+            <div class="court-format-line"><%= court.name %> &middot; <%= court.label %></div>
+          <% }); %>
         </div>
       </a>
     <% }); %>

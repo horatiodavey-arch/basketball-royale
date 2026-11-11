@@ -17,14 +17,20 @@
     <div class="empty-board">No parks yet. Record a game to get things started.</div>
   <% } else { %>
     <div class="board-controls">
-      <select class="park-select" onchange="location.href = '/board?scope=<%= scope %>&park=' + this.value;">
+      <select class="park-select" onchange="location.href = '/board?scope=<%= scope %>&park=' + this.value + '<%= format ? '&format=' + format : '' %>';">
         <% parks.forEach((park) => { %>
           <option value="<%= park.id %>" <%= park.id === selectedPark.id ? 'selected' : '' %>><%= park.name %><% if (park.city) { %> &middot; <%= park.city %><% } %></option>
         <% }); %>
       </select>
       <div class="tabs">
-        <a class="tab <%= scope === 'court' ? 'active' : '' %>" href="/board?scope=court&park=<%= selectedPark.id %>">Court</a>
-        <a class="tab <%= scope === 'city' ? 'active' : '' %>" href="/board?scope=city&park=<%= selectedPark.id %>">City</a>
+        <a class="tab <%= scope === 'court' ? 'active' : '' %>" href="/board?scope=court&park=<%= selectedPark.id %><%= format ? '&format=' + format : '' %>">Court</a>
+        <a class="tab <%= scope === 'city' ? 'active' : '' %>" href="/board?scope=city&park=<%= selectedPark.id %><%= format ? '&format=' + format : '' %>">City</a>
+      </div>
+      <div class="tabs format-tabs">
+        <a class="tab <%= !format ? 'active' : '' %>" href="/board?scope=<%= scope %>&park=<%= selectedPark.id %>">All</a>
+        <% formats.forEach((f) => { %>
+          <a class="tab <%= format === f ? 'active' : '' %>" href="/board?scope=<%= scope %>&park=<%= selectedPark.id %>&format=<%= f %>"><%= f %></a>
+        <% }); %>
       </div>
     </div>
 

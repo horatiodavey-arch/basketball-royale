@@ -150,7 +150,7 @@
       <% } %>
     </div>
   <% } else { %>
-    <div class="live-card live-card-idle">Court is open &mdash; next two squads in line will start the next game.</div>
+    <div class="live-card live-card-idle"><%= formatLabel %> &mdash; the next two confirmed squads in line start the next game.</div>
   <% } %>
 
   <div class="section">Next up on <%= court.nickname || ('Court ' + court.number) %></div>
@@ -162,7 +162,7 @@
       <div class="queue-rank"><%= i + 1 %></div>
       <div class="queue-main">
         <div class="queue-names"><%= squad.roster.map((p) => p.name).join(', ') %></div>
-        <div class="queue-count"><%= squad.count %> of 5 picked<% if (squad.ready) { %> &middot; <span class="queue-ready">Ready</span><% } %></div>
+        <div class="queue-count"><%= squad.count %> of <%= squad.size || 5 %> picked<% if (squad.ready) { %> &middot; <span class="queue-ready">Ready</span><% } %><% if (squad.size && squad.confirmed) { %> &middot; Roster confirmed<% } %></div>
       </div>
     </div>
   <% }); %>
@@ -172,21 +172,42 @@
   <% } else if (!checkedIn) { %>
     <div class="next-action-note">Check in at this park to get in line.</div>
   <% } else if (viewerSquad) { %>
-    <% if (viewerIsCaptain && viewerSquad.count < 5) { %>
-      <form method="POST" action="/next_line/<%= viewerSquad.id %>/members" class="pick-form">
-        <div class="pick-form-title">Pick from who's here</div>
-        <% const squadIds = new Set(viewerSquad.roster.map((p) => p.id)); %>
-        <% availablePlayers.forEach((p) => { %>
-          <label class="player-check">
-            <input type="checkbox" name="playerIds" value="<%= p.id %>">
-            <%= p.name %>
-          </label>
-        <% }); %>
-        <% if (availablePlayers.length === 0) { %><div class="next-action-note">Nobody else checked in right now.</div><% } %>
-        <button type="submit" class="submit-btn">Add to squad</button>
-      </form>
+    <% const squadSize = viewerSquad.size || 5; %>
+    <% if (viewerIsCaptain) { %>
+      <div class="pick-form-title">Your squad &mdash; you're captain</div>
+      <% viewerSquad.roster.filter((p) => !p.isCaptain).forEach((p) => { %>
+        <div class="inline-form">
+          <span><%= p.name %></span>
+          <form method="POST" action="/next_line/<%= viewerSquad.id %>/captain">
+            <input type="hidden" name="playerId" value="<%= p.id %>">
+            <button type="submit" class="tiny-btn">Make captain</button>
+          </form>
+          <form method="POST" action="/next_line/<%= viewerSquad.id %>/remove">
+            <input type="hidden" name="playerId" value="<%= p.id %>">
+            <button type="submit" class="tiny-btn">Remove</button>
+          </form>
+        </div>
+      <% }); %>
+      <% if (viewerSquad.count < squadSize) { %>
+        <form method="POST" action="/next_line/<%= viewerSquad.id %>/members" class="pick-form">
+          <div class="pick-form-title">Pick from who's here</div>
+          <% availablePlayers.forEach((p) => { %>
+            <label class="player-check">
+              <input type="checkbox" name="playerIds" value="<%= p.id %>">
+              <%= p.name %>
+            </label>
+          <% }); %>
+          <% if (availablePlayers.length === 0) { %><div class="next-action-note">Nobody else checked in right now.</div><% } %>
+          <button type="submit" class="submit-btn">Add to squad</button>
+        </form>
+      <% } %>
+      <% if (viewerSquad.size && !viewerSquad.confirmed) { %>
+        <form method="POST" action="/next_line/<%= viewerSquad.id %>/confirm" style="margin-top: 10px;">
+          <button type="submit" class="submit-btn" <%= viewerSquad.count === squadSize ? '' : 'disabled' %>>Confirm roster (<%= viewerSquad.count %> of <%= squadSize %>)</button>
+        </form>
+      <% } %>
     <% } else { %>
-      <div class="next-action-note">You're in line &mdash; <%= viewerSquad.count %> of 5 picked<% if (viewerSquad.ready) { %> &middot; Ready<% } %>.</div>
+      <div class="next-action-note">You're in line &mdash; <%= viewerSquad.count %> of <%= squadSize %> picked<% if (viewerSquad.locked) { %> &middot; Ready to play<% } else if (viewerSquad.size && !viewerSquad.confirmed) { %> &middot; waiting for your captain to confirm<% } %>.</div>
     <% } %>
   <% } else { %>
     <form method="POST" action="/courts/<%= court.id %>/next">

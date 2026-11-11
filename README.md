@@ -166,6 +166,33 @@ never hides the Check in button as "too far"). Every Organizer tab shows a
 "My location" line with your latitude, longitude, and accuracy, for telling a
 misplaced pin apart from a weak signal.
 
+## Game formats, captains, and per-format crowns
+
+**Formats.** Creating a run means picking a format: 1v1, 2v2, 3v3, 4v4 or
+5v5. It's stored on the run and becomes the court's format (`courts.format`),
+so Runs shows e.g. "Main · 4v4 · Court is open". A court with no format
+(`NULL`, all courts before this change) shows no label and keeps the old
+rules: any two squads start a game, up to 5 a side.
+
+**Rosters and captains.** A squad fills to exactly the format's size. Its
+captain is whoever tapped "I got next", and the captain alone adds,
+removes, confirms, or hands the role to a teammate (any roster or captain
+change clears the confirmation). A game starts only when two squads are
+both full and confirmed (`next_line.confirmed`). Result entry is unchanged.
+
+**Crowns and trophies per format.** Each format keeps its own points (3 per
+win, 1 per game, court hours as the tiebreaker), with the same crown levels.
+Points restart every 30-day season, and again each time a player reaches
+purple in that format, which earns a trophy tagged with that format
+(`format_trophies`). Trophies never reset, and several in a month are
+possible. Only results recorded with a format count toward these; legacy
+results appear in the "All" board view only. The profile lists the crown and
+trophy count per format, and the leaderboard has a format filter.
+
+Migrations (additive, run on boot): `courts.format`, `live_games.format`,
+`runs.format`, `game_results.format`, `next_line.confirmed`, and the new
+`format_trophies` table. Nothing is dropped.
+
 ## Tiers and trophies
 
 The ladder is Rookie → Starter → Star → Superstar. Rookie → Starter is **10
