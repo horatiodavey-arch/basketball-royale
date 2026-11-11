@@ -75,7 +75,20 @@
       <% }); %>
     </div>
     <% if (section.note) { %><div class="season-note"><%= section.note %></div><% } %>
-    <% section.tables.forEach((key) => { const table = dashboard.tables[key]; %>
+    <% (section.charts || []).forEach((chart) => { const max = Math.max(1, ...chart.values); const slot = 24; %>
+      <div class="admin-table-head"><span class="admin-table-title"><%= chart.title %></span></div>
+      <% if (chart.values.length === 0) { %>
+        <div class="next-action-note">Nothing in this range yet.</div>
+      <% } else { %>
+        <svg class="admin-chart" viewBox="0 0 <%= chart.values.length * slot %> 100" preserveAspectRatio="none" role="img" aria-label="<%= chart.title %>">
+          <% chart.values.forEach((v, i) => { const h = Math.round((v / max) * 92); %>
+            <rect x="<%= i * slot + 3 %>" y="<%= 100 - h %>" width="<%= slot - 6 %>" height="<%= h %>" rx="3"><title><%= chart.labels[i] %>: <%= v %></title></rect>
+          <% }); %>
+        </svg>
+        <div class="admin-chart-axis"><span><%= chart.labels[0] %></span><span><%= chart.labels[chart.labels.length - 1] %></span></div>
+      <% } %>
+    <% }); %>
+    <% (section.tables || []).forEach((key) => { const table = dashboard.tables[key]; %>
       <div class="admin-table-head">
         <span class="admin-table-title"><%= table.title %></span>
         <a class="tiny-btn" href="/admin/export/<%= key %>?range=<%= dashboard.range %>">Export CSV</a>
