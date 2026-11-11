@@ -101,33 +101,43 @@
         </div>
       </div>
 
+      <% if (liveGame.result_note) { %>
+        <div class="winners-note"><%= liveGame.result_note %></div>
+      <% } %>
       <% if (liveGame.status === 'in_progress') { %>
         <div class="winners-note">Winners stay on</div>
-        <% if (liveGame.viewerCaptainTeam) { %>
-          <div class="declare-row">
-            <form method="POST" action="/live_games/<%= liveGame.id %>/declare">
-              <input type="hidden" name="team" value="a">
-              <button type="submit" class="small-btn">Team A won</button>
-            </form>
-            <form method="POST" action="/live_games/<%= liveGame.id %>/declare">
-              <input type="hidden" name="team" value="b">
-              <button type="submit" class="small-btn">Team B won</button>
-            </form>
-          </div>
+        <% if (liveGame.viewerTeam) { %>
+          <form method="POST" action="/live_games/<%= liveGame.id %>/declare">
+            <button type="submit" class="small-btn">Our team won</button>
+          </form>
         <% } %>
       <% } else if (liveGame.status === 'awaiting_confirmation') { %>
         <% const declaringTeam = liveGame.team_a_won ? 'a' : 'b'; %>
-        <div class="winners-note">Team <%= declaringTeam === 'a' ? 'A' : 'B' %> says they won</div>
-        <% if (liveGame.viewerCaptainTeam && liveGame.viewerCaptainTeam !== declaringTeam) { %>
-          <form method="POST" action="/live_games/<%= liveGame.id %>/confirm">
-            <button type="submit" class="small-btn small-btn-accent">Confirm Team <%= declaringTeam === 'a' ? 'A' : 'B' %> won</button>
-          </form>
-        <% } else if (liveGame.viewerCaptainTeam) { %>
-          <div class="winners-note">Waiting on the other captain to confirm.</div>
+        <div class="winners-note">Team <%= declaringTeam === 'a' ? 'A' : 'B' %> says they won. Confirm within 20 minutes or it's voided.</div>
+        <% if (liveGame.viewerTeam && liveGame.viewerTeam !== declaringTeam) { %>
+          <div class="declare-row">
+            <form method="POST" action="/live_games/<%= liveGame.id %>/confirm">
+              <button type="submit" class="small-btn small-btn-accent">Confirm</button>
+            </form>
+            <form method="POST" action="/live_games/<%= liveGame.id %>/dispute">
+              <button type="submit" class="small-btn">Dispute</button>
+            </form>
+          </div>
+        <% } else if (liveGame.viewerTeam) { %>
+          <div class="winners-note">Waiting on the other team to confirm.</div>
         <% } %>
       <% } %>
 
-      <% if (liveGame.viewerCaptainTeam) { %>
+      <% if (liveGame.edits.length > 0) { %>
+        <details class="captain-tools">
+          <summary>Roster changes (<%= liveGame.edits.length %>)</summary>
+          <% liveGame.edits.forEach((e) => { %>
+            <div class="inline-form"><span><%= e.name %> <%= e.action === 'added' ? 'added to' : (e.action === 'left' ? 'left' : 'removed from') %> Team <%= e.team === 'a' ? 'A' : 'B' %> &middot; by <%= e.byName %></span></div>
+          <% }); %>
+        </details>
+      <% } %>
+
+      <% if (liveGame.viewerCaptainTeam && liveGame.status !== 'done') { %>
         <details class="captain-tools">
           <summary>Captain tools</summary>
           <% [...liveGame.teamA, ...liveGame.teamB].filter((p) => p.team === liveGame.viewerCaptainTeam).forEach((p) => { %>

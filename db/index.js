@@ -126,6 +126,14 @@ function removeDemoData() {
   }
 }
 
+// A 4-digit tag no other account has.
+function newUniqueTag() {
+  for (;;) {
+    const tag = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+    if (!db.prepare('SELECT 1 FROM users WHERE tag = ?').get(tag)) return tag;
+  }
+}
+
 function getMeta(key) {
   const row = db.prepare('SELECT value FROM app_meta WHERE key = ?').get(key);
   return row ? row.value : null;
@@ -393,6 +401,16 @@ function ensureKingOfTheCourtTables() {
         closed_at     TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS roster_edits (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        live_game_id  INTEGER NOT NULL REFERENCES live_games(id),
+        team          TEXT NOT NULL,
+        player_id     INTEGER NOT NULL REFERENCES players(id),
+        action        TEXT NOT NULL,
+        by_player_id  INTEGER NOT NULL REFERENCES players(id),
+        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS format_trophies (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         player_id   INTEGER NOT NULL REFERENCES players(id),
@@ -445,6 +463,19 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('game_results', 'format', 'TEXT');
   // A squad's captain confirms the roster; any roster or captain change clears it.
   addColumnIfMissing('next_line', 'confirmed', 'INTEGER NOT NULL DEFAULT 0');
+  // A result waiting on the other team: when it was submitted, by whom, and
+  // a note explaining why it was voided, if it was.
+  addColumnIfMissing('live_games', 'result_submitted_at', 'TEXT');
+  addColumnIfMissing('live_games', 'result_submitted_by', 'INTEGER');
+  addColumnIfMissing('live_games', 'result_note', 'TEXT');
+
+  // Every account gets a unique 4-digit tag shown after its display name.
+  // Existing accounts are backfilled here, once, then the index enforces it.
+  addColumnIfMissing('users', 'tag', 'TEXT');
+  for (const user of db.prepare('SELECT id FROM users WHERE tag IS NULL').all()) {
+    db.prepare('UPDATE users SET tag = ? WHERE id = ?').run(newUniqueTag(), user.id);
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tag ON users(tag)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_parks_osm_id ON parks(osm_id)');
 
   // Rookie -> Starter is now "10 paid games OR trophies", not "5 wins or
@@ -691,4 +722,4 @@ function seedKingOfTheCourtDemoData() {
   playGame(sacId, sacCourtOneId, [C, M], [T, J], 60);
 }
 
-module.exports = { db, formingGameFor, lastId, DATA_DIR, cityFromAddress, runOnce };
+module.exports = { db, formingGameFor, lastId, DATA_DIR, cityFromAddress, runOnce, newUniqueTag };

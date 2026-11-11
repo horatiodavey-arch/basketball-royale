@@ -193,6 +193,34 @@ Migrations (additive, run on boot): `courts.format`, `live_games.format`,
 `runs.format`, `game_results.format`, `next_line.confirmed`, and the new
 `format_trophies` table. Nothing is dropped.
 
+## Result entry, roster edits, and names
+
+**Who can act on a game.** Only players on a game's active roster (not
+subbed off) can submit or confirm a result, so a checked-in player who isn't
+on the roster can't. A rostered player on either team submits "Our team
+won". The other team confirms or disputes. No score is entered.
+
+**Timing.** The other team has 20 minutes to answer. If nobody answers, the
+result is voided automatically, and so is a disputed result. A result locks
+only when both teams agree, and then the game is saved.
+
+**Roster edits.** A captain can change only their own team's roster
+(mark a player left, or add a sub), during play or while a result is
+pending, but never after the result locks. Any change voids a pending
+result, so the other team has to look at the roster again before confirming.
+Every change is logged in `roster_edits` (who, what, which team, when) and
+shown on the court screen.
+
+**Names.** Every account has a unique 4-digit tag shown after its name (e.g.
+"Big Sniper #4821"), assigned at signup and backfilled for existing accounts.
+Players can change their display name on their own profile. The tag, phone
+login, stats, crowns and trophies stay with the account. Names that match
+Rookie, Starter, Star or Superstar (any case or spacing) are reserved.
+
+Migrations (additive, run on boot): `users.tag` with a unique index
+(backfilled once), `live_games.result_submitted_at`, `result_submitted_by`
+and `result_note`, and the `roster_edits` table. Nothing is dropped.
+
 ## Tiers and trophies
 
 The ladder is Rookie → Starter → Star → Superstar. Rookie → Starter is **10
