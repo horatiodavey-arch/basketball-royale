@@ -1,0 +1,21 @@
+<%# Date and time for a run. Native pickers, so each phone shows its own 12- or 24-hour clock. %>
+<div class="form-group">
+  <label for="<%= prefix %>Date">Date</label>
+  <input type="date" id="<%= prefix %>Date" name="scheduledDate" value="<%= date %>" min="<%= todayDate %>" required>
+</div>
+<div class="form-group">
+  <label for="<%= prefix %>Time">Time</label>
+  <input type="time" id="<%= prefix %>Time" name="scheduledTime" value="<%= time %>" step="900" required>
+</div>
+<script>
+  (function () {
+    var date = document.getElementById('<%= prefix %>Date');
+    var time = document.getElementById('<%= prefix %>Time');
+    // Today, no earlier times than now (rounded up to the next quarter hour).
+    function sync() {
+      time.min = date.value === '<%= todayDate %>' ? '<%= nowTime %>' : '';
+    }
+    date.addEventListener('change', sync);
+    sync();
+  })();
+</script>
