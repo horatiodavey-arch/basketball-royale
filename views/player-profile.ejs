@@ -32,6 +32,26 @@
       <% if (nameError) { %><div class="error-msg" style="margin-top: 8px;"><%= nameError %></div><% } %>
     </form>
   <% } %>
+  <% if (isSelf && inviteTag) { %>
+    <button type="button" id="inviteHooperBtn" class="small-btn" style="margin-bottom: 14px;">Invite a hooper</button>
+    <script src="/track.js"></script>
+    <script>
+      (function () {
+        var link = '/?ref=<%= inviteTag %>';
+        document.getElementById('inviteHooperBtn').addEventListener('click', function () {
+          var url = window.location.origin + link;
+          RoyaleTrack.report('invite_friends');
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(url).then(function () {
+              alert('Invite link copied to clipboard');
+            }, function () { alert(url); });
+          } else {
+            alert(url);
+          }
+        });
+      })();
+    </script>
+  <% } %>
   <div class="profile-crown-card">
     <%- include('partials/crown-icon', { size: 30, fill: crown ? crown.fill : 'none', stroke: crown ? crown.stroke : 'var(--muted)' }) %>
     <div class="profile-crown-main">

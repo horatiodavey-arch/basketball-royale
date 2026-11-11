@@ -25,13 +25,26 @@ function displayNameError(name) {
   return null;
 }
 
-function createUserAndPlayer(name, phone) {
-  const insertUser = db.prepare('INSERT INTO users (name, phone, tag) VALUES (?, ?, ?)');
-  insertUser.run(name, phone, newUniqueTag());
+// The player id behind an invite tag (e.g. the 4821 in ?ref=4821), or null.
+function getPlayerIdByTag(tag) {
+  const row = db
+    .prepare('SELECT p.id FROM players p JOIN users u ON u.id = p.user_id WHERE u.tag = ?')
+    .get(String(tag));
+  return row ? row.id : null;
+}
+
+// source: where the link came from (?src=), defaulting to 'direct'.
+// referrerPlayerId: who invited them (?ref=), or null.
+function createUserAndPlayer(name, phone, { source = 'direct', referrerPlayerId = null } = {}) {
+  const insertUser = db.prepare(
+    'INSERT INTO users (name, phone, tag, source, referred_by_player_id) VALUES (?, ?, ?, ?, ?)'
+  );
+  insertUser.run(name, phone, newUniqueTag(), source || 'direct', referrerPlayerId);
   const userId = db.prepare('SELECT last_insert_rowid() AS id').get().id;
 
   db.prepare('INSERT INTO players (user_id) VALUES (?)').run(userId);
   const playerId = db.prepare('SELECT last_insert_rowid() AS id').get().id;
+  recordMilestone(playerId, 'signup');
 
   return { userId, playerId };
 }
@@ -40,7 +53,7 @@ function createUserAndPlayer(name, phone) {
 function getPlayerProfile(userId) {
   return db
     .prepare(
-      `SELECT u.id AS user_id, u.name AS base_name, ${DISPLAY_NAME} AS name, u.phone,
+      `SELECT u.id AS user_id, u.name AS base_name, ${DISPLAY_NAME} AS name, u.phone, u.tag,
               p.id AS player_id, p.tier, p.wins, p.losses, p.games_played,
               p.is_organizer,
               t.rank AS tier_rank, t.wins_to_promote, t.games_to_promote,
@@ -1264,6 +1277,7 @@ function confirmResult(liveGameId, actorPlayerId) {
 
   const column = team === 'a' ? 'confirmed_a' : 'confirmed_b';
   db.prepare(`UPDATE live_games SET ${column} = 1 WHERE id = ?`).run(liveGameId);
+  logEvent(actorPlayerId, 'result_confirmed', null, game.park_id);
 
   const updated = db.prepare('SELECT * FROM live_games WHERE id = ?').get(liveGameId);
   if (updated.confirmed_a && updated.confirmed_b) {
@@ -1324,6 +1338,7 @@ function lockResult(game) {
   const gameId = nextGameId();
   for (const [playerId, info] of byPlayer) {
     applyGameResult(gameId, game.park_id, game.court_id, playerId, info.team === winningTeam ? 'win' : 'loss', Math.max(info.minutes, 0), game.format);
+    recordMilestone(playerId, 'first_game');
   }
   if (game.format) awardFormatTrophies([...byPlayer.keys()], game.format);
 
@@ -1490,6 +1505,21 @@ function getAllCourtsTimerStatus() {
 // Click tracking — one row per tracked tap. Logged regardless of whether
 // the underlying action (e.g. a check-in outside the radius) succeeds,
 // since this measures taps, not outcomes.
+// The first time a player does one of these, it also marks a funnel milestone.
+const MILESTONE_BY_EVENT = {
+  app_open: 'first_open',
+  check_in: 'first_checkin',
+  result_confirmed: 'first_result_confirmed',
+};
+
+// Written once per player per milestone; later calls change nothing.
+function recordMilestone(playerId, milestone) {
+  db.prepare('INSERT OR IGNORE INTO player_milestones (player_id, milestone) VALUES (?, ?)').run(
+    playerId,
+    milestone
+  );
+}
+
 function logEvent(playerId, eventName, page, parkId = null) {
   db.prepare('INSERT INTO events (player_id, event_name, page, park_id) VALUES (?, ?, ?, ?)').run(
     playerId,
@@ -1497,9 +1527,11 @@ function logEvent(playerId, eventName, page, parkId = null) {
     page || null,
     parkId
   );
+  if (MILESTONE_BY_EVENT[eventName]) recordMilestone(playerId, MILESTONE_BY_EVENT[eventName]);
 }
 
 const TRACKED_EVENTS = [
+  { name: 'app_open', label: 'App open (once a day)' },
   { name: 'check_in', label: 'Check in' },
   { name: 'i_got_next', label: 'I got next' },
   { name: 'start_a_run', label: 'Start a run' },
@@ -1509,8 +1541,12 @@ const TRACKED_EVENTS = [
   { name: 'suggest_court', label: 'Suggest a court' },
   { name: 'add_park_photo', label: 'Add a park photo' },
   { name: 'view_lobbies', label: 'View lobbies' },
-  { name: 'how_it_works', label: 'How it works' },
+  { name: 'lobby_join_try', label: 'Try to join a lobby (paid)' },
+  { name: 'result_confirmed', label: 'Confirm a result' },
+  { name: 'leaderboard_view', label: 'View leaderboard' },
   { name: 'leaderboard_player_tap', label: 'Tapped a player (leaderboard)' },
+  { name: 'profile_view', label: 'View a profile' },
+  { name: 'how_it_works', label: 'How it works' },
 ];
 
 // Events a page reports itself (POST /api/events) because the tap never
@@ -1601,6 +1637,31 @@ runOnce('active_days_backfill', () => {
 // Each step counts only players who also made the step before it, so the
 // numbers can only go down — which also keeps the seeded demo players
 // (who have games on record but never checked in) out of "played a game".
+// The tracking check on /admin: how many players, how many reached each
+// funnel milestone, and every tracked event's totals.
+const MILESTONE_LABELS = [
+  ['first_open', 'Opened the app'],
+  ['signup', 'Signed up'],
+  ['first_checkin', 'First check-in'],
+  ['first_game', 'First game played'],
+  ['first_result_confirmed', 'First result confirmed'],
+];
+
+function getTrackingCheck() {
+  const totalPlayers = db.prepare('SELECT COUNT(*) AS n FROM players').get().n;
+  const milestones = MILESTONE_LABELS.map(([key, label]) => ({
+    label,
+    players: db.prepare('SELECT COUNT(*) AS n FROM player_milestones WHERE milestone = ?').get(key).n,
+  }));
+  const bySource = db
+    .prepare(
+      `SELECT COALESCE(source, 'direct') AS source, COUNT(*) AS players
+       FROM users GROUP BY COALESCE(source, 'direct') ORDER BY players DESC`
+    )
+    .all();
+  return { totalPlayers, milestones, bySource, events: getEventStats() };
+}
+
 function getFunnel() {
   const count = (sql) => db.prepare(sql).get().n;
   const counts = [
@@ -2158,4 +2219,6 @@ module.exports = {
   CLIENT_REPORTED_EVENTS,
   recordActiveDay,
   getFunnel,
+  getPlayerIdByTag,
+  getTrackingCheck,
 };
