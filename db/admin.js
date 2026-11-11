@@ -5,6 +5,7 @@ const { db } = require('./index');
 const { formatAggregate, FORMATS, CROWN_LEVELS, getCrownLevel, getSeasonWindow } = require('./queries');
 
 const { buildRetention, parseSql, toSql, weekOf, addWeeks, pct, TZ, DAY } = require('./retention');
+const { buildPartThree } = require('./engagement');
 
 const hourFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' });
 const weekdayFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' });
@@ -19,7 +20,7 @@ function resolveRange(range) {
 }
 
 // Everything the dashboard shows, computed for one date range.
-function buildDashboard(range) {
+function buildDashboard(range, event) {
   const { key, since, sinceWeek } = resolveRange(range);
   const now = new Date();
   const thisWeek = weekOf(now);
@@ -198,12 +199,16 @@ function buildDashboard(range) {
 
   const newSignups = signupsInRange.length;
 
+  const part3 = buildPartThree({ since, weeks: shownWeeks, now, event });
+
   return {
     range: key,
+    event: part3.lookup.eventPicker.selected,
     rangeLabel: key === 'all' ? 'All time' : `Last ${key} days`,
     generatedAt: toSql(now),
     tables: {
       ...retention.tables,
+      ...part3.tables,
       'signups-weekly': {
         title: 'New signups per week',
         headers: ['Week of', 'New signups'],
@@ -287,9 +292,12 @@ function buildDashboard(range) {
         big: [
           { label: 'New signups', value: newSignups },
           { label: 'Players in total', value: signupRows.length },
+          ...part3.growthBig,
         ],
-        tables: ['signups-weekly', 'signups-park'],
+        tables: ['signups-weekly', 'signups-park', ...part3.growthTables],
       },
+      part3.engagement,
+      part3.parks,
       {
         title: 'Activity',
         big: [
@@ -304,6 +312,7 @@ function buildDashboard(range) {
         big: [
           { label: 'Trophies earned', value: [...trophiesByFormat.values()].reduce((a, b) => a + b, 0) + seasonTrophies },
           { label: 'Players with a crown this season', value: crownRows.reduce((n, r) => n + Object.values(r.byFormat).reduce((a, b) => a + b, 0), 0) },
+          ...part3.competitionBig,
         ],
         tables: ['crowns-level', 'trophies', 'top-players'],
         note: 'Crowns are this season only. Trophies and top players follow the chosen date range.',
@@ -326,6 +335,7 @@ function buildDashboard(range) {
         ],
         tables: ['curiosity-lobbies', 'curiosity-suggestions'],
       },
+      part3.lookup,
     ],
   };
 }

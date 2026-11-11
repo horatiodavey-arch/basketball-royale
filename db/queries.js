@@ -2231,4 +2231,5 @@ module.exports = {
   getFunnel,
   getPlayerIdByTag,
   getTrackingCheck,
+  TRACKED_EVENTS,
 };

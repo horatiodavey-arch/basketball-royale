@@ -922,7 +922,7 @@ app.post('/admin/logout', (req, res) => {
 });
 
 app.get('/admin', requireAdmin, (req, res) => {
-  const dashboard = buildDashboard(req.query.range);
+  const dashboard = buildDashboard(req.query.range, req.query.event);
   res.render('admin-dashboard', { dashboard, tracking: getTrackingCheck(), active: '' });
 });
 
@@ -954,7 +954,7 @@ function csvCell(value) {
 }
 
 app.get('/admin/export/:table', requireAdmin, (req, res) => {
-  const dashboard = buildDashboard(req.query.range);
+  const dashboard = buildDashboard(req.query.range, req.query.event);
   const table = dashboard.tables[req.params.table];
   if (!table) return res.status(404).send('Unknown table.');
   const lines = [table.headers, ...table.rows].map((row) => row.map(csvCell).join(','));
