@@ -744,3 +744,21 @@ a.royale-brand { color: inherit; text-decoration: none; }
 }
 .format-name { font-weight: 700; min-width: 34px; }
 .format-trophies { margin-left: auto; font-size: 12px; color: var(--text2); }
+
+/* Owner dashboard (/admin) — read-only, built to read on a phone */
+.range-tabs { display: flex; gap: 6px; background: var(--kotc-gray); border-radius: 999px; padding: 3px; margin-bottom: 8px; }
+.range-tab { flex: 1; text-align: center; padding: 8px 0; border-radius: 999px; font-size: 13px; font-weight: 700; text-decoration: none; color: var(--text2); }
+.range-tab.active { background: #FFFFFF; color: var(--accent); }
+.admin-section { margin-top: 26px; font-size: 15px; color: var(--text); }
+.admin-big { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-stat { flex: 1 1 120px; background: var(--kotc-gray); border-radius: 14px; padding: 14px 10px; text-align: center; }
+.admin-stat-value { font-size: 36px; line-height: 1; color: var(--accent); }
+.admin-stat-label { font-size: 12px; color: var(--text2); margin-top: 6px; }
+.admin-table-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 16px 0 6px; }
+.admin-table-title { font-size: 13px; font-weight: 700; }
+.admin-table-head .tiny-btn { flex: none; text-decoration: none; }
+.admin-table-wrap { overflow-x: auto; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table th { text-align: left; font-size: 11px; color: var(--text2); font-weight: 600; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+.admin-table td { padding: 7px 4px; border-bottom: 1px solid var(--bg); }
+.admin-table td:not(:first-child), .admin-table th:not(:first-child) { text-align: right; }

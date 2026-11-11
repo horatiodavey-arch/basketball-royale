@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin dashboard — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc">
+<div class="page admin-dashboard">
+  <div class="page-title heading">Admin</div>
+  <div class="page-sub"><%= dashboard.rangeLabel %> &middot; updated <%= dashboard.generatedAt %> UTC &middot; read-only</div>
+
+  <div class="range-tabs">
+    <% [['7', 'Last 7 days'], ['30', 'Last 30 days'], ['all', 'All time']].forEach(([key, label]) => { %>
+      <a class="range-tab <%= dashboard.range === key ? 'active' : '' %>" href="/admin?range=<%= key %>"><%= label %></a>
+    <% }); %>
+  </div>
+
+  <% dashboard.sections.forEach((section) => { %>
+    <div class="section admin-section"><%= section.title %></div>
+    <div class="admin-big">
+      <% section.big.forEach((stat) => { %>
+        <div class="admin-stat">
+          <div class="admin-stat-value heading"><%= stat.value %></div>
+          <div class="admin-stat-label"><%= stat.label %></div>
+        </div>
+      <% }); %>
+    </div>
+    <% if (section.note) { %><div class="season-note"><%= section.note %></div><% } %>
+    <% section.tables.forEach((key) => { const table = dashboard.tables[key]; %>
+      <div class="admin-table-head">
+        <span class="admin-table-title"><%= table.title %></span>
+        <a class="tiny-btn" href="/admin/export/<%= key %>?range=<%= dashboard.range %>">Export CSV</a>
+      </div>
+      <% if (table.rows.length === 0) { %>
+        <div class="next-action-note">Nothing in this range yet.</div>
+      <% } else { %>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead><tr><% table.headers.forEach((h) => { %><th><%= h %></th><% }); %></tr></thead>
+            <tbody>
+              <% table.rows.forEach((row) => { %>
+                <tr><% row.forEach((cell) => { %><td><%= cell %></td><% }); %></tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    <% }); %>
+  <% }); %>
+
+  <form method="POST" action="/admin/logout" style="margin-top: 24px;">
+    <button type="submit" class="small-btn">Log out</button>
+  </form>
+</div>
+</body>
+</html>

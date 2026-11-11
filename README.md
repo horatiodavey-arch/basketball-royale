@@ -221,6 +221,30 @@ Migrations (additive, run on boot): `users.tag` with a unique index
 (backfilled once), `live_games.result_submitted_at`, `result_submitted_by`
 and `result_note`, and the `roster_edits` table. Nothing is dropped.
 
+## Owner dashboard (/admin)
+
+A private, read-only dashboard for tracking usage and retention. It needs the
+`ADMIN_PASSWORD` environment variable (set it in Railway). With it unset,
+`/admin` returns 503 and nothing is reachable. The organizer tools keep their
+own URLs (`/admin/stats`, `/admin/timer`, `/admin/courts`).
+
+Sections, with a 7-day / 30-day / all-time range: **Growth** (signups per
+week, signups by the park where a player first checked in), **Retention**
+(weekly active players, new vs. returning, the week-over-week return rate, and
+a cohort table of who's still active in weeks 1–4), **Activity** (check-ins
+and games per park, games by format, busiest days and hours), **Competition**
+(crowns this season by level and format, trophies, top players by points),
+**Integrity** (results submitted, disputed and voided, locked results, roster
+edits after a game started), and **Curiosity** ("View lobbies" taps and
+"Suggest a court" submissions). Every table exports to CSV. Players appear
+by display name and tag; phone numbers are never shown.
+
+Activity counted for retention is a check-in or a played game. App opens
+(the first open of each day), result events and park tags on events are
+recorded from this change on, so older history shows zero for those.
+
+Migration (additive, run on boot): `events.park_id`. No tables are dropped.
+
 ## Tiers and trophies
 
 The ladder is Rookie → Starter → Star → Superstar. Rookie → Starter is **10

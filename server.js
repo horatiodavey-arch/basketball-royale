@@ -78,6 +78,7 @@ const {
 const { geocodeAddress, fillMissingParkLocations, startBackgroundGeocoding } = require('./db/geocode');
 const parkPhotos = require('./db/park-photos');
 const { getTrophies, getTierLadder } = require('./db/trophies');
+const { buildDashboard } = require('./db/admin');
 
 const app = express();
 
@@ -103,7 +104,8 @@ app.use(
 app.use((req, res, next) => {
   // The ROYALE header is on every page and shows "Crowns reset in N days".
   res.locals.season = getSeasonWindow();
-  if (req.session.userId) recordActiveDay(req.session.userId);
+  // Opening the owner's dashboard isn't player activity.
+  if (req.session.userId && !req.path.startsWith('/admin')) recordActiveDay(req.session.userId);
   next();
 });
 
@@ -498,7 +500,8 @@ app.get('/runs/:id', (req, res) => {
 
 app.post('/runs/:id/coming', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  logEvent(profile.player_id, 'im_coming', pagePathFromReferer(req, `/runs/${req.params.id}`));
+  const run = getRunById(Number(req.params.id), profile.player_id);
+  logEvent(profile.player_id, 'im_coming', pagePathFromReferer(req, `/runs/${req.params.id}`), run ? run.parkId : null);
   rsvpToRun(Number(req.params.id), profile.player_id);
   res.redirect(`/runs/${req.params.id}`);
 });
@@ -507,7 +510,10 @@ app.post('/courts/:courtId/follow', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   const result = toggleFollowCourt(profile.player_id, Number(req.params.courtId));
   // The same button unfollows; only the tap that follows is the event.
-  if (result.following) logEvent(profile.player_id, 'follow_court', pagePathFromReferer(req, '/runs'));
+  if (result.following) {
+    const court = getCourtById(Number(req.params.courtId));
+    logEvent(profile.player_id, 'follow_court', pagePathFromReferer(req, '/runs'), court ? court.park_id : null);
+  }
   res.redirect(req.get('Referer') || '/runs');
 });
 // For taps that never reach a route of their own (an Invite button only
@@ -567,7 +573,7 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
 
 app.post('/parks/:parkId/check-in', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  logEvent(profile.player_id, 'check_in', pagePathFromReferer(req, '/'));
+  logEvent(profile.player_id, 'check_in', pagePathFromReferer(req, '/'), Number(req.params.parkId));
   const { lat, lng, accuracy } = req.body;
   if (typeof lat !== 'number' || typeof lng !== 'number') {
     return res.status(400).json({ ok: false, error: 'Location not available.' });
@@ -712,7 +718,7 @@ function redirectWithResult(req, res, result, fallbackPath) {
 
 app.post('/courts/:courtId/next', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  logEvent(profile.player_id, 'i_got_next', pagePathFromReferer(req, '/runs'));
+  logEvent(profile.player_id, 'i_got_next', pagePathFromReferer(req, '/runs'), court.park_id);
   const court = getCourtById(req.params.courtId);
   const result = iGotNext(Number(req.params.courtId), profile.player_id);
   // Always lands on the court screen (not back to wherever the button was
@@ -823,8 +829,61 @@ app.get('/players/:id', requireAuth, (req, res) => {
   });
 });
 
-app.get('/admin', requireAuth, requireOrganizer, (req, res) => {
-  res.redirect('/admin/stats');
+// The owner's private dashboard. The password comes from ADMIN_PASSWORD;
+// with it unset, nothing here is reachable. Read-only: no route below
+// writes anything, and sessions only record that the password was given.
+function adminPasswordMatches(given) {
+  const expected = process.env.ADMIN_PASSWORD || '';
+  if (!expected || typeof given !== 'string') return false;
+  const digest = (text) => crypto.createHash('sha256').update(text).digest();
+  return crypto.timingSafeEqual(digest(given), digest(expected));
+}
+
+function requireAdmin(req, res, next) {
+  if (!process.env.ADMIN_PASSWORD) {
+    return res.status(503).send('Set ADMIN_PASSWORD in the environment to enable the admin dashboard.');
+  }
+  if (!req.session.adminOk) return res.redirect('/admin/login');
+  next();
+}
+
+app.get('/admin/login', (req, res) => {
+  res.render('admin-login', { error: null, configured: !!process.env.ADMIN_PASSWORD });
+});
+
+app.post('/admin/login', (req, res) => {
+  if (!adminPasswordMatches(req.body.password)) {
+    return res.status(401).render('admin-login', { error: 'Wrong password.', configured: !!process.env.ADMIN_PASSWORD });
+  }
+  req.session.adminOk = true;
+  res.redirect('/admin');
+});
+
+app.post('/admin/logout', (req, res) => {
+  req.session.adminOk = false;
+  res.redirect('/admin/login');
+});
+
+app.get('/admin', requireAdmin, (req, res) => {
+  const dashboard = buildDashboard(req.query.range);
+  res.render('admin-dashboard', { dashboard, active: '' });
+});
+
+function csvCell(value) {
+  let text = value === null || value === undefined ? '' : String(value);
+  // A name or court typed into a spreadsheet must not run as a formula.
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+app.get('/admin/export/:table', requireAdmin, (req, res) => {
+  const dashboard = buildDashboard(req.query.range);
+  const table = dashboard.tables[req.params.table];
+  if (!table) return res.status(404).send('Unknown table.');
+  const lines = [table.headers, ...table.rows].map((row) => row.map(csvCell).join(','));
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="${req.params.table}-${dashboard.range}.csv"`);
+  res.send(lines.join('\n') + '\n');
 });
 
 app.get('/admin/timer', requireAuth, requireOrganizer, (req, res) => {

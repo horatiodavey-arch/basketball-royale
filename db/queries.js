@@ -1173,6 +1173,7 @@ function logRosterEdit(liveGameId, team, playerId, action, actorPlayerId) {
 
 function voidPendingResult(game, note) {
   if (game.status !== 'awaiting_confirmation') return;
+  if (game.result_submitted_by) logEvent(game.result_submitted_by, 'result_voided', null, game.park_id);
   db.prepare(
     `UPDATE live_games SET status = 'in_progress', team_a_won = NULL, confirmed_a = 0, confirmed_b = 0,
        result_submitted_at = NULL, result_submitted_by = NULL, result_note = ? WHERE id = ?`
@@ -1247,6 +1248,7 @@ function declareWinner(liveGameId, actorPlayerId) {
     `UPDATE live_games SET status = 'awaiting_confirmation', team_a_won = ?, confirmed_a = ?, confirmed_b = ?,
        result_submitted_at = datetime('now'), result_submitted_by = ?, result_note = NULL WHERE id = ?`
   ).run(team === 'a' ? 1 : 0, team === 'a' ? 1 : 0, team === 'b' ? 1 : 0, actorPlayerId, liveGameId);
+  logEvent(actorPlayerId, 'result_submitted', null, game.park_id);
   return { ok: true };
 }
 
@@ -1277,6 +1279,7 @@ function disputeResult(liveGameId, actorPlayerId) {
   const team = activeRosterTeam(liveGameId, actorPlayerId);
   if (!team) return { ok: false, error: 'Only players on this game can dispute a result.' };
   if (team === (game.team_a_won ? 'a' : 'b')) return { ok: false, error: 'Only the other team can dispute.' };
+  logEvent(actorPlayerId, 'result_disputed', null, game.park_id);
   voidPendingResult(game, 'Disputed. The result was voided. Submit it again once both teams agree.');
   return { ok: true };
 }
@@ -1487,11 +1490,12 @@ function getAllCourtsTimerStatus() {
 // Click tracking — one row per tracked tap. Logged regardless of whether
 // the underlying action (e.g. a check-in outside the radius) succeeds,
 // since this measures taps, not outcomes.
-function logEvent(playerId, eventName, page) {
-  db.prepare('INSERT INTO events (player_id, event_name, page) VALUES (?, ?, ?)').run(
+function logEvent(playerId, eventName, page, parkId = null) {
+  db.prepare('INSERT INTO events (player_id, event_name, page, park_id) VALUES (?, ?, ?, ?)').run(
     playerId,
     eventName,
-    page || null
+    page || null,
+    parkId
   );
 }
 
@@ -1567,9 +1571,13 @@ const recordedToday = new Map(); // userId -> the day already written this proce
 function recordActiveDay(userId) {
   const today = appDay();
   if (recordedToday.get(userId) === today) return;
-  db.prepare(
-    'INSERT OR IGNORE INTO player_active_days (player_id, day) SELECT id, ? FROM players WHERE user_id = ?'
-  ).run(today, userId);
+  const player = db.prepare('SELECT id FROM players WHERE user_id = ?').get(userId);
+  if (!player) return;
+  const inserted = db
+    .prepare('INSERT OR IGNORE INTO player_active_days (player_id, day) VALUES (?, ?)')
+    .run(player.id, today);
+  // The first open of the day is an "app open" event.
+  if (inserted.changes > 0) logEvent(player.id, 'app_open', null);
   recordedToday.set(userId, today);
 }
 
@@ -2069,6 +2077,7 @@ function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
 }
 
 module.exports = {
+  formatAggregate,
   nameInitials,
   displayNameError,
   updateDisplayName,
