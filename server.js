@@ -229,6 +229,11 @@ app.post('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/signup'));
 });
 
+// Railway healthcheck. Public on purpose: no session, no database writes.
+app.get('/health', (req, res) => {
+  res.status(200).json({ ok: true });
+});
+
 app.get('/', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   if (!profile) {
