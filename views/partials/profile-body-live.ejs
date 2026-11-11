@@ -1,67 +1,66 @@
-  <div class="profile-crown-card">
-    <%- include('crown-icon', { size: 30, fill: crown ? crown.fill : 'none', stroke: crown ? crown.stroke : 'var(--muted)' }) %>
-    <div class="profile-crown-main">
-      <div class="profile-crown-level"><%= crown ? crown.name : 'No crown yet' %></div>
-      <div class="profile-crown-points"><%= points %> pts this season</div>
+<%# Everything under the player card. Also the live refresh's body. %>
+<div class="pf-section">
+  <div class="pf-title pf-title-purple">King of the court</div>
+  <% if (kingRows.length === 0) { %>
+    <div class="pf-empty">Play a game to start earning crowns</div>
+  <% } else { %>
+    <% kingRows.forEach((row) => { %>
+      <div class="pf-king-row">
+        <% if (row.crown) { %>
+          <%- include('crown-icon', { size: 26, fill: row.crown.fill, stroke: row.crown.stroke }) %>
+        <% } else { %>
+          <%- include('crown-icon', { size: 26, fill: 'none', stroke: '#8A8F98' }) %>
+        <% } %>
+        <span class="pf-king-format"><%= row.format %></span>
+        <span class="pf-king-level"><%= row.crown ? row.crown.name : 'Not yet a crown' %></span>
+        <span class="pf-king-points"><%= row.points %> pts</span>
+      </div>
+    <% }); %>
+  <% } %>
+</div>
+
+<div class="pf-stats">
+  <div class="pf-stat">
+    <div class="pf-stat-title">Trophies</div>
+    <div class="pf-stat-number"><%= trophyCount %></div>
+    <div class="pf-stat-sub">
+      <% if (trophyByFormat.length === 0) { %>
+        None yet
+      <% } else { %>
+        <% trophyByFormat.forEach((t) => { %><span class="pf-trophy-format"><%= t.format %> · <%= t.n %></span><% }); %>
+      <% } %>
     </div>
   </div>
-  <div class="format-crowns">
-    <% formats.forEach((f) => { %>
-      <div class="format-crown-row">
-        <span class="format-name"><%= f.format %></span>
-        <% if (f.crown) { %>
-          <%- include('crown-icon', { size: 16, fill: f.crown.fill, stroke: f.crown.stroke }) %>
-          <span><%= f.crown.name %></span>
-        <% } else { %>
-          <span class="perk-hint"><%= f.pointsToCrown %> pts to a crown</span>
-        <% } %>
-        <span class="format-trophies"><%= f.trophies %> trophy<%= f.trophies === 1 ? '' : 'ies' %></span>
+  <div class="pf-stat">
+    <div class="pf-stat-title">Games</div>
+    <div class="pf-stat-number"><%= gamesThisSeason %></div>
+    <div class="pf-stat-sub">this month</div>
+  </div>
+</div>
+
+<% if (topBreakdown) { %>
+  <div class="pf-section">
+    <div class="pf-title"><%= topBreakdown.format %> points this month</div>
+    <div class="pf-breakdown">
+      <div class="pf-row"><span>Wins <%= topBreakdown.wins %> × 3</span><span class="pf-val"><%= topBreakdown.winPoints %></span></div>
+      <div class="pf-row"><span>Games played <%= topBreakdown.games %> × 1</span><span class="pf-val"><%= topBreakdown.games %></span></div>
+      <div class="pf-row"><span>Court hours <%= topBreakdown.hours %> × 1</span><span class="pf-val"><%= topBreakdown.hours %></span></div>
+      <div class="pf-divider"></div>
+      <div class="pf-row pf-total"><span>Total</span><span class="pf-val"><%= topBreakdown.total %></span></div>
+    </div>
+  </div>
+<% } %>
+
+<div class="pf-section">
+  <div class="pf-title">Badges</div>
+  <div class="pf-badges">
+    <% badges.forEach((label) => { %>
+      <div class="pf-badge-cell">
+        <div class="pf-badge">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8A8F98" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        </div>
+        <div class="pf-badge-label"><%= label %></div>
       </div>
     <% }); %>
   </div>
-  <div class="season-note">Resets in <%= season.daysLeft %> day<%= season.daysLeft === 1 ? '' : 's' %>.</div>
-
-  <div class="section">Trophies</div>
-  <% if (trophies.length === 0) { %>
-    <div class="next-action-note">Finish the month with a crown to earn your first trophy.</div>
-  <% } else { %>
-    <div class="trophy-row">
-      <% trophies.forEach((trophy) => { %>
-        <div class="trophy" title="<%= trophy.crownName %> · <%= trophy.points %> pts · <%= trophy.datesLabel %><%= trophy.kingParks.length ? ' · King of ' + trophy.kingParks.join(', ') : '' %>">
-          <div class="trophy-icon">
-            <%- include('crown-icon', { size: 28, fill: trophy.fill, stroke: trophy.stroke }) %>
-          </div>
-          <div class="trophy-month"><%= trophy.monthLabel %></div>
-        </div>
-      <% }); %>
-    </div>
-  <% } %>
-
-  <% if (ladder) { %>
-    <div class="section">The ladder</div>
-    <%- include('tier-ladder', { ladder: ladder }) %>
-  <% } %>
-
-  <div class="section">Crown perks</div>
-  <% perks.forEach((perk) => { %>
-    <div class="perk-row <%= perk.earned ? 'earned' : 'locked' %>">
-      <div class="perk-icon">
-        <% if (perk.earned) { %>
-          <%- include('crown-icon', { size: 26, fill: perk.fill, stroke: perk.stroke }) %>
-        <% } else { %>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-        <% } %>
-      </div>
-      <div class="perk-main">
-        <div class="perk-name"><%= perk.name %></div>
-        <div class="perk-desc"><%= perk.description %></div>
-      </div>
-      <div class="perk-status">
-        <% if (perk.earned) { %>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green-text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        <% } else { %>
-          <span class="perk-hint"><%= perk.lockedHint %></span>
-        <% } %>
-      </div>
-    </div>
-  <% }); %>
+</div>

@@ -1,7 +1,8 @@
-  <div class="profile-header">
-    <div class="avatar profile-avatar"><%= initials %></div>
-    <div class="profile-id">
-      <div class="profile-name heading">
-        <%= player.name %>
-        <span class="tier-badge tier-badge-sm"><%= player.tier %></span>
-      
+<%# The player card at the top of a profile. Also the live refresh's header. %>
+<div class="pf-card">
+  <div class="pf-avatar"><%= initials %></div>
+  <div class="pf-id">
+    <div class="pf-name"><%= player.base_name %><% if (player.tag) { %><span class="pf-tag">#<%= player.tag %></span><% } %></div>
+    <div class="pf-tier"><%= tierLabel %></div>
+  </div>
+</div>

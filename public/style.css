@@ -16,12 +16,12 @@
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
   background: #DDDBD3; display: flex; justify-content: center;
   padding: 24px 12px; color: var(--text);
 }
 body.kotc { background: #FFFFFF; padding: 0; }
-.heading { font-family: 'Barlow Condensed', 'Inter', sans-serif; font-weight: 700; }
+.heading { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; }
 .phone { background: var(--bg); border-radius: 24px; padding: 16px; width: 100%; max-width: 380px; }
 
 .header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
@@ -30,7 +30,7 @@ body.kotc { background: #FFFFFF; padding: 0; }
   display: flex; align-items: center; justify-content: center;
   font-weight: 600; font-size: 14px; color: var(--accent);
 }
-.header .name { font-weight: 600; font-size: 15px; }
+.header .name { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 15px; }
 .header .record { font-size: 13px; color: var(--text2); }
 .spacer { flex: 1; }
 .tier-badge {
@@ -53,7 +53,7 @@ body.kotc { background: #FFFFFF; padding: 0; }
 .bar .fill { height: 100%; background: var(--green); }
 .fine { font-size: 12px; color: var(--muted); }
 
-.section { font-size: 13px; color: var(--text2); margin: 14px 0 8px; }
+.section { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 13px; color: var(--text2); margin: 14px 0 8px; }
 
 .lobby { border: 2px solid var(--accent); }
 .lobby-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -213,7 +213,7 @@ body.kotc { background: #FFFFFF; padding: 0; }
 .lb-rank { width: 20px; font-size: 13px; color: var(--muted); font-weight: 700; text-align: center; }
 .lb-crown { flex: none; }
 .lb-main { flex: 1; min-width: 0; }
-.lb-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lb-name { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .lb-you-tag { color: var(--accent); font-weight: 600; }
 .lb-level { font-size: 12px; color: var(--text2); }
 .lb-points { font-size: 17px; font-weight: 700; text-align: right; }
@@ -284,7 +284,7 @@ body.kotc { background: #FFFFFF; padding: 0; }
 .live-teams { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
 .live-team { flex: 1; text-align: left; }
 .live-team-label { font-size: 11px; font-weight: 700; color: var(--accent); margin-bottom: 4px; text-transform: uppercase; }
-.live-player { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+.live-player { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 14px; margin-bottom: 2px; }
 .live-player-empty { color: var(--muted); font-weight: 400; font-style: italic; }
 .live-vs { font-size: 12px; color: var(--muted); padding-top: 18px; }
 .cap-tag {
@@ -370,7 +370,7 @@ body.kotc { background: #FFFFFF; padding: 0; }
 }
 .royale-dot { width: 10px; height: 10px; border-radius: 50%; background: #E8702A; margin-right: 8px; }
 .royale-brand {
-  display: flex; align-items: center; font-family: 'Barlow Condensed', 'Inter', sans-serif;
+  display: flex; align-items: center; font-family: 'Oswald', 'Inter', sans-serif;
   font-weight: 700; font-size: 20px; letter-spacing: 0.04em;
 }
 .royale-reset { font-size: 13px; color: var(--text2); }
@@ -466,7 +466,7 @@ body.kotc { background: #FFFFFF; padding: 0; }
 .timer-court { font-size: 15px; font-weight: 700; }
 .timer-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
 .timer-countdown {
-  font-family: 'Barlow Condensed', 'Inter', sans-serif; font-weight: 700;
+  font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700;
   font-size: 22px; color: var(--accent);
 }
 .timer-live {
@@ -775,3 +775,58 @@ a.royale-brand { color: inherit; text-decoration: none; }
 .event-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 14px; }
 .event-picker label { color: var(--muted); }
 .event-picker select { flex: 1 1 200px; min-width: 0; padding: 8px; font-size: 16px; }
+
+/* Player names on the leaderboard and park pages use the display face. */
+.here-now-name { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; }
+
+/* Profile redesign: white page, grey cards, Oswald for names, titles and big numbers. */
+body.profile-page { color: #141414; }
+.profile-page .page { max-width: 390px; padding: 16px 20px 110px; }
+.pf-card { background: #F4F4F6; border-radius: 16px; padding: 16px; display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.pf-avatar {
+  width: 56px; height: 56px; border-radius: 50%; background: #D9D9DE; color: #555555; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 20px;
+}
+.pf-id { min-width: 0; }
+.pf-name { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 24px; line-height: 1.1; color: #141414; }
+.pf-tag { font-family: 'Inter', system-ui, sans-serif; font-weight: 400; font-size: 14px; color: #555555; margin-left: 6px; }
+.pf-tier {
+  display: inline-block; margin-top: 6px; background: #141414; color: #FFFFFF;
+  font-family: 'Inter', system-ui, sans-serif; font-weight: 600; font-size: 12px; line-height: 1;
+  padding: 4px 10px; border-radius: 999px;
+}
+.pf-section { margin-bottom: 16px; }
+.pf-title {
+  font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 17px;
+  text-transform: uppercase; letter-spacing: 0.6px; color: #141414; margin-bottom: 10px;
+}
+.pf-title-purple { color: #6D28D9; }
+.pf-empty { font-family: 'Inter', system-ui, sans-serif; font-size: 14px; color: #555555; }
+.pf-king-row {
+  background: #FFFFFF; border: 1px solid #E6E6EA; border-radius: 12px; padding: 12px 14px;
+  display: flex; align-items: center; gap: 12px; margin-bottom: 8px;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.pf-king-row svg { flex: none; }
+.pf-king-format { font-size: 13px; font-weight: 600; color: #555555; }
+.pf-king-level { font-size: 15px; font-weight: 600; color: #141414; flex: 1; min-width: 0; }
+.pf-king-points { font-size: 15px; font-weight: 600; color: #15803D; white-space: nowrap; }
+.pf-stats { display: flex; gap: 12px; margin-bottom: 16px; }
+.pf-stat { flex: 1; min-width: 0; background: #F4F4F6; border-radius: 12px; padding: 12px 14px; }
+.pf-stat-title { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 15px; text-transform: uppercase; color: #141414; }
+.pf-stat-number { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 30px; line-height: 1.1; color: #15803D; }
+.pf-stat-sub { font-family: 'Inter', system-ui, sans-serif; font-size: 12px; color: #555555; margin-top: 2px; }
+.pf-trophy-format { margin-right: 10px; white-space: nowrap; }
+.pf-breakdown { font-family: 'Inter', system-ui, sans-serif; font-size: 14px; color: #141414; }
+.pf-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+.pf-val { color: #15803D; font-weight: 600; }
+.pf-divider { border-top: 1px solid #E6E6EA; margin: 8px 0; }
+.pf-total { font-weight: 600; }
+.pf-badges { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.pf-badge-cell { min-width: 0; }
+.pf-badge { aspect-ratio: 1 / 1; background: #E6E6EA; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+.pf-badge-label { font-family: 'Inter', system-ui, sans-serif; font-size: 11px; color: #555555; text-align: center; margin-top: 6px; line-height: 1.2; }
+.pf-details { margin-bottom: 14px; font-family: 'Inter', system-ui, sans-serif; }
+.pf-details-summary { font-size: 14px; color: #555555; cursor: pointer; }
+.pf-invite { margin-bottom: 14px; }

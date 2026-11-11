@@ -79,6 +79,8 @@ const {
   getPlayerIdByTag,
   getTrackingCheck,
   runTimeDefaults,
+  getGameCountSince,
+  formatAggregate,
   checkRunTimeFields,
   changeRunTime,
   cancelRun,
@@ -87,7 +89,7 @@ const {
 const { DATA_DIR, writeBackup } = require('./db/index');
 const { geocodeAddress, fillMissingParkLocations, startBackgroundGeocoding } = require('./db/geocode');
 const parkPhotos = require('./db/park-photos');
-const { getTrophies, getTierLadder } = require('./db/trophies');
+const { getTrophyCount, getTierLadder } = require('./db/trophies');
 const { buildDashboard } = require('./db/admin');
 
 const app = express();
@@ -864,6 +866,14 @@ app.get('/profile', requireAuth, (req, res) => {
 });
 
 // What a player's profile shows, for the viewer. Shared by the page and its live refresh.
+// Points and hours shown without trailing noise: 38, or 12.5.
+function fmtNumber(n) {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+// Badges are shown locked to everyone for now; earning them comes later.
+const PROFILE_BADGES = ['Glue Guy', 'Lockdown', 'Certified Bucket', 'Consistency'];
+
 function profileContext(playerId, viewer, query) {
   const player = getPlayerProfileByPlayerId(playerId);
   if (!player) return null;
@@ -871,6 +881,28 @@ function profileContext(playerId, viewer, query) {
   const formatSummary = getFormatSummary(player.player_id, season.startSql);
   const points = formatSummary.reduce((sum, f) => sum + f.points, 0);
   const isSelf = player.player_id === viewer.player_id;
+
+  // Formats the player has points in, highest crown first, then most points.
+  const kingRows = formatSummary
+    .filter((f) => f.points > 0)
+    .sort((a, b) => (b.crown ? b.crown.min : 0) - (a.crown ? a.crown.min : 0) || b.points - a.points)
+    .map((f) => ({ format: f.format, crown: f.crown, points: fmtNumber(f.points) }));
+
+  // The points breakdown is for the highest-crown format; its rows add up to its total.
+  let topBreakdown = null;
+  if (kingRows.length > 0) {
+    const top = formatSummary.find((f) => f.format === kingRows[0].format);
+    const agg = formatAggregate(player.player_id, top.format, season.startSql);
+    topBreakdown = {
+      format: top.format,
+      wins: agg.wins,
+      winPoints: agg.wins * 3,
+      games: agg.games,
+      hours: fmtNumber(agg.hours),
+      total: fmtNumber(agg.points),
+    };
+  }
+
   return {
     active: 'profile',
     isSelf,
@@ -879,14 +911,16 @@ function profileContext(playerId, viewer, query) {
     nameError: query.nameError || null,
     player,
     points,
-    crown: bestFormatCrown(formatSummary),
     formats: formatSummary,
-    perks: getCrownPerks(player.player_id, season.startSql),
     season,
     initials: initials(player.name),
-    trophies: getTrophies(player.player_id),
-    // The ladder is "where am I" — shown on your own profile only.
-    ladder: isSelf ? getTierLadder(player) : null,
+    tierLabel: player.tier.charAt(0).toUpperCase() + player.tier.slice(1),
+    kingRows,
+    topBreakdown,
+    trophyCount: getTrophyCount(player.player_id),
+    trophyByFormat: formatSummary.filter((f) => f.trophies > 0).map((f) => ({ format: f.format, n: f.trophies })),
+    gamesThisSeason: getGameCountSince(player.player_id, season.startSql),
+    badges: PROFILE_BADGES,
   };
 }
 

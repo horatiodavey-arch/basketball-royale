@@ -71,7 +71,7 @@ function getPlayerProfile(userId) {
 function getPlayerProfileByPlayerId(playerId) {
   return db
     .prepare(
-      `SELECT u.id AS user_id, u.name AS base_name, ${DISPLAY_NAME} AS name, u.phone,
+      `SELECT u.id AS user_id, u.name AS base_name, ${DISPLAY_NAME} AS name, u.phone, u.tag,
               p.id AS player_id, p.tier, p.wins, p.losses, p.games_played,
               p.is_organizer,
               t.rank AS tier_rank, t.wins_to_promote, t.games_to_promote,
@@ -381,6 +381,13 @@ function formatAggregate(playerId, format, seasonStart, parkId = null) {
   const minutes = rows.reduce((sum, r) => sum + r.minutes_played, 0);
   const hours = roundTenth(minutes / 60);
   return { wins, games, hours, points: wins * 3 + games + hours };
+}
+
+// Games a player has played since a date (the profile's "Games" card).
+function getGameCountSince(playerId, startSql) {
+  return db
+    .prepare('SELECT COUNT(*) AS n FROM game_results WHERE player_id = ? AND date >= ?')
+    .get(playerId, startSql).n;
 }
 
 // Standings for one format this season (optionally at one park).
@@ -2384,6 +2391,7 @@ module.exports = {
   getTrackingCheck,
   TRACKED_EVENTS,
   runTimeDefaults,
+  getGameCountSince,
   checkRunTimeFields,
   changeRunTime,
   cancelRun,
