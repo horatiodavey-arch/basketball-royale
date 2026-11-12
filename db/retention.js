@@ -8,6 +8,7 @@
 //   - Headline numbers are about right now and ignore the date range.
 //   - The date range limits the weeks, months and signups that are shown.
 const { db } = require('./index');
+const { notTestSql } = require('./queries');
 
 const TZ = process.env.APP_TIMEZONE || 'America/New_York';
 const dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -61,8 +62,10 @@ function buildRetention({ since, sinceWeek, weeks, now }) {
   const rows = db
     .prepare(
       `SELECT player_id AS player, time_in AS at, NULL AS game FROM check_ins
+       WHERE ${notTestSql('player_id')}
        UNION ALL
-       SELECT player_id, date, game_id FROM game_results`
+       SELECT player_id, date, game_id FROM game_results
+       WHERE ${notTestSql('player_id')}`
     )
     .all()
     .map((r) => {
@@ -73,7 +76,8 @@ function buildRetention({ since, sinceWeek, weeks, now }) {
   const signups = db
     .prepare(
       `SELECT p.id AS player, u.created_at AS at, ${NAME} AS name
-       FROM players p JOIN users u ON u.id = p.user_id`
+       FROM players p JOIN users u ON u.id = p.user_id
+       WHERE u.name NOT GLOB 'TEST*'`
     )
     .all()
     .map((r) => ({ player: r.player, at: parseSql(r.at), atSql: r.at, name: r.name }));
@@ -221,7 +225,7 @@ function buildRetention({ since, sinceWeek, weeks, now }) {
 
   // --- Activation funnel: players who signed up within the range.
   const milestones = new Map();
-  for (const r of db.prepare('SELECT player_id, milestone, at FROM player_milestones').all()) {
+  for (const r of db.prepare(`SELECT player_id, milestone, at FROM player_milestones WHERE ${notTestSql('player_id')}`).all()) {
     if (!milestones.has(r.player_id)) milestones.set(r.player_id, new Map());
     milestones.get(r.player_id).set(r.milestone, r.at);
   }

@@ -90,6 +90,12 @@ const {
   changeRunTime,
   cancelRun,
   getCancelledRunsForPlayer,
+  findParkNear,
+  createParkFromSpot,
+  isNewPark,
+  haversineMeters,
+  PARK_DUPLICATE_METERS,
+  AT_SPOT_METERS,
 } = require('./db/queries');
 const { DATA_DIR, writeBackup } = require('./db/index');
 const { geocodeAddress, fillMissingParkLocations, startBackgroundGeocoding } = require('./db/geocode');
@@ -477,7 +483,7 @@ app.get('/runs', requireAuth, (req, res) => {
   const pinsById = new Map(getParkMapPins(season.startSql).map((p) => [p.id, p]));
   const parks = getParks().map((park) => {
     const pin = pinsById.get(park.id) || {};
-    return { ...park, courts: getCourtLabelsByPark(park.id), live: !!pin.live, nextRun: pin.nextRun || null };
+    return { ...park, courts: getCourtLabelsByPark(park.id), live: !!pin.live, nextRun: pin.nextRun || null, isNew: isNewPark(park.id) };
   });
   // Live first, then parks with an upcoming run, then the rest. A new run
   // never ranks above a live one.
@@ -673,6 +679,7 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
     formatLabel: courtFormatLabel(court),
     active: 'runs',
     parkKing: getParkKing(court.park_id, getSeasonWindow().startSql),
+    parkIsNew: isNewPark(court.park_id),
     courtLive: getLiveCourtIds().has(court.id),
     parkLive: getLiveParkIds().has(court.park_id),
     countdownEndsAtIso,
@@ -784,6 +791,17 @@ app.post('/court-suggestions', requireAuth, (req, res) => {
   const lng = Number(req.body.lng);
   if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) {
     return res.status(400).json({ ok: false, error: 'A name and a dropped pin are both required.' });
+  }
+  // The park can't duplicate one within 150 m.
+  const near = findParkNear(lat, lng, PARK_DUPLICATE_METERS);
+  if (near) {
+    return res.json({ ok: false, error: `${near.name} is already here, within 150 m. Open it on the map instead.` });
+  }
+  // At the spot, the park is added right away. From anywhere else it goes to the organizers.
+  const me = { lat: Number(req.body.myLat), lng: Number(req.body.myLng) };
+  if (Number.isFinite(me.lat) && Number.isFinite(me.lng) && haversineMeters(me.lat, me.lng, lat, lng) <= AT_SPOT_METERS) {
+    const parkId = createParkFromSpot(name, lat, lng, profile.player_id);
+    return res.json({ ok: true, created: true, parkId });
   }
   const photo = req.body.photo;
   // Optional, and only ever a data: image URI the client itself encoded —

@@ -2,7 +2,7 @@
 // here writes to the database. Names are shown with their tag and phone
 // numbers are never selected.
 const { db } = require('./index');
-const { formatAggregate, FORMATS, CROWN_LEVELS, getCrownLevel, getSeasonWindow } = require('./queries');
+const { formatAggregate, FORMATS, CROWN_LEVELS, getCrownLevel, getSeasonWindow, notTestSql } = require('./queries');
 
 const { buildRetention, parseSql, toSql, weekOf, addWeeks, pct, TZ, DAY } = require('./retention');
 const { buildPartThree } = require('./engagement');
@@ -30,15 +30,18 @@ function buildDashboard(range, event) {
   const activity = db
     .prepare(
       `SELECT player_id AS player, time_in AS at, park_id AS park, NULL AS game, NULL AS format FROM check_ins
+       WHERE ${notTestSql('player_id')}
        UNION ALL
-       SELECT player_id, date, park_id, game_id, format FROM game_results`
+       SELECT player_id, date, park_id, game_id, format FROM game_results
+       WHERE ${notTestSql('player_id')}`
     )
     .all();
 
   const signupRows = db
     .prepare(
       `SELECT p.id AS player, u.created_at AS at, ${NAME} AS name
-       FROM players p JOIN users u ON u.id = p.user_id`
+       FROM players p JOIN users u ON u.id = p.user_id
+       WHERE u.name NOT GLOB 'TEST*'`
     )
     .all();
   const signupWeek = new Map(signupRows.map((r) => [r.player, weekOf(parseSql(r.at))]));
@@ -67,7 +70,7 @@ function buildDashboard(range, event) {
     signupsByWeek.set(w, (signupsByWeek.get(w) || 0) + 1);
   }
   const firstPark = new Map();
-  for (const row of db.prepare('SELECT player_id, park_id FROM check_ins ORDER BY time_in ASC, id ASC').all()) {
+  for (const row of db.prepare(`SELECT player_id, park_id FROM check_ins WHERE ${notTestSql('player_id')} ORDER BY time_in ASC, id ASC`).all()) {
     if (!firstPark.has(row.player_id)) firstPark.set(row.player_id, row.park_id);
   }
   const parkNames = new Map(db.prepare('SELECT id, name FROM parks').all().map((p) => [p.id, p.name]));
@@ -110,7 +113,7 @@ function buildDashboard(range, event) {
     hourCounts.set(hour, (hourCounts.get(hour) || 0) + 1);
   }
   const appOpens = db
-    .prepare("SELECT COUNT(*) AS n FROM events WHERE event_name = 'app_open' AND (? IS NULL OR created_at >= ?)")
+    .prepare(`SELECT COUNT(*) AS n FROM events WHERE event_name = 'app_open' AND (? IS NULL OR created_at >= ?) AND ${notTestSql('player_id')}`)
     .get(since, since).n;
 
   // --- Competition
@@ -118,7 +121,7 @@ function buildDashboard(range, event) {
   const crownRows = CROWN_LEVELS.map((level) => ({ level, byFormat: {} }));
   for (const format of FORMATS) {
     const players = db
-      .prepare('SELECT DISTINCT player_id AS p FROM game_results WHERE format = ? AND date >= ?')
+      .prepare(`SELECT DISTINCT player_id AS p FROM game_results WHERE format = ? AND date >= ? AND ${notTestSql('player_id')}`)
       .all(format, season.startSql)
       .map((r) => r.p);
     for (const player of players) {
@@ -131,13 +134,13 @@ function buildDashboard(range, event) {
   }
   const trophiesByFormat = new Map();
   for (const row of db
-    .prepare('SELECT format, earned_at AS at FROM format_trophies')
+    .prepare(`SELECT format, earned_at AS at FROM format_trophies WHERE ${notTestSql('player_id')}`)
     .all()
     .filter((r) => inRange(r.at))) {
     trophiesByFormat.set(row.format, (trophiesByFormat.get(row.format) || 0) + 1);
   }
   const seasonTrophies = db
-    .prepare('SELECT created_at AS at FROM trophies')
+    .prepare(`SELECT created_at AS at FROM trophies WHERE ${notTestSql('player_id')}`)
     .all()
     .filter((r) => inRange(r.at)).length;
 
@@ -147,7 +150,7 @@ function buildDashboard(range, event) {
               SUM(CASE WHEN gr.result = 'win' THEN 1 ELSE 0 END) AS wins,
               COUNT(*) AS games, SUM(gr.minutes_played) AS minutes
        FROM game_results gr JOIN players p ON p.id = gr.player_id JOIN users u ON u.id = p.user_id
-       WHERE (? IS NULL OR gr.date >= ?)
+       WHERE (? IS NULL OR gr.date >= ?) AND u.name NOT GLOB 'TEST*'
        GROUP BY gr.player_id`
     )
     .all(since, since)
@@ -161,18 +164,21 @@ function buildDashboard(range, event) {
   // --- Integrity
   const eventCount = (name) =>
     db
-      .prepare('SELECT created_at AS at FROM events WHERE event_name = ?')
+      .prepare(`SELECT created_at AS at FROM events WHERE event_name = ? AND ${notTestSql('player_id')}`)
       .all(name)
       .filter((r) => inRange(r.at)).length;
   const locked = db
-    .prepare("SELECT locked_at AS at FROM live_games WHERE status = 'done' AND locked_at IS NOT NULL")
+    .prepare(`SELECT locked_at AS at FROM live_games WHERE status = 'done' AND locked_at IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM live_game_players lgp JOIN players p ON p.id = lgp.player_id
+                      JOIN users u ON u.id = p.user_id
+                      WHERE lgp.live_game_id = live_games.id AND u.name GLOB 'TEST*')`)
     .all()
     .filter((r) => inRange(r.at)).length;
   const editsAfterStart = db
     .prepare(
       `SELECT re.created_at AS at FROM roster_edits re
        JOIN live_games lg ON lg.id = re.live_game_id
-       WHERE lg.started_at IS NOT NULL AND re.created_at > lg.started_at`
+       WHERE lg.started_at IS NOT NULL AND re.created_at > lg.started_at AND ${notTestSql('re.by_player_id')}`
     )
     .all()
     .filter((r) => inRange(r.at)).length;
@@ -182,7 +188,7 @@ function buildDashboard(range, event) {
     .prepare(
       `SELECT e.created_at AS at, ${NAME} AS name FROM events e
        JOIN players p ON p.id = e.player_id JOIN users u ON u.id = p.user_id
-       WHERE e.event_name = 'view_lobbies'`
+       WHERE e.event_name = 'view_lobbies' AND u.name NOT GLOB 'TEST*'`
     )
     .all()
     .filter((r) => inRange(r.at));
@@ -192,6 +198,7 @@ function buildDashboard(range, event) {
     .prepare(
       `SELECT cs.created_at AS at, cs.name AS court, cs.status, ${NAME} AS name
        FROM court_suggestions cs JOIN players p ON p.id = cs.player_id JOIN users u ON u.id = p.user_id
+       WHERE u.name NOT GLOB 'TEST*'
        ORDER BY cs.created_at DESC`
     )
     .all()
