@@ -474,6 +474,10 @@ function migrateKingOfTheCourtColumns() {
   // Set when the organizer cancels. A cancelled run stays in the table, so the
   // people who said they're coming can still see it was cancelled.
   addColumnIfMissing('runs', 'cancelled_at', 'TEXT');
+  // The first-time "How it works" card: when it was first shown, and when the
+  // player tapped "Got it" (after which it never shows again).
+  addColumnIfMissing('users', 'how_it_works_shown_at', 'TEXT');
+  addColumnIfMissing('users', 'how_it_works_dismissed_at', 'TEXT');
   addColumnIfMissing('game_results', 'format', 'TEXT');
   // A squad's captain confirms the roster; any roster or captain change clears it.
   addColumnIfMissing('next_line', 'confirmed', 'INTEGER NOT NULL DEFAULT 0');

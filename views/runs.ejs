@@ -10,6 +10,7 @@
 <body class="kotc">
 <div class="page">
   <%- include('partials/royale-header') %>
+  <% if (showIntro) { %><%- include('partials/how-it-works-card', { returnTo: '/runs' }) %><% } %>
   <div class="page-title heading">Runs</div>
   <div class="page-sub">Find a run, follow a court, or start your own &mdash; from anywhere.</div>
 
@@ -20,7 +21,7 @@
         <div class="park-link-with-thumb">
           <%- include('partials/park-thumb', { park: sp.park }) %>
           <div class="park-link-body">
-            <div class="stats-label" style="margin-bottom: 2px;"><%- include('partials/park-name', { name: sp.park.name, city: sp.park.city }) %></div>
+            <div class="stats-label" style="margin-bottom: 2px;"><%- include('partials/park-name', { name: sp.park.name, city: sp.park.city }) %><% if (sp.live) { %><span class="live-badge">Live</span><% } %></div>
             <div class="suggestion-meta">
               <span class="suggested-distance"></span>
               <%= sp.king ? ('King: ' + sp.king.name) : 'No king yet' %>
@@ -81,6 +82,7 @@
         <%- include('partials/park-thumb', { park: park }) %>
         <div class="park-link-body">
           <div class="park-link-name"><%- include('partials/park-name', { name: park.name, city: park.city }) %></div>
+          <% if (park.live) { %><div class="park-link-location"><span class="live-badge">Live now</span></div><% } %>
           <div class="park-link-location"><%= park.location %></div>
           <% park.courts.forEach((court) => { %>
             <div class="court-format-line"><%= court.name %> &middot; <%= court.label %></div>
@@ -103,6 +105,7 @@
 <%- include('partials/bottom-nav', { active: 'runs' }) %>
 
 <script src="/geo.js"></script>
+<script src="/track.js"></script>
 <script>
   (function () {
     function escapeHtml(s) {
@@ -129,24 +132,43 @@
       var list = document.getElementById('nearbyRunsList');
       list.innerHTML = runs.map(function (r) {
         var park = escapeHtml(r.parkName) + (r.parkCity ? ' <span class="park-city">&middot; ' + escapeHtml(r.parkCity) + '</span>' : '');
+        var liveTag = r.live ? '<span class="live-badge">Live</span> ' : '';
         return '<a href="/runs/' + r.id + '" class="park-link run-card">' +
-          '<div class="park-link-name">' + escapeHtml(r.timeLabel) + ' &middot; ' + park + ' (' + escapeHtml(r.courtName) + ')</div>' +
+          '<div class="park-link-name">' + liveTag + escapeHtml(r.timeLabel) + ' &middot; ' + park + ' (' + escapeHtml(r.courtName) + ')</div>' +
           '<div class="park-link-location">' + r.rsvpCount + ' coming' + (r.note ? ' &middot; ' + escapeHtml(r.note) : '') + '</div>' +
           '</a>';
       }).join('');
       list.style.display = 'block';
     }
 
-    function renderEmpty(nearestCourt) {
+    // Live first: a live run nearby beats "create your own", every time.
+    function renderEmpty(data) {
       var empty = document.getElementById('nearbyRunsEmpty');
-      if (nearestCourt) {
-        empty.innerHTML = 'No runs near you yet. Start one and be the first King of ' + escapeHtml(nearestCourt.parkName) + '.' +
-          '<br><a href="/runs/new?courtId=' + nearestCourt.id + '" class="submit-btn" style="display: inline-block; margin-top: 10px; text-decoration: none;">Start a run</a>';
+      var court = data.nearestCourt;
+      var live = data.liveNearby;
+      var html;
+      if (live) {
+        html = '<div class="empty-state">Nothing live here right now. <strong>' + escapeHtml(live.parkName) + '</strong> is live, ' +
+          escapeHtml(RoyaleGeo.pinDistanceLabel(live.distanceMeters / 1609.34)) + ' away.' +
+          '<br><a href="/runs/' + live.id + '" class="submit-btn" data-track="empty_view_live_run" style="display: inline-block; margin-top: 10px; text-decoration: none;">View live run</a>' +
+          (court ? '<div class="empty-sub">Or <a href="/runs/new?courtId=' + court.id + '" data-track="empty_create_run">create your own run</a>.</div>' : '') +
+          '</div>';
+      } else if (court) {
+        html = '<div class="empty-state">No runs live right now. Create your own run, or follow a park to know when one starts.' +
+          '<br><a href="/runs/new?courtId=' + court.id + '" class="submit-btn" data-track="empty_create_run" style="display: inline-block; margin-top: 10px; text-decoration: none;">Create your own run</a>' +
+          '<div class="empty-sub"><a href="/parks/' + court.parkId + '" data-track="empty_follow_park">Follow a park</a> to see who is running it.</div></div>';
       } else {
-        empty.textContent = 'No runs near you yet.';
+        html = '<div class="empty-state">No runs live right now. Create your own run, or follow a park to know when one starts.</div>';
       }
+      empty.innerHTML = html;
       empty.style.display = 'block';
     }
+
+    // Taps on the empty-state links are counted for the admin dashboard.
+    document.addEventListener('click', function (e) {
+      var tracked = e.target.closest ? e.target.closest('[data-track]') : null;
+      if (tracked && window.RoyaleTrack) RoyaleTrack.report(tracked.getAttribute('data-track'));
+    });
 
     function loadNearbyRuns(lat, lng) {
       fetch('/api/nearby-runs?lat=' + lat + '&lng=' + lng)
@@ -157,7 +179,7 @@
           if (data.runs.length > 0) {
             renderRuns(data.runs);
           } else {
-            renderEmpty(data.nearestCourt);
+            renderEmpty(data);
           }
         })
         .catch(function () {

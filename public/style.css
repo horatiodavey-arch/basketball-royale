@@ -830,3 +830,26 @@ body.profile-page { color: #141414; }
 .pf-details { margin-bottom: 14px; font-family: 'Inter', system-ui, sans-serif; }
 .pf-details-summary { font-size: 14px; color: #555555; cursor: pointer; }
 .pf-invite { margin-bottom: 14px; }
+
+/* First-time card, live badge, empty states and the crown ladder. */
+.intro-card { background: #F4F4F6; border-radius: 16px; padding: 16px; margin: 0 0 16px; color: #141414; }
+.intro-title { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 20px; margin-bottom: 8px; }
+.intro-steps { margin: 0 0 10px 18px; padding: 0; font-size: 15px; line-height: 1.5; }
+.intro-note { font-size: 13px; color: #555555; margin-top: 6px; }
+.intro-form { margin-top: 12px; }
+.live-badge {
+  display: inline-block; background: #15803D; color: #FFFFFF; font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 999px; margin-left: 6px; vertical-align: middle;
+}
+.empty-state { background: #F4F4F6; border-radius: 12px; padding: 14px; font-size: 14px; color: #141414; margin: 10px 0; }
+.empty-state .empty-sub { font-size: 13px; color: #555555; margin-top: 8px; }
+.park-now { font-size: 14px; color: #141414; margin: 6px 0 12px; }
+.park-now .king-name-text { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; }
+.crown-ladder { display: flex; gap: 8px; margin-bottom: 14px; }
+.crown-ladder-step { flex: 1; min-width: 0; text-align: center; border-radius: 12px; padding: 8px 4px; border: 1px solid #E6E6EA; background: #FFFFFF; }
+.crown-ladder-step.reached { border-color: transparent; background: #F4F4F6; }
+.crown-ladder-step.locked svg { opacity: 0.35; }
+.crown-ladder-name { font-size: 11px; font-weight: 600; color: #141414; margin-top: 4px; line-height: 1.2; }
+.crown-ladder-min { font-size: 11px; color: #555555; margin-top: 2px; }
+.crown-ladder-step.locked .crown-ladder-name { color: #8A8F98; }
+.invite-line { font-size: 13px; color: #555555; margin: 6px 0; }

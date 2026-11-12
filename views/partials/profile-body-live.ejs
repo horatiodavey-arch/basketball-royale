@@ -19,6 +19,16 @@
   <% } %>
 </div>
 
+<div class="crown-ladder">
+  <% crownLadder.forEach((c) => { %>
+    <div class="crown-ladder-step <%= c.reached ? 'reached' : 'locked' %>">
+      <%- include('crown-icon', { size: 22, fill: c.reached ? c.fill : 'none', stroke: c.reached ? c.stroke : '#8A8F98' }) %>
+      <div class="crown-ladder-name"><%= c.name %></div>
+      <div class="crown-ladder-min"><%= c.min %>+ pts</div>
+    </div>
+  <% }); %>
+</div>
+
 <div class="pf-stats">
   <div class="pf-stat">
     <div class="pf-stat-title">Trophies</div>

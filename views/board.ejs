@@ -39,6 +39,9 @@
     <div class="live-part" data-live-key="body" data-live-url="<%= liveUrl %>" data-live-v="<%= liveVersion %>">
       <%- include('partials/board-live', { rows: rows, profile: profile }) %>
     </div>
+    <% if (rows.length > 0 && !onBoard) { %>
+      <div class="empty-state">You're not on the board yet. One game gets you on it.</div>
+    <% } %>
   <% } %>
 
   <div class="crowns-info">
