@@ -2430,6 +2430,7 @@ module.exports = {
   createParkFromSpot,
   haversineMeters,
   isNewPark,
+  isFollowingCourt,
   PARK_DUPLICATE_METERS,
   AT_SPOT_METERS,
   nameInitials,

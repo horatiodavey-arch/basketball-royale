@@ -49,6 +49,13 @@
             <button type="submit" class="small-btn">I'm coming</button>
           </form>
         <% } %>
+        <% if (isFollowing) { %>
+          <div class="too-far-msg" style="margin-top: 8px;">Following this court.</div>
+        <% } else { %>
+          <form method="POST" action="/courts/<%= court.id %>/follow" style="margin-top: 8px;">
+            <button type="submit" class="small-btn">Follow park</button>
+          </form>
+        <% } %>
       </div>
     <% } %>
   </div>
