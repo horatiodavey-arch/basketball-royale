@@ -829,8 +829,8 @@ function redirectWithResult(req, res, result, fallbackPath) {
 
 app.post('/courts/:courtId/next', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  logEvent(profile.player_id, 'i_got_next', pagePathFromReferer(req, '/runs'), court.park_id);
   const court = getCourtById(req.params.courtId);
+  logEvent(profile.player_id, 'i_got_next', pagePathFromReferer(req, '/runs'), court.park_id);
   const result = iGotNext(Number(req.params.courtId), profile.player_id);
   // Always lands on the court screen (not back to wherever the button was
   // tapped from, e.g. home) — that's where squad-building continues.
