@@ -18,7 +18,7 @@
   <% } %>
 
   <div class="park-title-row">
-    <div class="page-title heading"><%- include('partials/park-name', { name: park.name, city: park.city }) %></div>
+    <div class="page-title heading"><%- include('partials/park-name', { name: park.name, city: park.city }) %><% if (parkIsNew) { %><span class="new-badge">New</span><% } %></div>
     <%- include('partials/park-photo-button', { parkId: park.id, canAdd: canAddPhoto, isOrganizer: !!profile.is_organizer, statusId: 'parkPhotoStatus' }) %>
   </div>
   <div id="parkPhotoStatus" class="park-photo-status"></div>

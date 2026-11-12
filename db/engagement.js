@@ -3,7 +3,7 @@
 // Read-only: nothing here writes to the database. Players are shown by
 // display name and tag. Phone numbers are never selected.
 const { db } = require('./index');
-const { formatAggregate, FORMATS, getCrownLevel, getSeasonWindow, TRACKED_EVENTS } = require('./queries');
+const { formatAggregate, FORMATS, getCrownLevel, getSeasonWindow, TRACKED_EVENTS, notTestSql } = require('./queries');
 const { parseSql, weekOf, pct, TZ } = require('./retention');
 
 const NAME = "(u.name || ' #' || u.tag)";
@@ -44,11 +44,11 @@ function buildPartThree({ since, weeks, now, event }) {
 
   // --- Raw activity in range
   const checkins = db
-    .prepare('SELECT player_id, park_id, time_in AS at FROM check_ins')
+    .prepare(`SELECT player_id, park_id, time_in AS at FROM check_ins WHERE ${notTestSql('player_id')}`)
     .all()
     .filter((r) => inRange(r.at));
   const games = db
-    .prepare('SELECT player_id, park_id, minutes_played, date AS at FROM game_results')
+    .prepare(`SELECT player_id, park_id, minutes_played, date AS at FROM game_results WHERE ${notTestSql('player_id')}`)
     .all()
     .filter((r) => inRange(r.at));
   const activity = [...checkins, ...games];
@@ -89,7 +89,8 @@ function buildPartThree({ since, weeks, now, event }) {
     .prepare(
       `SELECT u.created_at AS at, COALESCE(u.source, 'direct') AS source,
               u.referred_by_player_id AS referrer, p.id AS player
-       FROM users u JOIN players p ON p.user_id = u.id`
+       FROM users u JOIN players p ON p.user_id = u.id
+       WHERE u.name NOT GLOB 'TEST*'`
     )
     .all()
     .filter((r) => inRange(r.at));
@@ -128,7 +129,7 @@ function buildPartThree({ since, weeks, now, event }) {
        FROM parks p
        LEFT JOIN players pl ON pl.id = p.added_by_player_id
        LEFT JOIN users u ON u.id = pl.user_id
-       WHERE p.added_by_player_id IS NOT NULL
+       WHERE p.added_by_player_id IS NOT NULL AND ${notTestSql('p.added_by_player_id')}
        ORDER BY p.id DESC`
     )
     .all()
@@ -139,7 +140,7 @@ function buildPartThree({ since, weeks, now, event }) {
   const crownPlayers = new Set();
   for (const format of FORMATS) {
     const players = db
-      .prepare('SELECT DISTINCT player_id AS p FROM game_results WHERE format = ? AND date >= ?')
+      .prepare(`SELECT DISTINCT player_id AS p FROM game_results WHERE format = ? AND date >= ? AND ${notTestSql('player_id')}`)
       .all(format, season.startSql)
       .map((r) => r.p);
     for (const player of players) {
@@ -150,7 +151,7 @@ function buildPartThree({ since, weeks, now, event }) {
   const activeWithCrown = [...activePlayers].filter((p) => crownPlayers.has(p)).length;
 
   const suggestions = db
-    .prepare('SELECT created_at AS at FROM court_suggestions')
+    .prepare(`SELECT created_at AS at FROM court_suggestions WHERE ${notTestSql('player_id')}`)
     .all()
     .filter((r) => inRange(r.at)).length;
 
@@ -169,7 +170,7 @@ function buildPartThree({ since, weeks, now, event }) {
       .prepare(
         `SELECT e.player_id, e.park_id, e.created_at AS at, ${NAME} AS name
          FROM events e JOIN players p ON p.id = e.player_id JOIN users u ON u.id = p.user_id
-         WHERE e.event_name = ?
+         WHERE e.event_name = ? AND u.name NOT GLOB 'TEST*'
          ORDER BY e.created_at DESC, e.id DESC`
       )
       .all(name)

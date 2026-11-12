@@ -81,7 +81,7 @@
       <a href="/parks/<%= park.id %>" class="park-link park-link-with-thumb park-search-item" data-search="<%= [park.name, park.city, park.location].filter(Boolean).join(' ').toLowerCase() %>">
         <%- include('partials/park-thumb', { park: park }) %>
         <div class="park-link-body">
-          <div class="park-link-name"><%- include('partials/park-name', { name: park.name, city: park.city }) %></div>
+          <div class="park-link-name"><%- include('partials/park-name', { name: park.name, city: park.city }) %><% if (park.isNew) { %><span class="new-badge">New</span><% } %></div>
           <% if (park.live) { %><div class="park-link-location"><span class="live-badge">Live now</span></div><% } %>
           <div class="park-link-location"><%= park.location %></div>
           <% park.courts.forEach((court) => { %>

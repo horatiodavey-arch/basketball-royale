@@ -11,6 +11,17 @@ function getPlayerByUserId(userId) {
 // Shown after every display name, e.g. "Big Sniper #4821".
 const DISPLAY_NAME = "(u.name || ' #' || u.tag)";
 
+// Internal test accounts have a display name starting with "TEST". They are
+// kept out of the leaderboard, crowns and every admin number.
+function notTestSql(column) {
+  return `${column} NOT IN (SELECT p.id FROM players p JOIN users u ON u.id = p.user_id WHERE u.name GLOB 'TEST*')`;
+}
+function testPlayerIds() {
+  return new Set(
+    db.prepare("SELECT p.id FROM players p JOIN users u ON u.id = p.user_id WHERE u.name GLOB 'TEST*'").all().map((r) => r.id)
+  );
+}
+
 // Names that would be confused with the tier ladder are reserved. Matched
 // ignoring case and spaces, so "Super Star" is blocked too.
 const RESERVED_NAMES = ['rookie', 'starter', 'star', 'superstar'];
@@ -288,7 +299,7 @@ function standingsFromGameResults(whereClause, params) {
        FROM game_results gr
        JOIN players p ON p.id = gr.player_id
        JOIN users u ON u.id = p.user_id
-       WHERE ${whereClause}
+       WHERE ${whereClause} AND u.name NOT GLOB 'TEST*'
        GROUP BY gr.player_id`
     )
     .all(...params);
@@ -413,7 +424,7 @@ function formatStandings(format, seasonStart, parkId = null) {
        FROM game_results gr
        JOIN players p ON p.id = gr.player_id
        JOIN users u ON u.id = p.user_id
-       WHERE gr.format = ? AND gr.date >= ? AND (? IS NULL OR gr.park_id = ?)`
+       WHERE gr.format = ? AND gr.date >= ? AND (? IS NULL OR gr.park_id = ?) AND u.name NOT GLOB 'TEST*'`
     )
     .all(format, seasonStart, parkId, parkId);
   return players
@@ -1600,7 +1611,7 @@ function getEventStats() {
     const row = db
       .prepare(
         `SELECT COUNT(*) AS total, COUNT(DISTINCT player_id) AS uniquePlayers, MIN(created_at) AS firstAt
-         FROM events WHERE event_name = ?`
+         FROM events WHERE event_name = ? AND ${notTestSql('player_id')}`
       )
       .get(name);
 
@@ -1685,15 +1696,17 @@ const MILESTONE_LABELS = [
 ];
 
 function getTrackingCheck() {
-  const totalPlayers = db.prepare('SELECT COUNT(*) AS n FROM players').get().n;
+  const totalPlayers = db.prepare(`SELECT COUNT(*) AS n FROM players WHERE ${notTestSql('id')}`).get().n;
   const milestones = MILESTONE_LABELS.map(([key, label]) => ({
     label,
-    players: db.prepare('SELECT COUNT(*) AS n FROM player_milestones WHERE milestone = ?').get(key).n,
+    players: db
+      .prepare(`SELECT COUNT(*) AS n FROM player_milestones WHERE milestone = ? AND ${notTestSql('player_id')}`)
+      .get(key).n,
   }));
   const bySource = db
     .prepare(
       `SELECT COALESCE(source, 'direct') AS source, COUNT(*) AS players
-       FROM users GROUP BY COALESCE(source, 'direct') ORDER BY players DESC`
+       FROM users WHERE name NOT GLOB 'TEST*' GROUP BY COALESCE(source, 'direct') ORDER BY players DESC`
     )
     .all();
   return { totalPlayers, milestones, bySource, events: getEventStats() };
@@ -1702,13 +1715,13 @@ function getTrackingCheck() {
 function getFunnel() {
   const count = (sql) => db.prepare(sql).get().n;
   const counts = [
-    ['Signed up', count('SELECT COUNT(*) AS n FROM players')],
-    ['Checked in', count('SELECT COUNT(DISTINCT player_id) AS n FROM check_ins')],
+    ['Signed up', count(`SELECT COUNT(*) AS n FROM players WHERE ${notTestSql('id')}`)],
+    ['Checked in', count(`SELECT COUNT(DISTINCT player_id) AS n FROM check_ins WHERE ${notTestSql('player_id')}`)],
     [
       'Played a game',
       count(
         `SELECT COUNT(DISTINCT player_id) AS n FROM game_results
-         WHERE player_id IN (SELECT player_id FROM check_ins)`
+         WHERE player_id IN (SELECT player_id FROM check_ins WHERE ${notTestSql('player_id')})`
       ),
     ],
     [
@@ -1716,7 +1729,7 @@ function getFunnel() {
       count(
         `SELECT COUNT(*) AS n FROM (
            SELECT player_id FROM player_active_days
-           WHERE player_id IN (SELECT player_id FROM check_ins)
+           WHERE player_id IN (SELECT player_id FROM check_ins WHERE ${notTestSql('player_id')})
              AND player_id IN (SELECT player_id FROM game_results)
            GROUP BY player_id HAVING COUNT(*) >= 2
          )`
@@ -1824,11 +1837,50 @@ async function getNearbyOpenCourts(lat, lng) {
 // time anyone interacts with it (check in, start a run, or follow it) —
 // idempotent on osm_id, so a second player's first interaction reuses the
 // park the first player's created instead of duplicating it.
+// Two parks can't sit within 150 m of each other.
+const PARK_DUPLICATE_METERS = 150;
+// A player this close to a dropped pin can add the park right away.
+const AT_SPOT_METERS = 250;
+
+function findParkNear(lat, lng, meters) {
+  let nearest = null;
+  for (const park of db.prepare('SELECT id, name, lat, lng FROM parks WHERE lat IS NOT NULL').all()) {
+    const d = haversineMeters(lat, lng, park.lat, park.lng);
+    if (d <= meters && (!nearest || d < nearest.distance)) nearest = { ...park, distance: d };
+  }
+  return nearest;
+}
+
+// A park a player created at the spot: one court, added by them.
+function createParkFromSpot(name, lat, lng, playerId) {
+  db.prepare('INSERT INTO parks (name, lat, lng, added_by_player_id) VALUES (?, ?, ?, ?)').run(name, lat, lng, playerId);
+  const parkId = lastId();
+  db.prepare("INSERT INTO courts (park_id, number, nickname) VALUES (?, 1, 'Main')").run(parkId);
+  return parkId;
+}
+
+// A park a player added is "New" until three different players have checked in.
+function isNewPark(parkId) {
+  const row = db
+    .prepare(
+      `SELECT p.added_by_player_id AS addedBy,
+              (SELECT COUNT(DISTINCT ci.player_id) FROM check_ins ci
+               WHERE ci.park_id = p.id) AS checkedIn
+       FROM parks p WHERE p.id = ?`
+    )
+    .get(parkId);
+  return !!row && row.addedBy !== null && row.checkedIn < 3;
+}
+
 function findOrCreateParkAndCourtFromOsm(osmId, name, lat, lng) {
   const existingPark = db.prepare('SELECT id FROM parks WHERE osm_id = ?').get(osmId);
   let parkId;
+  // Already a park within 150 m (say, one made from another pin): use it rather than a duplicate.
+  const nearby = !existingPark && Number.isFinite(lat) && Number.isFinite(lng) ? findParkNear(lat, lng, PARK_DUPLICATE_METERS) : null;
   if (existingPark) {
     parkId = existingPark.id;
+  } else if (nearby) {
+    parkId = nearby.id;
   } else {
     db.prepare('INSERT INTO parks (name, lat, lng, osm_id) VALUES (?, ?, ?, ?)').run(
       name || 'Open court',
@@ -2372,6 +2424,14 @@ function getLiveVersion() {
 module.exports = {
   getLiveVersion,
   formatAggregate,
+  notTestSql,
+  testPlayerIds,
+  findParkNear,
+  createParkFromSpot,
+  haversineMeters,
+  isNewPark,
+  PARK_DUPLICATE_METERS,
+  AT_SPOT_METERS,
   nameInitials,
   displayNameError,
   updateDisplayName,

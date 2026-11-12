@@ -454,6 +454,13 @@
 
     document.getElementById('suggestCourtPhotoRemove').addEventListener('click', resetSuggestPhoto);
 
+    // Where the player is, when the browser knows: lets the server add a park
+    // right away if they're standing at the spot.
+    var myPos = null;
+    if (navigator.geolocation) {
+      RoyaleGeo.getPosition(function (pos) { myPos = pos.coords; }, function () {});
+    }
+
     suggestBtn.addEventListener('click', function () {
       if (suggestMode) { closeSuggestPanel(); return; }
       document.getElementById('openCourtPanel').style.display = 'none';
@@ -484,6 +491,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: suggestNameInput.value.trim(), lat: suggestLatLng.lat, lng: suggestLatLng.lng,
+          myLat: myPos ? myPos.latitude : null, myLng: myPos ? myPos.longitude : null,
           photo: suggestPhotoDataUrl,
         }),
       })
@@ -491,9 +499,10 @@
         .then(function (data) {
           if (data.ok) {
             closeSuggestPanel();
-            showToast('Thanks — sent to the organizers for review.', 3000);
+            showToast(data.created ? 'Park added. Check in when you play there.' : 'Thanks — sent to the organizers for review.', 3000);
           } else {
             suggestSubmitBtn.disabled = false;
+            alert(data.error || 'That park could not be added.');
           }
         })
         .catch(function () { suggestSubmitBtn.disabled = false; });
