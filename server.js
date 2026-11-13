@@ -625,7 +625,8 @@ app.post('/runs/:id/coming', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   const run = getRunById(Number(req.params.id), profile.player_id);
   logEvent(profile.player_id, 'im_coming', pagePathFromReferer(req, `/runs/${req.params.id}`), run ? run.parkId : null);
-  rsvpToRun(Number(req.params.id), profile.player_id);
+  const result = rsvpToRun(Number(req.params.id), profile.player_id);
+  if (!result.ok) return res.redirect(`/runs/${req.params.id}?error=${encodeURIComponent(result.error)}`);
   res.redirect(`/runs/${req.params.id}`);
 });
 

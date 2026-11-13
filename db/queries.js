@@ -2286,16 +2286,36 @@ function getUpcomingRunsForCourt(courtId, limit = 5) {
   }));
 }
 
-// A player is coming to one upcoming run at a time. Saying "I'm coming" to
-// another run (say, at a different park) takes them off the earlier one.
+// A run lasts about this long; two runs closer together than this overlap,
+// and nobody can be in two places at once.
+const RUN_LENGTH_MINUTES = 180;
+
+// Saying "I'm coming" to a run that overlaps one you're already on: you stay
+// on the earlier one. Coming to an earlier run drops you from the later one.
 function rsvpToRun(runId, playerId) {
-  const run = db.prepare('SELECT id, cancelled_at FROM runs WHERE id = ?').get(runId);
+  const run = db.prepare('SELECT id, cancelled_at, scheduled_at FROM runs WHERE id = ?').get(runId);
   if (!run) return { ok: false, error: 'Run not found.' };
   if (run.cancelled_at) return { ok: false, error: 'This run was cancelled.' };
-  db.prepare(
-    `DELETE FROM run_rsvps WHERE player_id = ? AND run_id != ?
-       AND run_id IN (SELECT id FROM runs WHERE cancelled_at IS NULL AND scheduled_at >= ?)`
-  ).run(playerId, runId, appNowSql());
+
+  const mine = db
+    .prepare(
+      `SELECT r.id, r.scheduled_at FROM run_rsvps rr JOIN runs r ON r.id = rr.run_id
+       WHERE rr.player_id = ? AND r.id != ? AND r.cancelled_at IS NULL AND r.scheduled_at >= ?`
+    )
+    .all(playerId, runId, appNowSql());
+  const overlaps = (other) =>
+    Math.abs(new Date(other.scheduled_at.replace(' ', 'T')) - new Date(run.scheduled_at.replace(' ', 'T'))) <
+    RUN_LENGTH_MINUTES * 60000;
+  const clashes = mine.filter(overlaps);
+
+  const earlier = clashes.find((other) => other.scheduled_at < run.scheduled_at);
+  if (earlier) {
+    const time = new Date(earlier.scheduled_at.replace(' ', 'T')).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    return { ok: false, error: `You're already coming to a run at ${time} that overlaps this one. You can only be in one place at a time.` };
+  }
+  for (const later of clashes) {
+    db.prepare('DELETE FROM run_rsvps WHERE run_id = ? AND player_id = ?').run(later.id, playerId);
+  }
   db.prepare('INSERT OR IGNORE INTO run_rsvps (run_id, player_id) VALUES (?, ?)').run(runId, playerId);
   return { ok: true };
 }
