@@ -9,7 +9,7 @@
 </head>
 <body class="kotc profile-page">
 <div class="page">
-  <%- include('partials/royale-header', { trophyNote: true }) %>
+  <%- include('partials/royale-header', { trophyNote: true, trophyText: "Crowns reset monthly. Reach purple to earn a trophy that's yours for good." }) %>
 
   <div class="live-part" data-live-key="header" data-live-url="/live/profile/<%= player.player_id %>" data-live-v="<%= liveVersion %>">
     <%- include('partials/profile-header-live', { player: player, initials: initials, tierLabel: tierLabel }) %>

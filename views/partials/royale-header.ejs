@@ -3,5 +3,5 @@
   <div class="royale-reset">Crowns reset in <%= season.daysLeft %> day<%= season.daysLeft === 1 ? '' : 's' %>.</div>
 </div>
 <% if (locals.trophyNote) { %>
-  <div class="royale-trophy-note">Your crown resets, but it's saved as a trophy. Trophies move you up the ladder.</div>
+  <div class="royale-trophy-note"><%= locals.trophyText || "Your crown resets, but it's saved as a trophy. Trophies move you up the ladder." %></div>
 <% } %>
