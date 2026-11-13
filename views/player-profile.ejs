@@ -21,6 +21,11 @@
   </div>
 
   <% if (isSelf) { %>
+    <div class="push-toggle" id="upNextWrap" hidden>
+      <button type="button" id="upNextBtn" class="small-btn">Notify me when I'm up next</button>
+      <p class="invite-line" id="upNextNote"></p>
+    </div>
+    <script src="/up-next.js" defer></script>
     <details class="pf-details" <%= nameError ? 'open' : '' %>>
       <summary class="pf-details-summary">Edit display name</summary>
       <form method="POST" action="/profile/name" class="settings-form" style="margin-top: 10px;">

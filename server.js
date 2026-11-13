@@ -107,6 +107,14 @@ const {
   PARK_DUPLICATE_METERS,
   AT_SPOT_METERS,
 } = require('./db/queries');
+const {
+  pushPublicKey,
+  saveSubscription,
+  removeSubscription,
+  firstWaitingSquadId,
+  courtIdForLiveGame,
+  notifyUpNext,
+} = require('./db/push');
 const { DATA_DIR, writeBackup } = require('./db/index');
 const { geocodeAddress, fillMissingParkLocations, startBackgroundGeocoding } = require('./db/geocode');
 const parkPhotos = require('./db/park-photos');
@@ -1044,8 +1052,37 @@ app.post('/profile/name', requireAuth, (req, res) => {
 
 app.post('/live_games/:id/confirm', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  const result = confirmResult(Number(req.params.id), profile.player_id);
+  const liveGameId = Number(req.params.id);
+  const courtId = courtIdForLiveGame(liveGameId);
+  const headBefore = courtId ? firstWaitingSquadId(courtId) : null;
+  const result = confirmResult(liveGameId, profile.player_id);
+  // A locked result can move a squad to first in line: tell its players.
+  if (result.ok && courtId) {
+    const headAfter = firstWaitingSquadId(courtId);
+    if (headAfter && headAfter !== headBefore) {
+      notifyUpNext(courtId, headAfter).catch((err) => console.error('up-next alert failed', err));
+    }
+  }
   redirectWithResult(req, res, result, '/runs');
+});
+
+// Browser push: the public key, and saving or removing a player's subscription.
+app.get('/api/push/key', requireAuth, (req, res) => {
+  const key = pushPublicKey();
+  if (!key) return res.status(404).json({ ok: false });
+  res.json({ key });
+});
+
+app.post('/api/push/subscribe', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  if (!saveSubscription(profile.player_id, req.body)) return res.status(400).json({ ok: false });
+  res.json({ ok: true });
+});
+
+app.post('/api/push/unsubscribe', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  if (req.body && typeof req.body.endpoint === 'string') removeSubscription(profile.player_id, req.body.endpoint);
+  res.json({ ok: true });
 });
 
 app.get('/profile', requireAuth, (req, res) => {

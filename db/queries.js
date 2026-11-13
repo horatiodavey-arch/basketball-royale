@@ -1837,6 +1837,7 @@ const TRACKED_EVENTS = [
   { name: 'install_prompt_shown', label: 'Add to home screen: card shown' },
   { name: 'install_prompt_dismissed', label: 'Add to home screen: not now' },
   { name: 'opened_from_home_screen', label: 'Opened from home screen (once a day)' },
+  { name: 'push_sent_up_next', label: 'Push sent: up next' },
 ];
 
 // Events a page reports itself (POST /api/events) because the tap never
