@@ -34,9 +34,10 @@
   <% } else { %>
     <div class="here-now-row">
       <% run.rsvps.forEach((p) => { %>
-        <div class="here-now-player">
+        <div class="here-now-player person-chip">
           <div class="here-now-avatar"><%= p.initials %></div>
-          <div class="here-now-name"><%= p.name %></div>
+          <div class="here-now-name"><%= p.name.replace(/\s#\d{4}$/, '') %></div>
+          <%- include('partials/player-preview', { p: p }) %>
         </div>
       <% }); %>
     </div>
@@ -83,6 +84,7 @@
 <%- include('partials/bottom-nav', { active: 'runs' }) %>
 
 <script src="/track.js"></script>
+<script src="/player-preview.js"></script>
 <script>
   (function () {
     var courtName = <%- JSON.stringify(run.courtName).replace(/</g, '\\u003c') %>;
