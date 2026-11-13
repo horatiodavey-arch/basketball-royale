@@ -1,0 +1,83 @@
+<% if (!run) { %>
+<div class="tr-wrap">
+  <div class="tr-card tr-empty">You're not checked in. <a href="/runs">Find a park</a> to see today's run.</div>
+</div>
+<% } else { %>
+<div class="tr-wrap">
+  <div class="tr-head">
+    <div class="tr-kicker">TODAY'S RUN</div>
+    <h1 class="tr-park"><%= run.park.name %></h1>
+    <div class="tr-status">
+      <span class="tr-green">● <%= run.checkedIn %> checked in</span>
+      <% const bits = [run.format, run.startedLabel ? 'Started ' + run.startedLabel : null].filter(Boolean); %>
+      <% if (bits.length) { %><span class="tr-gray">· <%= bits.join(' · ') %></span><% } %>
+    </div>
+  </div>
+
+  <section class="tr-card tr-court">
+    <div class="tr-card-top">
+      <h2 class="tr-title">ON THE COURT</h2>
+      <% if (run.liveNow) { %><span class="tr-live">● Game <%= run.nextGameNo %> live</span><% } %>
+    </div>
+    <% if (run.liveNow) { %>
+      <div class="tr-versus">
+        <% [run.teamA, run.teamB].forEach(function (team, i) { %>
+          <% if (i === 1) { %><div class="tr-vs">VS</div><% } %>
+          <div class="tr-team">
+            <div class="tr-avatars"><% team.people.forEach(function (p) { %><span class="tr-av"><%= p.initials %></span><% }); %></div>
+            <div class="tr-team-name"><%= team.label %></div>
+          </div>
+        <% }); %>
+      </div>
+    <% } else { %>
+      <p class="tr-muted">Court is open. Next two teams in line start the next game.</p>
+    <% } %>
+  </section>
+
+  <% const spot = run.spot; %>
+  <section class="tr-card tr-spot">
+    <% if (spot.kind === 'on') { %>
+      <div class="tr-spot-title">You're on the court</div>
+      <div class="tr-spot-text">Good luck. Confirm the result when you're done.</div>
+    <% } else if (spot.kind === 'up') { %>
+      <div class="tr-spot-title">You're up next</div>
+      <div class="tr-spot-text"><%= run.liveNow ? 'Your team plays the winner of Game ' + run.nextGameNo + '.' : 'Your team plays Game ' + run.nextGameNo + ' next.' %></div>
+    <% } else if (spot.kind === 'back') { %>
+      <div class="tr-spot-title">You're <%= spot.inLine %> in line</div>
+      <div class="tr-spot-text">About <%= spot.games %> <%= spot.games === 1 ? 'game' : 'games' %> until you're on.</div>
+    <% } else { %>
+      <div class="tr-spot-title">You're not in line</div>
+      <div class="tr-spot-text">Got next? Let the court know.</div>
+      <form method="POST" action="/courts/<%= run.courtId %>/next">
+        <button type="submit" class="tr-spot-btn">I got next</button>
+      </form>
+    <% } %>
+  </section>
+
+  <section class="tr-section">
+    <h2 class="tr-title">IN LINE</h2>
+    <% if (run.queue.length === 0) { %><p class="tr-muted">Nobody in line yet.</p><% } %>
+    <% run.queue.forEach(function (row) { %>
+      <div class="tr-row<%= row.isMine ? ' mine' : '' %>">
+        <span class="tr-num"><%= row.number %></span>
+        <span class="tr-row-name"><%= row.label %></span>
+        <span class="tr-avatars"><% row.members.forEach(function (p) { %><span class="tr-av sm"><%= p.initials %></span><% }); %></span>
+      </div>
+    <% }); %>
+  </section>
+
+  <section class="tr-section">
+    <h2 class="tr-title">TODAY'S RESULTS</h2>
+    <% if (run.results.length === 0) { %><p class="tr-muted">No results yet today.</p><% } %>
+    <% run.results.forEach(function (g) { %>
+      <button type="button" class="tr-result" data-game="<%= g.gameId %>">
+        <span class="tr-result-main">
+          <span class="tr-gray">Game <%= g.gameId %></span>
+          <span class="tr-result-line"><strong><%= g.winner %></strong> beat <%= g.loser %></span>
+        </span>
+        <% if (g.mine) { %><span class="tr-tag <%= g.mine === 'W' ? 'w' : 'l' %>"><%= g.mine %></span><% } %>
+      </button>
+    <% }); %>
+  </section>
+</div>
+<% } %>

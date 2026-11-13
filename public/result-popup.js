@@ -125,6 +125,9 @@
       .catch(function () {});
   }
 
+  // Today's run reopens a past result's pop-up through this.
+  window.RoyaleResultPopup = { show: show };
+
   check();
   setInterval(check, 20000);
   document.addEventListener('visibilitychange', check);

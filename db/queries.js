@@ -1385,7 +1385,7 @@ function trophyCountFor(playerId, format) {
 // One pop-up per player for a locked result: what they scored, their crown
 // before and after, and any trophy. Read from the same numbers the points and
 // crowns use; nothing about the scoring changes here.
-function recordResultNotices(game, byPlayer, winningTeam, trophiesBefore) {
+function recordResultNotices(game, byPlayer, winningTeam, trophiesBefore, gameId) {
   const { startSql } = getSeasonWindow();
   const opponentOf = (team) => (team === 'a' ? 'b' : 'a');
   for (const [playerId, info] of byPlayer) {
@@ -1394,6 +1394,7 @@ function recordResultNotices(game, byPlayer, winningTeam, trophiesBefore) {
     const winPoints = won ? 3 : 0;
     const gained = roundTenth(winPoints + 1 + hours);
     let snapshot = {
+      gameNo: gameId,
       outcome: won ? 'win' : 'loss',
       format: game.format || null,
       parkId: game.park_id,
@@ -1425,6 +1426,143 @@ function recordResultNotices(game, byPlayer, winningTeam, trophiesBefore) {
       `INSERT OR IGNORE INTO result_notices (player_id, live_game_id, kind, snapshot) VALUES (?, ?, 'result', ?)`
     ).run(playerId, game.id, JSON.stringify(snapshot));
   }
+}
+
+// Today's run: the park a player is checked in at (fresh check-in only), the
+// court in use, the queue, the game on it, and today's results there.
+function currentCheckInParkId(playerId) {
+  const row = db
+    .prepare(`SELECT park_id FROM check_ins WHERE player_id = ? AND last_inside >= ${FRESH_SINCE_SQL} ORDER BY last_inside DESC LIMIT 1`)
+    .get(playerId);
+  return row ? row.park_id : null;
+}
+
+// Midnight today in the app's timezone, as a UTC SQL timestamp.
+function startOfAppDayUtcSql() {
+  const now = new Date();
+  const localNow = appNowSql(now);
+  const offsetMs = new Date(localNow.replace(' ', 'T') + 'Z') - now;
+  const midnight = new Date(localNow.slice(0, 10) + 'T00:00:00Z');
+  return new Date(midnight.getTime() - offsetMs).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function stripTag(name) {
+  return String(name || '').replace(/\s#\d+$/, '');
+}
+
+function firstName(name) {
+  return stripTag(name).split(' ')[0] || 'Team';
+}
+
+function initialsOf(name) {
+  return nameInitials(stripTag(name));
+}
+
+// Clock time (e.g. 7:05 PM) in the app's timezone, from a UTC SQL timestamp.
+function clockLabel(utcSql) {
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: APP_TIMEZONE, hour: 'numeric', minute: '2-digit' });
+  return fmt.format(new Date(String(utcSql).replace(' ', 'T') + 'Z'));
+}
+
+function getTodaysRunVersion(parkId) {
+  if (!parkId) return 'none';
+  const courtIds = `SELECT id FROM courts WHERE park_id = ${Number(parkId)}`;
+  return db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM check_ins WHERE park_id = ?) || ':' ||
+              (SELECT COUNT(*) FROM game_results WHERE park_id = ?) || ':' ||
+              (SELECT COUNT(*) FROM next_line WHERE court_id IN (${courtIds})) || ':' ||
+              (SELECT COUNT(*) FROM next_line WHERE confirmed = 1 AND court_id IN (${courtIds})) || ':' ||
+              (SELECT COALESCE(GROUP_CONCAT(id || status), '') FROM live_games WHERE park_id = ?) AS v`
+    )
+    .get(parkId, parkId, parkId).v;
+}
+
+function getTodaysRun(playerId) {
+  const parkId = currentCheckInParkId(playerId);
+  if (!parkId) return null;
+  const park = getParkById(parkId);
+  // The court in use: one with a game on it, then the longest queue.
+  const court = getCourtsByPark(parkId)
+    .map((c) => ({ c, live: getActiveLiveGame(c.id) ? 1 : 0, queue: getWaitingSquads(c.id).length }))
+    .sort((a, b) => b.live - a.live || b.queue - a.queue)[0].c;
+  const screen = getCourtScreen(court.id, playerId);
+  const live = screen.liveGame;
+  const gameNo = nextGameId();
+  const people = (team) => team.map((p) => ({ id: p.playerId, name: p.name, initials: initialsOf(p.name) }));
+  const teamLabel = (team) => {
+    const cap = team.find((p) => p.captain) || team[0];
+    return cap ? firstName(cap.name) : 'Team';
+  };
+
+  const queue = screen.queue.map((squad, i) => {
+    const cap = squad.roster.find((p) => p.isCaptain) || squad.roster[0];
+    return {
+      number: i + 1,
+      label: cap ? firstName(cap.name) : 'Team',
+      members: squad.roster.map((p) => ({ id: p.id, name: p.name, initials: initialsOf(p.name) })),
+      isMine: squad.roster.some((p) => p.id === playerId),
+    };
+  });
+  const myIndex = screen.queue.findIndex((s) => s.roster.some((p) => p.id === playerId));
+
+  let spot = { kind: 'out' };
+  if (screen.viewerPlaying) spot = { kind: 'on' };
+  else if (myIndex === 0 || myIndex === 1) spot = { kind: 'up' };
+  else if (myIndex >= 2) spot = { kind: 'back', inLine: myIndex + 1, games: Math.ceil((myIndex - 1) / 2) };
+
+  const results = db
+    .prepare(
+      `SELECT gr.game_id AS gameId, MAX(gr.date) AS at, MAX(gr.format) AS format
+       FROM game_results gr WHERE gr.park_id = ? AND gr.date >= ?
+       GROUP BY gr.game_id ORDER BY at DESC, gr.game_id DESC LIMIT 20`
+    )
+    .all(parkId, startOfAppDayUtcSql())
+    .map((g) => {
+      const rows = db
+        .prepare(
+          `SELECT gr.player_id AS playerId, gr.result, ${DISPLAY_NAME} AS name
+           FROM game_results gr JOIN players p ON p.id = gr.player_id JOIN users u ON u.id = p.user_id
+           WHERE gr.game_id = ? AND gr.park_id = ?`
+        )
+        .all(g.gameId, parkId);
+      const winner = rows.find((r) => r.result === 'win');
+      const loser = rows.find((r) => r.result === 'loss');
+      const mine = rows.find((r) => r.playerId === playerId);
+      return {
+        gameId: g.gameId,
+        format: g.format || null,
+        winner: winner ? firstName(winner.name) : 'Team',
+        loser: loser ? firstName(loser.name) : 'Team',
+        mine: mine ? (mine.result === 'win' ? 'W' : 'L') : null,
+      };
+    });
+
+  return {
+    park: { id: park.id, name: park.name, city: park.city || null },
+    checkedIn: getCheckedInPlayers(parkId).length,
+    courtName: court.name,
+    courtId: court.id,
+    format: (live && live.format) || court.format || null,
+    startedLabel: live && live.started_at ? clockLabel(live.started_at) : null,
+    liveNow: !!live,
+    nextGameNo: gameNo,
+    teamA: live ? { label: teamLabel(live.teamA), people: people(live.teamA) } : null,
+    teamB: live ? { label: teamLabel(live.teamB), people: people(live.teamB) } : null,
+    queue,
+    spot,
+    results,
+  };
+}
+
+// The result pop-up for one game (seen or not), for reopening it.
+function getResultNoticeForGame(playerId, gameNo) {
+  return db
+    .prepare(
+      `SELECT live_game_id, kind, snapshot, created_at FROM result_notices
+       WHERE player_id = ? AND kind = 'result' AND json_extract(snapshot, '$.gameNo') = ?`
+    )
+    .get(playerId, gameNo) || null;
 }
 
 // Unseen result pop-ups for a player, newest first.
@@ -1478,7 +1616,7 @@ function lockResult(game) {
     recordMilestone(playerId, 'first_game');
   }
   if (game.format) awardFormatTrophies([...byPlayer.keys()], game.format);
-  recordResultNotices(game, byPlayer, winningTeam, trophiesBefore);
+  recordResultNotices(game, byPlayer, winningTeam, trophiesBefore, gameId);
 
   db.prepare(`UPDATE live_games SET status = 'done', locked_at = datetime('now') WHERE id = ?`).run(game.id);
 
@@ -1672,6 +1810,7 @@ const TRACKED_EVENTS = [
   { name: 'app_open', label: 'App open (once a day)' },
   { name: 'check_in', label: 'Check in' },
   { name: 'i_got_next', label: 'I got next' },
+  { name: 'todays_run_opened', label: "Today's run opened" },
   { name: 'start_a_run', label: 'Start a run' },
   { name: 'im_coming', label: "I'm coming" },
   { name: 'invite_friends', label: 'Invite friends' },
@@ -2579,6 +2718,10 @@ module.exports = {
   checkOut,
   getUnseenResultNotices,
   markResultNoticesSeen,
+  getResultNoticeForGame,
+  getTodaysRun,
+  getTodaysRunVersion,
+  currentCheckInParkId,
   isNewPark,
   isFollowingCourt,
   PARK_DUPLICATE_METERS,
