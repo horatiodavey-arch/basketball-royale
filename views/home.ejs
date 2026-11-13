@@ -12,7 +12,7 @@
 <body class="kotc">
 <div class="page map-page">
 
-  <%- include('partials/royale-header', { trophyNote: true }) %>
+  <% if (pins.length === 0) { %><%- include('partials/royale-header', { trophyNote: true }) %><% } %>
 
   <% if (showIntro) { %><%- include('partials/how-it-works-card', { returnTo: '/' }) %><% } %>
   <% if (!anyLive) { %><div class="empty-state">No runs live right now. Follow a park to know when one starts.</div><% } %>
@@ -35,6 +35,7 @@
   <% } else { %>
     <div id="locationBanner" class="location-banner" style="display: none;"></div>
     <div class="map-wrap">
+      <div class="map-float-top"><%- include('partials/royale-header', { trophyNote: true }) %></div>
       <div id="map" class="leaflet-map"></div>
       <button type="button" id="suggestCourtBtn" class="suggest-court-btn">+ Suggest a court</button>
       <div id="suggestCourtPanel" class="suggest-court-panel" style="display: none;">
@@ -74,21 +75,30 @@
       </div>
       <div class="sheet-meta">
         <span class="sheet-dot <%= sheet.activeCount > 0 ? 'sheet-dot-active' : 'sheet-dot-idle' %>"></span>
-        <%= sheet.activeCount %> active now &middot; <%= sheet.liveCount %> game<%= sheet.liveCount === 1 ? '' : 's' %> live
+        <span class="sheet-active"><%= sheet.activeCount %> active now</span> &middot; <%= sheet.liveCount %> game<%= sheet.liveCount === 1 ? '' : 's' %> live
       </div>
       <div id="sheetDistance" class="sheet-distance"></div>
       <div id="sheetPhotoStatus" class="park-photo-status"></div>
 
-      <% if (sheet.king) { %>
-        <div class="king-card sheet-king-card">
-          <div class="king-label">KING OF THE COURT</div>
-          <div class="king-crown">
+      <% if (!sheet.king) { %>
+        <div class="king-card sheet-king-card sheet-king-empty">
+          <div class="sheet-king-body">
+            <div class="king-label">KING OF THE COURT</div>
+            <div class="sheet-king-empty-text">No King yet. Win a game to take the crown.</div>
+          </div>
+        </div>
+      <% } else { %>
+        <a href="/players/<%= sheet.king.playerId %>" class="king-card sheet-king-card">
+          <div class="sheet-king-crown">
             <%- include('partials/crown-icon', { size: 26, fill: sheet.king.crown ? sheet.king.crown.fill : 'none', stroke: sheet.king.crown ? sheet.king.crown.stroke : 'var(--muted)' }) %>
           </div>
-          <div class="king-name heading"><%= sheet.king.name %></div>
-          <div class="king-level"><%= sheet.king.crown ? sheet.king.crown.name : 'No crown yet' %></div>
+          <div class="sheet-king-body">
+            <div class="king-label">KING OF THE COURT</div>
+            <div class="king-name heading"><%= sheet.king.name.replace(/\s#\d{4}$/, '') %></div>
+            <div class="king-level"><%= sheet.king.crown ? sheet.king.crown.name : 'No crown yet' %></div>
+          </div>
           <div class="king-points heading"><%= sheet.king.points %> <span>pts</span></div>
-        </div>
+        </a>
       <% } %>
 
       <div class="here-now-head">
@@ -102,14 +112,14 @@
       <% } else { %>
         <div class="here-now-row">
           <% sheet.hereNow.slice(0, 5).forEach((p) => { %>
-            <div class="here-now-player">
+            <a href="/players/<%= p.id %>" class="here-now-player">
               <div class="here-now-avatar <%= p.id === profile.player_id ? 'here-now-avatar-you' : '' %>">
                 <%= p.initials %>
                 <span class="here-now-crown"><%- include('partials/crown-icon', { size: 13, fill: p.crown ? p.crown.fill : 'none', stroke: p.crown ? p.crown.stroke : 'var(--muted)' }) %></span>
               </div>
-              <div class="here-now-name"><%= p.id === profile.player_id ? 'You' : p.name %></div>
+              <div class="here-now-name"><%= p.id === profile.player_id ? 'You' : p.name.replace(/\s#\d{4}$/, '') %></div>
               <div class="here-now-pts"><%= p.points %> pts</div>
-            </div>
+            </a>
           <% }); %>
         </div>
       <% } %>
@@ -124,7 +134,7 @@
         <% }); %>
       <% } %>
 
-      <div class="sheet-status"><%= sheet.viewerStatus %></div>
+      <% if (sheet.checkedIn && sheet.viewerStatus) { %><div class="sheet-status"><%= sheet.viewerStatus %></div><% } %>
 
       <% if (sheet.checkedIn) { %>
         <div class="sheet-actions">
