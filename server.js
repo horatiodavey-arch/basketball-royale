@@ -27,6 +27,9 @@ const {
   getAllCourtsTimerStatus,
   getParkMapPins,
   getParkKing,
+  getParkStandings,
+  getUnseenResultNotices,
+  markResultNoticesSeen,
   getLiveParkIds,
   getLiveCourtIds,
   markHowItWorksShown,
@@ -649,6 +652,69 @@ app.post('/api/events', requireAuth, (req, res) => {
   }
   const profile = getPlayerProfile(req.session.userId);
   logEvent(profile.player_id, name, pagePathFromReferer(req, '/'));
+  res.json({ ok: true });
+});
+
+// The newest unseen result for this player, with the park gap and crown
+// progress as they stand now. Older unseen ones are counted, not sent.
+app.get('/api/result-popups', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const rows = getUnseenResultNotices(profile.player_id);
+  if (rows.length === 0) return res.json({ ok: true, count: 0 });
+  const latest = rows[0];
+  const s = JSON.parse(latest.snapshot);
+  const park = getParkById(s.parkId);
+  const season = getSeasonWindow();
+  const out = {
+    ok: true,
+    count: rows.length,
+    liveGameId: latest.live_game_id,
+    kind: latest.kind,
+    outcome: latest.kind === 'voided' ? 'voided' : s.outcome,
+    parkName: park ? park.name : 'this park',
+    parkId: s.parkId,
+    courtId: s.courtId,
+    format: s.format,
+    myTeam: s.myTeam || null,
+    oppTeam: s.oppTeam || null,
+    winPoints: s.winPoints ?? 0,
+    playedPoints: s.playedPoints ?? 0,
+    hours: s.hours ?? 0,
+    gained: s.gained ?? 0,
+    legacy: latest.kind !== 'voided' && !s.format,
+    pointsAfter: s.pointsAfter ?? null,
+    crownAfter: s.crownAfter || null,
+    newCrown: !!s.newCrown,
+    trophyEarned: !!s.trophyEarned,
+    trophyCount: s.trophyCount ?? 0,
+    nextCrown: null,
+    progress: null,
+    parkGap: null,
+    isKing: false,
+  };
+  if (latest.kind !== 'voided' && s.format) {
+    const after = s.pointsAfter ?? 0;
+    const next = CROWN_LEVELS.filter((l) => l.min > after).sort((a, b) => a.min - b.min)[0] || null;
+    const fromMin = s.crownAfter ? s.crownAfter.min : 0;
+    out.nextCrown = next ? { name: next.name, min: next.min } : null;
+    out.progress = next ? Math.max(0, Math.min(1, (after - fromMin) / (next.min - fromMin))) : 1;
+    const standings = getParkStandings(s.parkId, season.startSql);
+    const me = standings.find((r) => r.playerId === profile.player_id);
+    const king = getParkKing(s.parkId, season.startSql);
+    if (king && king.playerId === profile.player_id) {
+      out.isKing = true;
+    } else if (king) {
+      out.parkGap = roundTenth(king.points - (me ? me.points : 0));
+    }
+  }
+  res.json(out);
+});
+
+// Marks every unseen pop-up for this player as seen, so each shows once.
+app.post('/api/result-popups/seen', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const changed = markResultNoticesSeen(profile.player_id);
+  if (changed > 0) logEvent(profile.player_id, 'result_popup_seen', pagePathFromReferer(req, '/'));
   res.json({ ok: true });
 });
 

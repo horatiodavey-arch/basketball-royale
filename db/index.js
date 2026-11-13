@@ -478,6 +478,19 @@ function migrateKingOfTheCourtColumns() {
   // player tapped "Got it" (after which it never shows again).
   addColumnIfMissing('users', 'how_it_works_shown_at', 'TEXT');
   addColumnIfMissing('users', 'how_it_works_dismissed_at', 'TEXT');
+  // One pop-up per player per result: written when a result locks or is voided,
+  // marked seen once shown. Additive; nothing else reads it.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS result_notices (
+        player_id     INTEGER NOT NULL REFERENCES players(id),
+        live_game_id  INTEGER NOT NULL,
+        kind          TEXT NOT NULL,
+        snapshot      TEXT NOT NULL,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        seen_at       TEXT,
+        PRIMARY KEY (player_id, live_game_id, kind)
+    );
+  `);
   addColumnIfMissing('game_results', 'format', 'TEXT');
   // A squad's captain confirms the roster; any roster or captain change clears it.
   addColumnIfMissing('next_line', 'confirmed', 'INTEGER NOT NULL DEFAULT 0');

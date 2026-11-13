@@ -1249,6 +1249,12 @@ function logRosterEdit(liveGameId, team, playerId, action, actorPlayerId) {
 function voidPendingResult(game, note) {
   if (game.status !== 'awaiting_confirmation') return;
   if (game.result_submitted_by) logEvent(game.result_submitted_by, 'result_voided', null, game.park_id);
+  const roster = db.prepare('SELECT DISTINCT player_id FROM live_game_players WHERE live_game_id = ?').all(game.id);
+  for (const { player_id } of roster) {
+    db.prepare(
+      `INSERT OR IGNORE INTO result_notices (player_id, live_game_id, kind, snapshot) VALUES (?, ?, 'voided', ?)`
+    ).run(player_id, game.id, JSON.stringify({ format: game.format || null, parkId: game.park_id, courtId: game.court_id }));
+  }
   db.prepare(
     `UPDATE live_games SET status = 'in_progress', team_a_won = NULL, confirmed_a = 0, confirmed_b = 0,
        result_submitted_at = NULL, result_submitted_by = NULL, result_note = ? WHERE id = ?`
@@ -1372,6 +1378,72 @@ function expireStaleResult(game) {
 // Saves game_results for every player who took the court, starts the
 // between-games countdown (winners stay on vs. whoever's next in line),
 // or — if nobody's waiting — re-queues the winners at the front.
+function trophyCountFor(playerId, format) {
+  return db.prepare('SELECT COUNT(*) AS n FROM format_trophies WHERE player_id = ? AND format = ?').get(playerId, format).n;
+}
+
+// One pop-up per player for a locked result: what they scored, their crown
+// before and after, and any trophy. Read from the same numbers the points and
+// crowns use; nothing about the scoring changes here.
+function recordResultNotices(game, byPlayer, winningTeam, trophiesBefore) {
+  const { startSql } = getSeasonWindow();
+  const opponentOf = (team) => (team === 'a' ? 'b' : 'a');
+  for (const [playerId, info] of byPlayer) {
+    const won = info.team === winningTeam;
+    const hours = roundTenth(Math.max(info.minutes, 0) / 60);
+    const winPoints = won ? 3 : 0;
+    const gained = roundTenth(winPoints + 1 + hours);
+    let snapshot = {
+      outcome: won ? 'win' : 'loss',
+      format: game.format || null,
+      parkId: game.park_id,
+      courtId: game.court_id,
+      myTeam: info.team.toUpperCase(),
+      oppTeam: opponentOf(info.team).toUpperCase(),
+      winPoints,
+      playedPoints: game.format ? 1 : 0,
+      hours,
+      gained: game.format ? gained : 0,
+    };
+    if (game.format) {
+      const after = formatAggregate(playerId, game.format, startSql).points;
+      const trophyEarned = trophyCountFor(playerId, game.format) > (trophiesBefore.get(playerId) || 0);
+      const before = trophyEarned ? null : Math.max(0, roundTenth(after - gained));
+      const crownBefore = before === null ? CROWN_LEVELS[0] : getCrownLevel(before);
+      const crownAfter = getCrownLevel(after);
+      snapshot = {
+        ...snapshot,
+        pointsAfter: roundTenth(after),
+        crownBefore: crownBefore ? { name: crownBefore.name, min: crownBefore.min } : null,
+        crownAfter: crownAfter ? { name: crownAfter.name, min: crownAfter.min, fill: crownAfter.fill, stroke: crownAfter.stroke } : null,
+        newCrown: !!crownAfter && (!crownBefore || crownAfter.min > crownBefore.min),
+        trophyEarned,
+        trophyCount: trophyCountFor(playerId, game.format),
+      };
+    }
+    db.prepare(
+      `INSERT OR IGNORE INTO result_notices (player_id, live_game_id, kind, snapshot) VALUES (?, ?, 'result', ?)`
+    ).run(playerId, game.id, JSON.stringify(snapshot));
+  }
+}
+
+// Unseen result pop-ups for a player, newest first.
+function getUnseenResultNotices(playerId) {
+  return db
+    .prepare(
+      `SELECT live_game_id, kind, snapshot, created_at FROM result_notices
+       WHERE player_id = ? AND seen_at IS NULL ORDER BY created_at DESC, live_game_id DESC`
+    )
+    .all(playerId);
+}
+
+// Marks every unseen pop-up for a player as seen. Returns how many changed.
+function markResultNoticesSeen(playerId) {
+  return db
+    .prepare("UPDATE result_notices SET seen_at = datetime('now') WHERE player_id = ? AND seen_at IS NULL")
+    .run(playerId).changes;
+}
+
 function lockResult(game) {
   // Capture who was still actually on the court BEFORE the final sweep
   // closes everyone out — a player already subbed/marked-left earlier
@@ -1398,11 +1470,15 @@ function lockResult(game) {
 
   const winningTeam = game.team_a_won ? 'a' : 'b';
   const gameId = nextGameId();
+  const trophiesBefore = game.format
+    ? new Map([...byPlayer.keys()].map((pid) => [pid, trophyCountFor(pid, game.format)]))
+    : new Map();
   for (const [playerId, info] of byPlayer) {
     applyGameResult(gameId, game.park_id, game.court_id, playerId, info.team === winningTeam ? 'win' : 'loss', Math.max(info.minutes, 0), game.format);
     recordMilestone(playerId, 'first_game');
   }
   if (game.format) awardFormatTrophies([...byPlayer.keys()], game.format);
+  recordResultNotices(game, byPlayer, winningTeam, trophiesBefore);
 
   db.prepare(`UPDATE live_games SET status = 'done', locked_at = datetime('now') WHERE id = ?`).run(game.id);
 
@@ -1607,6 +1683,7 @@ const TRACKED_EVENTS = [
   { name: 'run_cancelled', label: 'Run cancelled' },
   { name: 'run_edited', label: 'Run edited' },
   { name: 'check_out', label: 'Check out' },
+  { name: 'result_popup_seen', label: 'Result pop-up seen' },
   { name: 'how_it_works_seen', label: 'How it works: shown' },
   { name: 'how_it_works_dismissed', label: 'How it works: Got it' },
   { name: 'how_it_works_reopened', label: 'How it works: reopened' },
@@ -2500,6 +2577,8 @@ module.exports = {
   createParkFromSpot,
   haversineMeters,
   checkOut,
+  getUnseenResultNotices,
+  markResultNoticesSeen,
   isNewPark,
   isFollowingCourt,
   PARK_DUPLICATE_METERS,
