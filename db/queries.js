@@ -763,6 +763,30 @@ function checkIn(playerId, parkId, lat, lng, accuracy) {
   return { ok: true };
 }
 
+// Check out: removes the check-in, and takes the player out of any waiting
+// squad at this park, so nobody is shown here or queued for it after leaving.
+// Refused while they're in a game here: they finish it first.
+function checkOut(playerId, parkId) {
+  const inGame = db
+    .prepare(
+      `SELECT 1 FROM live_game_players lgp
+       JOIN live_games lg ON lg.id = lgp.live_game_id
+       WHERE lgp.player_id = ? AND lg.park_id = ? AND lgp.time_off IS NULL
+         AND lg.status IN ('countdown', 'in_progress', 'awaiting_confirmation')`
+    )
+    .get(playerId, parkId);
+  if (inGame) return { ok: false, error: "You're in a game here. Finish it before you check out." };
+
+  const waitingSquads = `SELECT nl.id FROM next_line nl JOIN courts c ON c.id = nl.court_id
+                         WHERE c.park_id = ? AND nl.status = 'waiting'`;
+  db.prepare(`DELETE FROM next_line_members WHERE player_id = ? AND next_line_id IN (${waitingSquads})`).run(playerId, parkId);
+  db.prepare(`DELETE FROM next_line_members WHERE next_line_id IN (${waitingSquads}) AND next_line_id IN (SELECT id FROM next_line WHERE captain_player_id = ?)`).run(parkId, playerId);
+  db.prepare(`DELETE FROM next_line WHERE status = 'waiting' AND captain_player_id = ? AND court_id IN (SELECT id FROM courts WHERE park_id = ?)`).run(playerId, parkId);
+  db.prepare('DELETE FROM check_ins WHERE player_id = ? AND park_id = ?').run(playerId, parkId);
+  logEvent(playerId, 'check_out', `/parks/${parkId}`, parkId);
+  return { ok: true };
+}
+
 // last_seen always advances (we heard from the client); last_inside only
 // advances when their reported position is within the park's
 // leave_radius_meters — that's the clock that actually gates presence.
@@ -1581,6 +1605,7 @@ const TRACKED_EVENTS = [
   { name: 'lobby_join_try', label: 'Try to join a lobby (paid)' },
   { name: 'run_cancelled', label: 'Run cancelled' },
   { name: 'run_edited', label: 'Run edited' },
+  { name: 'check_out', label: 'Check out' },
   { name: 'how_it_works_seen', label: 'How it works: shown' },
   { name: 'how_it_works_dismissed', label: 'How it works: Got it' },
   { name: 'how_it_works_reopened', label: 'How it works: reopened' },
@@ -2431,6 +2456,7 @@ module.exports = {
   findParkNear,
   createParkFromSpot,
   haversineMeters,
+  checkOut,
   isNewPark,
   isFollowingCourt,
   PARK_DUPLICATE_METERS,

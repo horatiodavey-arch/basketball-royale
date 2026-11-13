@@ -919,3 +919,8 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .sheet-king-card, .sheet-king-card .sheet-king-body { text-align: left; }
 .here-now-row { justify-content: space-between; gap: 4px; }
 .here-now-row .here-now-player { flex: 1 1 0; width: auto; min-width: 0; }
+
+/* Check out: the checked-in button is tappable again (ask first, then leave). */
+.check-out-form { flex: 1; display: flex; }
+.check-out-form button { width: 100%; }
+.check-in-btn-in { border-color: var(--green); color: var(--green-text); background: var(--green-bg); }

@@ -138,7 +138,9 @@
 
       <% if (sheet.checkedIn) { %>
         <div class="sheet-actions">
-          <button type="button" class="check-in-btn" disabled>Checked in</button>
+          <form method="POST" action="/parks/<%= sheet.park.id %>/check-out" class="check-out-form" onsubmit="return confirm('Check out of <%= sheet.park.name.replace(/'/g, '') %>? You'll leave the here-now list and any squad here.');">
+            <button type="submit" class="check-in-btn check-in-btn-in">Checked in &middot; tap to check out</button>
+          </form>
           <form method="POST" action="/courts/<%= sheet.firstCourtId %>/next">
             <button type="submit" class="submit-btn" <%= sheet.firstCourtId ? '' : 'disabled' %>>I got next</button>
           </form>
