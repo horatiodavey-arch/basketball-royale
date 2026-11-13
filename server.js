@@ -90,6 +90,7 @@ const {
   changeRunTime,
   cancelRun,
   getCancelledRunsForPlayer,
+  checkOut,
   findParkNear,
   createParkFromSpot,
   isNewPark,
@@ -737,6 +738,14 @@ app.get('/park-photos/:filename', (req, res) => {
   if (!photo || !parkPhotos.canViewPhoto(photo, viewer)) return res.status(404).end();
   res.set('Cache-Control', photo.status === 'approved' ? 'public, max-age=604800' : 'private, no-store');
   res.sendFile(parkPhotos.photoPath(photo.filename));
+});
+
+// Check out of a park (the "Checked in" button, tapped again).
+app.post('/parks/:parkId/check-out', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const result = checkOut(profile.player_id, Number(req.params.parkId));
+  if (!result.ok) return res.redirect(`${req.get('Referer') || '/'}?error=${encodeURIComponent(result.error)}`);
+  res.redirect(req.get('Referer') || '/');
 });
 
 app.post('/parks/:parkId/heartbeat', requireAuth, (req, res) => {

@@ -36,7 +36,9 @@
 
   <div class="checkin-row">
     <% if (checkedIn) { %>
-      <span class="checkin-pill checkin-pill-in">Checked in</span>
+      <form method="POST" action="/parks/<%= park.id %>/check-out" class="check-out-form" style="display: inline;" onsubmit="return confirm('Check out of this park? You'll leave the here-now list and any squad here.');">
+        <button type="submit" class="checkin-pill checkin-pill-in">Checked in &middot; tap to check out</button>
+      </form>
     <% } else { %>
       <div id="checkInNormal">
         <button type="button" id="checkInBtn" class="checkin-pill checkin-pill-out">Check in</button>
