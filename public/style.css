@@ -828,7 +828,11 @@ body.profile-page { color: #141414; }
 .pf-badge { aspect-ratio: 1 / 1; background: #E6E6EA; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
 .pf-badge-label { font-family: 'Inter', system-ui, sans-serif; font-size: 11px; color: #555555; text-align: center; margin-top: 6px; line-height: 1.2; }
 .pf-details { margin-bottom: 14px; font-family: 'Inter', system-ui, sans-serif; }
-.pf-details-summary { font-size: 14px; color: #555555; cursor: pointer; }
+.pf-details-summary {
+  font-size: 13px; color: #555555; cursor: pointer; list-style: none; display: inline-block;
+}
+.pf-details-summary::-webkit-details-marker { display: none; }
+.pf-details-summary::marker { content: ''; }
 .pf-invite { margin-bottom: 14px; }
 
 /* First-time card, live badge, empty states and the crown ladder. */
@@ -845,17 +849,28 @@ body.profile-page { color: #141414; }
 .empty-state .empty-sub { font-size: 13px; color: #555555; margin-top: 8px; }
 .park-now { font-size: 14px; color: #141414; margin: 6px 0 12px; }
 .park-now .king-name-text { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; }
-.crown-ladder { display: flex; gap: 8px; margin-bottom: 14px; }
-.crown-ladder-step { flex: 1; min-width: 0; text-align: center; border-radius: 12px; padding: 8px 4px; border: 1px solid #E6E6EA; background: #FFFFFF; }
-.crown-ladder-step.reached { border-color: transparent; background: #F4F4F6; }
-.crown-ladder-step.locked svg { opacity: 0.35; }
-.crown-ladder-name { font-size: 11px; font-weight: 600; color: #141414; margin-top: 4px; line-height: 1.2; }
-.crown-ladder-min { font-size: 11px; color: #555555; margin-top: 2px; }
-.crown-ladder-step.locked .crown-ladder-name { color: #8A8F98; }
+/* Crown ladder: four stacked rows under King of the Court. */
+.crown-ladder { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.crown-ladder-row {
+  display: flex; align-items: center; gap: 10px; background: #FFFFFF; border: 1px solid #E6E6EA;
+  border-radius: 12px; padding: 10px 14px; font-family: 'Inter', system-ui, sans-serif;
+}
+.crown-ladder-icon { flex: none; opacity: 0.4; display: flex; }
+.crown-ladder-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: #555555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crown-ladder-min { flex: none; font-size: 14px; color: #555555; white-space: nowrap; }
 .invite-line { font-size: 13px; color: #555555; margin: 6px 0; }
 
 /* A park a player added, until three players have checked in. */
 .new-badge {
   display: inline-block; background: #6D28D9; color: #FFFFFF; font-family: 'Inter', system-ui, sans-serif;
   font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-left: 6px; vertical-align: middle;
+}
+
+/* Map: the park with the most people active, and the "You" marker. */
+.pin-top { border: 2px solid #D9A520; }
+.you-dot { background: #15803D; box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.3), 0 1px 4px rgba(0, 0, 0, 0.3); }
+.you-label {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); white-space: nowrap;
+  background: #15803D; color: #FFFFFF; font-family: 'Inter', system-ui, sans-serif;
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
 }

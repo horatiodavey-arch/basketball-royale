@@ -198,10 +198,23 @@
       return weekday + ' ' + time;
     }
 
+    // The park with the most people active right now gets the gold treatment.
+    function topActivePinId() {
+      var top = null;
+      pins.forEach(function (p) {
+        if (p.activeCount > 0 && (!top || p.activeCount > top.activeCount)) top = p;
+      });
+      return top ? top.id : null;
+    }
+
     function pinHtml(pin, isSelected, miles) {
+      var isTop = pin.id === topActivePinId();
       var fill = (pin.king && pin.king.crown) ? pin.king.crown.fill : 'none';
       var stroke = (pin.king && pin.king.crown) ? pin.king.crown.stroke : '#9C9A92';
+      if (isTop) { fill = '#D9A520'; stroke = '#8A6408'; }
       var dotClass = pin.activeCount > 0 ? 'pin-dot-active' : 'pin-dot-idle';
+      // Nobody active: no crown, just "0" and a gray dot.
+      var crownHtml = pin.activeCount > 0 ? crownSvg(fill, stroke, 16) : '';
       var label = pin.king ? pin.king.name : pin.name;
       var distanceHtml = miles != null ? '<div class="pin-distance">' + RoyaleGeo.pinDistanceLabel(miles) + '</div>' : '';
       var runHtml = pin.live
@@ -209,8 +222,8 @@
         : (pin.nextRun
           ? '<div class="pin-run">' + formatRunTimeShort(pin.nextRun.scheduledAt) + ' · ' + pin.nextRun.rsvpCount + ' coming</div>'
           : '');
-      return '<div class="kotc-marker-content"><div class="pin' + (isSelected ? ' pin-selected' : '') + '">' +
-        crownSvg(fill, stroke, 16) +
+      return '<div class="kotc-marker-content"><div class="pin' + (isSelected ? ' pin-selected' : '') + (isTop ? ' pin-top' : '') + '">' +
+        crownHtml +
         '<span class="pin-count">' + pin.activeCount + '</span>' +
         '<span class="pin-dot ' + dotClass + '"></span>' +
         '</div><div class="pin-label">' + escapeHtml(label) + distanceHtml + runHtml + '</div></div>';
@@ -534,7 +547,7 @@
       RoyaleGeo.getPosition(function (pos) {
         var youIcon = L.divIcon({
           className: 'kotc-marker',
-          html: '<div class="kotc-dot-content"><div class="you-dot"></div></div>',
+          html: '<div class="kotc-dot-content"><div class="you-dot"></div><div class="you-label">You</div></div>',
           iconSize: [0, 0],
         });
         L.marker([pos.coords.latitude, pos.coords.longitude], { icon: youIcon, zIndexOffset: 1000 }).addTo(map);
