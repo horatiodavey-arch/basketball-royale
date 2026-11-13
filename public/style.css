@@ -908,3 +908,14 @@ body.profile-page { color: #141414; }
 /* Map page: zoom and "Suggest a court" move to the bottom so the ROYALE card has the top. */
 .map-page .leaflet-top.leaflet-left { top: auto; bottom: 40px; }
 .map-page .suggest-court-btn { top: auto; bottom: 46px; right: 12px; }
+
+/* Park sheet: cream King card (a link to the King's profile), the empty King card, and avatar links. */
+.sheet-king-card { background: #F7F1E1; text-decoration: none; color: inherit; }
+.sheet-king-empty { cursor: default; }
+.sheet-king-empty-text { font-size: 15px; color: #141414; font-weight: 600; margin-top: 4px; }
+a.here-now-player { text-decoration: none; color: inherit; }
+.here-now-avatar-you { background: #6D28D9; }
+.see-all-link { color: #6D28D9; }
+.sheet-king-card, .sheet-king-card .sheet-king-body { text-align: left; }
+.here-now-row { justify-content: space-between; gap: 4px; }
+.here-now-row .here-now-player { flex: 1 1 0; width: auto; min-width: 0; }

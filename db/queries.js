@@ -660,22 +660,24 @@ function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
   const king = getParkKing(parkId, seasonStart);
   const pointsByPlayer = new Map(getParkStandings(parkId, seasonStart).map((r) => [r.playerId, r.points]));
 
-  const hereNow = getCheckedInPlayers(parkId).map((p) => ({
-    id: p.id,
-    name: p.name,
-    initials: nameInitials(p.name),
-    points: pointsByPlayer.get(p.id) || 0,
-    crown: getCrownLevel(getPlayerSeasonPoints(p.id, seasonStart)),
-  }));
+  // The current player first, then everyone else by points at this park.
+  const hereNow = getCheckedInPlayers(parkId)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      initials: nameInitials(p.name),
+      points: pointsByPlayer.get(p.id) || 0,
+      crown: getCrownLevel(getPlayerSeasonPoints(p.id, seasonStart)),
+    }))
+    .sort((a, b) => (b.id === viewerPlayerId) - (a.id === viewerPlayerId) || b.points - a.points);
 
-  let viewerStatus;
-  if (!king) {
-    viewerStatus = 'Be the first to put points on the board.';
-  } else if (king.playerId === viewerPlayerId) {
-    viewerStatus = "You're the King of the Court here!";
-  } else {
+  // Shown under the avatars, only to a checked-in player.
+  let viewerStatus = '';
+  if (king && king.playerId === viewerPlayerId) {
+    viewerStatus = "You're the King. Defend your crown.";
+  } else if (king) {
     const behind = roundTenth(king.points - (pointsByPlayer.get(viewerPlayerId) || 0));
-    viewerStatus = `You're ${behind} pts behind the crown`;
+    viewerStatus = `You're ${behind} pts behind the crown.`;
   }
 
   const firstCourt = getCourtsByPark(parkId)[0] || null;
