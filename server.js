@@ -116,6 +116,15 @@ const {
   courtIdForLiveGame,
   notifyUpNext,
 } = require('./db/push');
+const {
+  recordVisit,
+  reachMilestone,
+  markPushed,
+  reachedMilestones,
+  backfillMilestones,
+} = require('./db/milestones');
+const { notifyPlayers, organizerPlayerIds } = require('./db/push');
+backfillMilestones();
 const { DATA_DIR, writeBackup } = require('./db/index');
 const { geocodeAddress, fillMissingParkLocations, startBackgroundGeocoding } = require('./db/geocode');
 const parkPhotos = require('./db/park-photos');
@@ -825,7 +834,23 @@ app.post('/parks/:parkId/check-in', requireAuth, (req, res) => {
   if (typeof lat !== 'number' || typeof lng !== 'number') {
     return res.status(400).json({ ok: false, error: 'Location not available.' });
   }
-  res.json(checkIn(profile.player_id, Number(req.params.parkId), lat, lng, accuracy));
+  const parkId = Number(req.params.parkId);
+  const outcome = checkIn(profile.player_id, parkId, lat, lng, accuracy);
+  if (outcome.ok) {
+    recordVisit(profile.player_id, parkId);
+    const reached = reachMilestone(parkId);
+    if (reached) {
+      const payload = {
+        title: 'Park milestone',
+        body: `${reached.name} just hit 20 players. Time to consider game alerts there.`,
+        url: '/admin',
+      };
+      notifyPlayers(organizerPlayerIds(), payload)
+        .catch((err) => console.error('milestone push failed', err))
+        .finally(() => markPushed(reached.id));
+    }
+  }
+  res.json(outcome);
 });
 
 // A photo of the park, straight from the phone's camera. The body is the
@@ -1226,7 +1251,7 @@ app.post('/admin/logout', (req, res) => {
 
 app.get('/admin', requireAdmin, (req, res) => {
   const dashboard = buildDashboard(req.query.range, req.query.event);
-  res.render('admin-dashboard', { dashboard, tracking: getTrackingCheck(), active: '' });
+  res.render('admin-dashboard', { dashboard, tracking: getTrackingCheck(), milestones: reachedMilestones(), active: '' });
 });
 
 // A full copy of the database for safekeeping. Written to a temporary file

@@ -496,6 +496,21 @@ function migrateKingOfTheCourtColumns() {
       PRIMARY KEY (next_line_id, player_id)
     );
   `);
+  // Park milestones: every successful check-in, once per player per park, and the
+  // parks that reached the milestone (pushed_at is set once the alert went out).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS park_visitors (
+      park_id    INTEGER NOT NULL REFERENCES parks(id),
+      player_id  INTEGER NOT NULL REFERENCES players(id),
+      first_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (park_id, player_id)
+    );
+    CREATE TABLE IF NOT EXISTS park_milestones (
+      park_id     INTEGER PRIMARY KEY REFERENCES parks(id),
+      reached_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      pushed_at   TEXT
+    );
+  `);
   // One pop-up per player per result: written when a result locks or is voided,
   // marked seen once shown. Additive; nothing else reads it.
   db.exec(`
