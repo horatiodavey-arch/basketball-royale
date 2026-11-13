@@ -874,3 +874,37 @@ body.profile-page { color: #141414; }
   background: #15803D; color: #FFFFFF; font-family: 'Inter', system-ui, sans-serif;
   font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
 }
+
+/* Map page: the ROYALE card floats over the top of the map. */
+.map-float-top {
+  position: absolute; top: 12px; left: 12px; right: 12px; z-index: 500; pointer-events: none;
+}
+.map-float-top > * { pointer-events: auto; }
+.map-float-top .royale-bar { margin-bottom: 0; }
+.map-float-top .royale-trophy-note {
+  background: #FFFFFF; border-radius: 12px; margin-top: 8px; padding: 8px 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.map-page .leaflet-map { height: 420px; }
+
+/* Park sheet, as in the mockup: active count in green, a gold King card, a status line. */
+.sheet-active { color: #15803D; font-weight: 600; }
+.sheet-king-card {
+  display: flex; align-items: center; gap: 12px; background: #FBF3DC; border: none;
+  border-radius: 16px; padding: 14px; margin-bottom: 14px;
+}
+.sheet-king-crown {
+  flex: none; width: 48px; height: 48px; border-radius: 50%; background: #FFFFFF;
+  display: flex; align-items: center; justify-content: center;
+}
+.sheet-king-body { flex: 1; min-width: 0; }
+.sheet-king-card .king-label { color: #8A6408; font-size: 11px; font-weight: 600; letter-spacing: 0.6px; }
+.sheet-king-card .king-name { color: #141414; font-size: 20px; }
+.sheet-king-card .king-level { color: #8A6408; font-weight: 600; font-size: 13px; }
+.sheet-king-card .king-points { color: #141414; font-size: 30px; flex: none; }
+.sheet-king-card .king-points span { font-size: 13px; color: #8A6408; font-family: 'Inter', system-ui, sans-serif; }
+.sheet-status { text-align: center; font-size: 14px; color: #141414; margin: 12px 0; }
+
+/* Map page: zoom and "Suggest a court" move to the bottom so the ROYALE card has the top. */
+.map-page .leaflet-top.leaflet-left { top: auto; bottom: 40px; }
+.map-page .suggest-court-btn { top: auto; bottom: 46px; right: 12px; }
