@@ -478,6 +478,24 @@ function migrateKingOfTheCourtColumns() {
   // player tapped "Got it" (after which it never shows again).
   addColumnIfMissing('users', 'how_it_works_shown_at', 'TEXT');
   addColumnIfMissing('users', 'how_it_works_dismissed_at', 'TEXT');
+  // Push: a player's browser subscriptions (no subscription = notifications off),
+  // and one "up next" alert per player per spot in line. Additive only.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      player_id   INTEGER NOT NULL REFERENCES players(id),
+      endpoint    TEXT NOT NULL UNIQUE,
+      p256dh      TEXT NOT NULL,
+      auth        TEXT NOT NULL,
+      created_at  TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS up_next_alerts (
+      next_line_id  INTEGER NOT NULL,
+      player_id     INTEGER NOT NULL REFERENCES players(id),
+      sent_at       TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (next_line_id, player_id)
+    );
+  `);
   // One pop-up per player per result: written when a result locks or is voided,
   // marked seen once shown. Additive; nothing else reads it.
   db.exec(`

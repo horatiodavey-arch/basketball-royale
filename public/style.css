@@ -1050,3 +1050,7 @@ a.here-now-player { text-decoration: none; color: inherit; }
   display: block; margin: 8px auto 0; background: none; border: 0;
   color: #6B6B76; font: inherit; font-size: 14px; cursor: pointer; padding: 4px;
 }
+
+/* --- Up-next alert toggle (profile) --- */
+.push-toggle { margin: 12px 0 4px; }
+.push-toggle[hidden] { display: none; }
