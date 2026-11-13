@@ -1027,3 +1027,26 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .tr-tag { font-weight: 700; font-size: 13px; border-radius: 8px; padding: 4px 9px; }
 .tr-tag.w { background: #DCFCE7; color: #15803D; }
 .tr-tag.l { background: #F4F4F6; color: #6B6B76; }
+
+/* --- Add to home screen card --- */
+.a2hs-card {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  width: calc(100% - 24px); max-width: 356px; z-index: 1100;
+  bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+  background: #FFFFFF; border: 1px solid #E6E6EA; border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16); padding: 16px;
+  font-family: 'Inter', sans-serif; color: #111;
+}
+.a2hs-title { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 18px; text-transform: uppercase; }
+.a2hs-text { font-size: 14px; color: #55555F; margin: 4px 0 10px; }
+.a2hs-steps { margin: 0 0 6px; padding-left: 20px; font-size: 14px; line-height: 1.5; }
+.a2hs-share-icon { vertical-align: -3px; color: #6D28D9; }
+.a2hs-hint { font-size: 14px; margin: 0 0 6px; }
+.a2hs-primary {
+  width: 100%; background: #6D28D9; color: #fff; border: 0; border-radius: 12px;
+  padding: 12px; font-weight: 600; font-size: 15px; cursor: pointer;
+}
+.a2hs-later {
+  display: block; margin: 8px auto 0; background: none; border: 0;
+  color: #6B6B76; font: inherit; font-size: 14px; cursor: pointer; padding: 4px;
+}

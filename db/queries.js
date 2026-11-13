@@ -1834,6 +1834,9 @@ const TRACKED_EVENTS = [
   { name: 'leaderboard_player_tap', label: 'Tapped a player (leaderboard)' },
   { name: 'profile_view', label: 'View a profile' },
   { name: 'how_it_works', label: 'How it works' },
+  { name: 'install_prompt_shown', label: 'Add to home screen: card shown' },
+  { name: 'install_prompt_dismissed', label: 'Add to home screen: not now' },
+  { name: 'opened_from_home_screen', label: 'Opened from home screen (once a day)' },
 ];
 
 // Events a page reports itself (POST /api/events) because the tap never
@@ -1845,6 +1848,9 @@ const CLIENT_REPORTED_EVENTS = [
   'empty_view_live_run',
   'empty_create_run',
   'empty_follow_park',
+  'install_prompt_shown',
+  'install_prompt_dismissed',
+  'opened_from_home_screen',
 ];
 
 // For /admin/stats: total taps, unique players, and an average taps/day
