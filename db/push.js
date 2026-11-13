@@ -44,6 +44,14 @@ function firstWaitingSquadId(courtId) {
   return row ? row.id : null;
 }
 
+// Ids of the squads waiting on a court, in line order.
+function waitingSquadIds(courtId) {
+  return db
+    .prepare(`SELECT id FROM next_line WHERE court_id = ? AND status = 'waiting' ORDER BY position ASC`)
+    .all(courtId)
+    .map((r) => r.id);
+}
+
 function courtIdForLiveGame(liveGameId) {
   const row = db.prepare('SELECT court_id FROM live_games WHERE id = ?').get(liveGameId);
   return row ? row.court_id : null;
@@ -124,6 +132,7 @@ module.exports = {
   saveSubscription,
   removeSubscription,
   firstWaitingSquadId,
+  waitingSquadIds,
   courtIdForLiveGame,
   notifyUpNext,
 };

@@ -112,6 +112,7 @@ const {
   saveSubscription,
   removeSubscription,
   firstWaitingSquadId,
+  waitingSquadIds,
   courtIdForLiveGame,
   notifyUpNext,
 } = require('./db/push');
@@ -1055,11 +1056,14 @@ app.post('/live_games/:id/confirm', requireAuth, (req, res) => {
   const liveGameId = Number(req.params.id);
   const courtId = courtIdForLiveGame(liveGameId);
   const headBefore = courtId ? firstWaitingSquadId(courtId) : null;
+  const queuedBefore = courtId ? waitingSquadIds(courtId) : [];
   const result = confirmResult(liveGameId, profile.player_id);
-  // A locked result can move a squad to first in line: tell its players.
+  // A locked result can move an already-queued squad to first in line: tell its
+  // players. A squad created by the lock (the winners, when nobody was waiting)
+  // is not in the line before, so it gets no alert.
   if (result.ok && courtId) {
     const headAfter = firstWaitingSquadId(courtId);
-    if (headAfter && headAfter !== headBefore) {
+    if (headAfter && headAfter !== headBefore && queuedBefore.includes(headAfter)) {
       notifyUpNext(courtId, headAfter).catch((err) => console.error('up-next alert failed', err));
     }
   }
