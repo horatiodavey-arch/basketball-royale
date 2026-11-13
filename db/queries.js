@@ -2286,11 +2286,23 @@ function getUpcomingRunsForCourt(courtId, limit = 5) {
   }));
 }
 
+// A player is coming to one upcoming run at a time. Saying "I'm coming" to
+// another run (say, at a different park) takes them off the earlier one.
 function rsvpToRun(runId, playerId) {
   const run = db.prepare('SELECT id, cancelled_at FROM runs WHERE id = ?').get(runId);
   if (!run) return { ok: false, error: 'Run not found.' };
   if (run.cancelled_at) return { ok: false, error: 'This run was cancelled.' };
+  db.prepare(
+    `DELETE FROM run_rsvps WHERE player_id = ? AND run_id != ?
+       AND run_id IN (SELECT id FROM runs WHERE cancelled_at IS NULL AND scheduled_at >= ?)`
+  ).run(playerId, runId, appNowSql());
   db.prepare('INSERT OR IGNORE INTO run_rsvps (run_id, player_id) VALUES (?, ?)').run(runId, playerId);
+  return { ok: true };
+}
+
+// Take yourself off a run you said you were coming to.
+function notComingToRun(runId, playerId) {
+  db.prepare('DELETE FROM run_rsvps WHERE run_id = ? AND player_id = ?').run(runId, playerId);
   return { ok: true };
 }
 
@@ -2534,6 +2546,7 @@ module.exports = {
   getRunById,
   getUpcomingRunsForCourt,
   rsvpToRun,
+  notComingToRun,
   isFollowingCourt,
   toggleFollowCourt,
   followCourt,

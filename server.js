@@ -60,6 +60,7 @@ const {
   createRun,
   getRunById,
   rsvpToRun,
+  notComingToRun,
   toggleFollowCourt,
   followCourt,
   getFollowedCourtsForPlayer,
@@ -611,6 +612,13 @@ app.post('/runs/:id/cancel', requireAuth, (req, res) => {
   const result = cancelRun(runId, profile.player_id);
   if (!result.ok) return res.redirect(`/runs/${runId}?error=${encodeURIComponent(result.error)}`);
   res.redirect(`/runs/${runId}`);
+});
+
+// Take yourself off a run you said you were coming to.
+app.post('/runs/:id/not-coming', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  notComingToRun(Number(req.params.id), profile.player_id);
+  res.redirect(`/runs/${req.params.id}`);
 });
 
 app.post('/runs/:id/coming', requireAuth, (req, res) => {
