@@ -112,14 +112,15 @@
       <% } else { %>
         <div class="here-now-row">
           <% sheet.hereNow.slice(0, 5).forEach((p) => { %>
-            <a href="/players/<%= p.id %>" class="here-now-player">
+            <div class="here-now-player person-chip">
               <div class="here-now-avatar <%= p.id === profile.player_id ? 'here-now-avatar-you' : '' %>">
                 <%= p.initials %>
                 <span class="here-now-crown"><%- include('partials/crown-icon', { size: 13, fill: p.crown ? p.crown.fill : 'none', stroke: p.crown ? p.crown.stroke : 'var(--muted)' }) %></span>
               </div>
               <div class="here-now-name"><%= p.id === profile.player_id ? 'You' : p.name.replace(/\s#\d{4}$/, '') %></div>
               <div class="here-now-pts"><%= p.points %> pts</div>
-            </a>
+              <%- include('partials/player-preview', { p: p }) %>
+            </div>
           <% }); %>
         </div>
       <% } %>
@@ -174,6 +175,7 @@
   <% } %>
 </div>
 <%- include('partials/bottom-nav', { active: 'map' }) %>
+<script src="/player-preview.js"></script>
 
 <script src="/geo.js"></script>
 <script src="/track.js"></script>

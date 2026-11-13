@@ -668,6 +668,7 @@ function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
       initials: nameInitials(p.name),
       points: pointsByPlayer.get(p.id) || 0,
       crown: getCrownLevel(getPlayerSeasonPoints(p.id, seasonStart)),
+      ...previewFields(p.id, seasonStart),
     }))
     .sort((a, b) => (b.id === viewerPlayerId) - (a.id === viewerPlayerId) || b.points - a.points);
 
@@ -2240,7 +2241,7 @@ function getRunById(runId, viewerPlayerId) {
        ORDER BY rr.created_at ASC`
     )
     .all(runId)
-    .map((r) => ({ id: r.id, name: r.name, initials: nameInitials(r.name) }));
+    .map((r) => ({ id: r.id, name: r.name, initials: nameInitials(r.name), ...previewFields(r.id) }));
 
   return {
     id: run.id,
@@ -2318,6 +2319,16 @@ function rsvpToRun(runId, playerId) {
   }
   db.prepare('INSERT OR IGNORE INTO run_rsvps (run_id, player_id) VALUES (?, ?)').run(runId, playerId);
   return { ok: true };
+}
+
+// What a tap on someone's avatar previews: tier, this season's crown and games played.
+function previewFields(playerId, seasonStart = getSeasonWindow().startSql) {
+  const row = db.prepare('SELECT tier, games_played FROM players WHERE id = ?').get(playerId);
+  return {
+    tierLabel: row ? row.tier.charAt(0).toUpperCase() + row.tier.slice(1) : '',
+    gamesPlayed: row ? row.games_played : 0,
+    crown: getCrownLevel(getPlayerSeasonPoints(playerId, seasonStart)),
+  };
 }
 
 // Take yourself off a run you said you were coming to.

@@ -924,3 +924,23 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .check-out-form { flex: 1; display: flex; }
 .check-out-form button { width: 100%; }
 .check-in-btn-in { border-color: var(--green); color: var(--green-text); background: var(--green-bg); }
+
+/* Player preview on a tapped avatar (Map sheet and Runs coming list). */
+.here-now-row { overflow: visible; }
+.person-chip { position: relative; cursor: pointer; }
+.person-preview {
+  display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 8px;
+  width: 190px; background: #FFFFFF; border: 1px solid #E6E6EA; border-radius: 12px; padding: 10px 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); z-index: 700; text-align: left; cursor: default;
+  font-family: 'Inter', system-ui, sans-serif; color: #141414; white-space: normal;
+}
+.person-chip:first-child .person-preview { left: 0; transform: none; }
+.person-chip:last-child .person-preview { left: auto; right: 0; transform: none; }
+.person-chip:hover .person-preview, .person-chip.open .person-preview { display: block; }
+.person-preview-name { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 16px; }
+.person-preview-tier {
+  display: inline-block; background: #141414; color: #FFFFFF; font-size: 11px; font-weight: 600;
+  padding: 3px 8px; border-radius: 999px; margin: 4px 0 6px;
+}
+.person-preview-line { font-size: 13px; color: #555555; margin-top: 2px; }
+.person-preview-link { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 600; color: #6D28D9; text-decoration: none; }

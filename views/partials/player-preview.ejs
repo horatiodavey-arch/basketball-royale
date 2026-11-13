@@ -1,0 +1,8 @@
+<%# A short preview on a tapped (or hovered) avatar: tier, crown, games, and a link to the profile. %>
+<div class="person-preview">
+  <div class="person-preview-name"><%= p.name.replace(/\s#\d{4}$/, '') %></div>
+  <div class="person-preview-tier"><%= p.tierLabel %></div>
+  <div class="person-preview-line"><%= p.crown ? p.crown.name : 'No crown yet' %></div>
+  <div class="person-preview-line"><%= p.gamesPlayed %> game<%= p.gamesPlayed === 1 ? '' : 's' %> played</div>
+  <a href="/players/<%= p.id %>" class="person-preview-link">View profile &rsaquo;</a>
+</div>
