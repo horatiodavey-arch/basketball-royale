@@ -944,3 +944,45 @@ a.here-now-player { text-decoration: none; color: inherit; }
 }
 .person-preview-line { font-size: 13px; color: #555555; margin-top: 2px; }
 .person-preview-link { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 600; color: #6D28D9; text-decoration: none; }
+
+/* Result pop-up: a bottom sheet over a dimmed screen. */
+.rp-overlay { position: fixed; inset: 0; background: rgba(20, 20, 20, 0.45); z-index: 2000; display: flex; align-items: flex-end; opacity: 0; transition: opacity 0.2s; }
+.rp-overlay.rp-in { opacity: 1; }
+.rp-sheet {
+  width: 100%; max-width: 390px; margin: 0 auto; background: #FFFFFF; border-radius: 24px 24px 0 0;
+  padding: 10px 20px 22px; box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15); transform: translateY(40px); transition: transform 0.25s ease-out;
+  max-height: 92vh; overflow-y: auto; font-family: 'Inter', system-ui, sans-serif; color: #141414; text-align: center;
+}
+.rp-overlay.rp-in .rp-sheet { transform: translateY(0); }
+.rp-handle { width: 40px; height: 4px; background: #D0D0D6; border-radius: 999px; margin: 0 auto 14px; }
+.rp-more { display: block; text-align: right; font-size: 12px; font-weight: 600; color: #6D28D9; text-decoration: none; margin-bottom: 4px; }
+.rp-icon { width: 72px; height: 72px; border-radius: 50%; margin: 6px auto 12px; display: flex; align-items: center; justify-content: center; }
+.rp-icon-win { background: #F7F1E1; }
+.rp-icon-loss { background: #F4F4F6; }
+.rp-title { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 34px; line-height: 1.1; }
+.rp-beat { font-size: 15px; margin-top: 6px; }
+.rp-meta { font-size: 12px; color: #555555; margin-top: 4px; }
+.rp-confirmed { font-size: 12px; font-weight: 600; color: #15803D; margin-top: 4px; }
+.rp-newcrown { display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; font-size: 15px; margin-top: 14px; }
+.rp-trophy { font-weight: 600; font-size: 15px; color: #6D28D9; margin-top: 12px; }
+.rp-points { background: #F4F4F6; border-radius: 14px; padding: 12px 14px; margin-top: 14px; text-align: left; }
+.rp-row { display: flex; justify-content: space-between; font-size: 14px; padding: 3px 0; }
+.rp-divider { border-top: 1px solid #E6E6EA; margin: 8px 0; }
+.rp-total { font-weight: 600; align-items: center; }
+.rp-total-num { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 24px; color: #15803D; }
+.rp-progress { margin-top: 14px; text-align: left; }
+.rp-progress-labels { display: flex; justify-content: space-between; font-size: 13px; color: #555555; }
+.rp-progress-labels span:first-child { color: #141414; font-weight: 600; }
+.rp-track { height: 10px; background: #E6E6EA; border-radius: 999px; margin-top: 6px; overflow: hidden; }
+.rp-fill { height: 100%; background: #6D28D9; border-radius: 999px; }
+.rp-park { font-size: 14px; color: #141414; margin-top: 14px; }
+.rp-actions { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+.rp-btn { display: block; width: 100%; padding: 14px; border-radius: 999px; font-size: 16px; font-weight: 700; text-decoration: none; border: 2px solid #6D28D9; font-family: inherit; cursor: pointer; text-align: center; box-sizing: border-box; }
+.rp-btn-solid { background: #6D28D9; color: #FFFFFF; }
+.rp-btn-outline { background: #FFFFFF; color: #6D28D9; }
+.rp-link { font-size: 13px; color: #555555; text-decoration: none; }
+.rp-form { margin: 0; }
+.rp-form .rp-btn { width: 100%; }
+.rp-voided { padding: 14px 0 6px; }
+.rp-voided-title { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 24px; color: #555555; }
+.rp-voided-body { font-size: 15px; color: #555555; margin: 8px 0 18px; }
