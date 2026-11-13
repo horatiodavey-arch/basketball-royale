@@ -29,6 +29,10 @@ const {
   getParkKing,
   getParkStandings,
   getUnseenResultNotices,
+  getResultNoticeForGame,
+  getTodaysRun,
+  getTodaysRunVersion,
+  currentCheckInParkId,
   markResultNoticesSeen,
   getLiveParkIds,
   getLiveCourtIds,
@@ -300,6 +304,8 @@ app.get('/', requireAuth, (req, res) => {
     req.session.destroy(() => res.redirect('/signup'));
     return;
   }
+  // A fresh open (no referrer) while checked in lands on Today's run.
+  if (!req.get('referer') && currentCheckInParkId(profile.player_id)) return res.redirect('/todays-run');
   if (!profile.how_it_works_dismissed_at) markHowItWorksShown(profile.player_id);
 
   const season = getSeasonWindow();
@@ -474,6 +480,28 @@ app.get('/live/board', requireAuth, (req, res) => {
   if (req.query.v === version) return res.json({ v: version, changed: false });
   const profile = getPlayerProfile(req.session.userId);
   res.render('partials/board-live', boardContext(req.query, profile), (err, html) => {
+    if (err) return res.status(500).json({ ok: false });
+    res.json({ v: version, changed: true, body: html });
+  });
+});
+
+// Today's run: where a checked-in player lands. Not checked in → the map.
+app.get('/todays-run', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const run = getTodaysRun(profile.player_id);
+  if (!run) return res.redirect('/');
+  logEvent(profile.player_id, 'todays_run_opened', pagePathFromReferer(req, '/todays-run'), run.park.id);
+  res.render('todays-run', { run, playerId: profile.player_id, liveVersion: getTodaysRunVersion(run.park.id) });
+});
+
+// Live refresh for Today's run, same contract as /live/board.
+app.get('/live/todays-run', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parkId = currentCheckInParkId(profile.player_id);
+  const version = getTodaysRunVersion(parkId);
+  if (req.query.v === version) return res.json({ v: version, changed: false });
+  const run = parkId ? getTodaysRun(profile.player_id) : null;
+  res.render('partials/todays-run-body', { run, playerId: profile.player_id }, (err, html) => {
     if (err) return res.status(500).json({ ok: false });
     res.json({ v: version, changed: true, body: html });
   });
@@ -655,19 +683,15 @@ app.post('/api/events', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// The newest unseen result for this player, with the park gap and crown
-// progress as they stand now. Older unseen ones are counted, not sent.
-app.get('/api/result-popups', requireAuth, (req, res) => {
-  const profile = getPlayerProfile(req.session.userId);
-  const rows = getUnseenResultNotices(profile.player_id);
-  if (rows.length === 0) return res.json({ ok: true, count: 0 });
-  const latest = rows[0];
+// The pop-up data for one notice, as the page shows it.
+function popupPayload(latest, count, profile) {
   const s = JSON.parse(latest.snapshot);
   const park = getParkById(s.parkId);
   const season = getSeasonWindow();
   const out = {
     ok: true,
-    count: rows.length,
+    count,
+    playerId: profile.player_id,
     liveGameId: latest.live_game_id,
     kind: latest.kind,
     outcome: latest.kind === 'voided' ? 'voided' : s.outcome,
@@ -707,7 +731,25 @@ app.get('/api/result-popups', requireAuth, (req, res) => {
       out.parkGap = roundTenth(king.points - (me ? me.points : 0));
     }
   }
-  res.json(out);
+  return out;
+}
+
+// The newest unseen result for this player, with the park gap and crown
+// progress as they stand now. Older unseen ones are counted, not sent.
+app.get('/api/result-popups', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const rows = getUnseenResultNotices(profile.player_id);
+  if (rows.length === 0) return res.json({ ok: true, count: 0 });
+  res.json(popupPayload(rows[0], rows.length, profile));
+});
+
+// One result's pop-up, reopened from Today's run (seen or not).
+app.get('/api/result-popups/game/:gameNo', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const gameNo = Number(req.params.gameNo);
+  const row = getResultNoticeForGame(profile.player_id, gameNo);
+  if (!row) return res.status(404).json({ ok: false });
+  res.json(popupPayload(row, 0, profile));
 });
 
 // Marks every unseen pop-up for this player as seen, so each shows once.

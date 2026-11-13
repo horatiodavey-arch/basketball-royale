@@ -986,3 +986,44 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .rp-voided { padding: 14px 0 6px; }
 .rp-voided-title { font-family: 'Oswald', 'Inter', sans-serif; font-weight: 700; font-size: 24px; color: #555555; }
 .rp-voided-body { font-size: 15px; color: #555555; margin: 8px 0 18px; }
+
+/* --- Today's run --- */
+.todays-run-page .tr-wrap { padding: 0 20px 96px; font-family: 'Inter', sans-serif; color: #111; }
+.tr-head { padding-top: 14px; }
+.tr-kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: #6D28D9; }
+.tr-park { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 26px; line-height: 1.15; margin: 4px 0 6px; text-transform: uppercase; }
+.tr-status { font-size: 14px; }
+.tr-green { color: #15803D; font-weight: 600; }
+.tr-gray { color: #6B6B76; }
+.tr-muted { color: #6B6B76; font-size: 14px; margin: 6px 0 0; }
+.tr-title { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 18px; text-transform: uppercase; margin: 0; letter-spacing: 0.02em; }
+.tr-card { border-radius: 16px; padding: 16px; margin-top: 14px; }
+.tr-empty { background: #F4F4F6; font-size: 15px; }
+.tr-empty a { color: #6D28D9; font-weight: 600; }
+.tr-court { background: #F4F4F6; }
+.tr-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tr-live { color: #15803D; font-weight: 600; font-size: 14px; white-space: nowrap; }
+.tr-versus { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.tr-team { flex: 1; min-width: 0; text-align: center; }
+.tr-team-name { font-weight: 600; font-size: 15px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-vs { font-family: 'Oswald', sans-serif; font-weight: 700; color: #6B6B76; font-size: 14px; }
+.tr-avatars { display: flex; justify-content: center; gap: 4px; flex-wrap: wrap; }
+.tr-av { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #fff; border: 1px solid #E6E6EA; font-size: 11px; font-weight: 700; color: #111; }
+.tr-av.sm { width: 24px; height: 24px; font-size: 9px; }
+.tr-spot { background: #6D28D9; color: #fff; }
+.tr-spot-title { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 22px; text-transform: uppercase; }
+.tr-spot-text { font-size: 15px; margin-top: 4px; opacity: 0.95; }
+.tr-spot-btn { margin-top: 12px; background: #fff; color: #6D28D9; border: 0; border-radius: 10px; padding: 10px 16px; font-weight: 700; font-size: 15px; cursor: pointer; }
+.tr-section { margin-top: 22px; }
+.tr-row { display: flex; align-items: center; gap: 10px; border: 1px solid #E6E6EA; border-radius: 12px; padding: 10px 12px; margin-top: 8px; }
+.tr-row.mine { border: 2px solid #6D28D9; }
+.tr-num { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 18px; width: 22px; color: #111; }
+.tr-row.mine .tr-num { color: #6D28D9; }
+.tr-row-name { flex: 1; min-width: 0; font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-row .tr-avatars { justify-content: flex-end; }
+.tr-result { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #fff; border: 1px solid #E6E6EA; border-radius: 12px; padding: 12px; margin-top: 8px; text-align: left; font: inherit; cursor: pointer; }
+.tr-result-main { display: flex; flex-direction: column; min-width: 0; }
+.tr-result-line { font-size: 15px; }
+.tr-tag { font-weight: 700; font-size: 13px; border-radius: 8px; padding: 4px 9px; }
+.tr-tag.w { background: #DCFCE7; color: #15803D; }
+.tr-tag.l { background: #F4F4F6; color: #6B6B76; }

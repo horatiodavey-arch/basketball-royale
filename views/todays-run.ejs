@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Today's run — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc todays-run-page">
+<div class="page">
+  <%- include('partials/royale-header') %>
+
+  <div class="live-part" data-live-key="body" data-live-url="/live/todays-run" data-live-v="<%= liveVersion %>">
+    <%- include('partials/todays-run-body', { run: run, playerId: playerId }) %>
+  </div>
+</div>
+<%- include('partials/bottom-nav', { active: 'runs' }) %>
+<script src="/live.js"></script>
+<script src="/todays-run.js"></script>
+</body>
+</html>
