@@ -84,6 +84,18 @@
     }
   });
 
+  // Back: the screen the player was just on, or the start page when there isn't one.
+  document.addEventListener('click', function (e) {
+    var back = e.target.closest && e.target.closest('[data-back]');
+    if (!back) return;
+    e.preventDefault();
+    var fallback = back.getAttribute('data-back-fallback') || '/';
+    var sameSite = false;
+    try { sameSite = !!document.referrer && new URL(document.referrer).origin === location.origin; } catch (err) { sameSite = false; }
+    if (sameSite && history.length > 1) history.back();
+    else location.href = fallback;
+  });
+
   if (!document.querySelector('.nav-bar')) return;
   check();
   setInterval(check, CHECK_MS);
