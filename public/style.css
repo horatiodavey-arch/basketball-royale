@@ -140,7 +140,7 @@ body.kotc { background: #FFFFFF; padding: 0; }
 
 .page {
   width: 100%; max-width: 380px; background: #FFFFFF;
-  padding: 20px 16px 96px;
+  padding: 20px 16px 136px;
 }
 .page-title { font-size: 26px; line-height: 1.1; margin-bottom: 2px; }
 .page-sub { font-size: 13px; color: var(--text2); margin-bottom: 18px; }
@@ -1085,3 +1085,16 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .gp-yes { background: #DCFCE7; color: #15803D; }
 .gp-no { background: #F4F4F6; color: #111; }
 .gp-still { background: #F4F4F6; color: #6B6B76; }
+
+/* --- Navigation row: Back and How it works, above the tab bar --- */
+.nav-utility {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  width: 100%; max-width: 380px; z-index: 999;
+  bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 16px; background: #FFFFFF; border-top: 1px solid #E6E6EA;
+}
+.nav-util-btn {
+  background: none; border: 0; padding: 6px 2px; font: inherit; font-size: 14px;
+  font-weight: 600; color: #6D28D9; text-decoration: none; cursor: pointer;
+}

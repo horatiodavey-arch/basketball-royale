@@ -16,12 +16,12 @@ const gameFor = (id) => db.prepare('SELECT * FROM live_games WHERE id = ?').get(
 const activeRows = (gameId) =>
   db.prepare('SELECT player_id, team FROM live_game_players WHERE live_game_id = ? AND time_off IS NULL').all(gameId);
 
-function startGame(courtId, playerId, format, side) {
+// The first player in is on Team A. Nobody picks a side to start.
+function startGame(courtId, playerId, format) {
   const court = q.getCourtById(courtId);
   if (!court) return fail('Court not found.');
   if (!q.getCheckIn(playerId, court.park_id)) return fail('Check in at the park first.');
   if (!FORMATS.includes(format)) return fail('Pick a format first.');
-  if (!SIDES.includes(side)) return fail('Pick a side.');
   if (q.getActiveLiveGame(courtId)) return fail('A game is already on this court. Join it, or wait for it to finish.');
   if (q.isPlayerInActiveLiveGame(courtId, playerId)) return fail("You're already in the game on this court.");
 
@@ -32,22 +32,32 @@ function startGame(courtId, playerId, format, side) {
   const liveGameId = lastId();
   db.prepare(
     "INSERT INTO live_game_players (live_game_id, player_id, team, captain, time_on) VALUES (?, ?, ?, 1, datetime('now'))"
-  ).run(liveGameId, playerId, side);
+  ).run(liveGameId, playerId, 'a');
   db.prepare('UPDATE courts SET format = ? WHERE id = ?').run(format, courtId);
   q.logEvent(playerId, 'game_started', null, park.id);
   return { ok: true, liveGameId };
 }
 
+// A player joins by tapping the team his teammate is on. While the game is on he
+// can tap the other team to fix a wrong tap. Teams lock at Game done.
 function joinGame(liveGameId, playerId, side) {
   const game = gameFor(liveGameId);
   if (!game || game.status !== 'in_progress') return fail('No game is on right now.');
   if (!q.getCheckIn(playerId, game.park_id)) return fail('Check in at the park first.');
-  if (!SIDES.includes(side)) return fail('Pick a side.');
+  if (!SIDES.includes(side)) return fail('Tap the team your teammate is on.');
   const rows = activeRows(liveGameId);
-  if (rows.some((r) => r.player_id === playerId)) return fail("You're already in this game.");
   const size = q.formatSize(game.format);
+  const mine = rows.find((r) => r.player_id === playerId);
+  if (mine) {
+    if (mine.team === side) return { ok: true };
+    if (size && rows.filter((r) => r.team === side).length >= size) return fail(`Team ${side.toUpperCase()} is full.`);
+    db.prepare(
+      "UPDATE live_game_players SET team = ? WHERE live_game_id = ? AND player_id = ? AND time_off IS NULL"
+    ).run(side, liveGameId, playerId);
+    return { ok: true };
+  }
   if (size && rows.filter((r) => r.team === side).length >= size) {
-    return fail(`Side ${side.toUpperCase()} is full.`);
+    return fail(`Team ${side.toUpperCase()} is full.`);
   }
   db.prepare(
     "INSERT INTO live_game_players (live_game_id, player_id, team, captain, time_on) VALUES (?, ?, ?, 0, datetime('now'))"
@@ -187,6 +197,21 @@ function pendingGamesFor(playerId) {
     });
 }
 
+// The players on each team of a game, for the confirm screen.
+function rosterByTeam(liveGameId) {
+  const rows = db
+    .prepare(
+      `SELECT lgp.team, u.name || ' #' || u.tag AS name
+       FROM live_game_players lgp JOIN players p ON p.id = lgp.player_id JOIN users u ON u.id = p.user_id
+       WHERE lgp.live_game_id = ? ORDER BY lgp.id`
+    )
+    .all(liveGameId);
+  return {
+    a: rows.filter((r) => r.team === 'a').map((r) => r.name),
+    b: rows.filter((r) => r.team === 'b').map((r) => r.name),
+  };
+}
+
 // A pending game on a court, for the court screen.
 function pendingGameForCourt(courtId) {
   return db
@@ -205,6 +230,7 @@ module.exports = {
   POLL_MINUTES,
   startGame,
   joinGame,
+  rosterByTeam,
   reportDone,
   pollDueFor,
   answerPoll,
