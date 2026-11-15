@@ -662,6 +662,7 @@ function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
 
   // The current player first, then everyone else by points at this park.
   const hereNow = getCheckedInPlayers(parkId)
+    .filter((p) => !p.hidden)
     .map((p) => ({
       id: p.id,
       name: p.name,
@@ -821,10 +822,20 @@ function getCheckIn(playerId, parkId) {
 
 // Everyone currently (freshly) checked in at a park — the pool squads
 // and subs get picked from.
+// Hide me: a player who hides is left out of the "here now" lists.
+function isPresenceHidden(playerId) {
+  const row = db.prepare('SELECT hide_presence FROM players WHERE id = ?').get(playerId);
+  return !!(row && row.hide_presence);
+}
+
+function setPresenceHidden(playerId, hidden) {
+  db.prepare('UPDATE players SET hide_presence = ? WHERE id = ?').run(hidden ? 1 : 0, playerId);
+}
+
 function getCheckedInPlayers(parkId) {
   return db
     .prepare(
-      `SELECT p.id, ${DISPLAY_NAME} AS name, c.last_seen
+      `SELECT p.id, ${DISPLAY_NAME} AS name, c.last_seen, p.hide_presence AS hidden
        FROM check_ins c
        JOIN players p ON p.id = c.player_id
        JOIN users u ON u.id = p.user_id
@@ -957,7 +968,6 @@ function iGotNext(courtId, playerId) {
 
   // Two squads up on an idle court start playing immediately — don't
   // wait for someone to load the court screen to notice.
-  ensureLiveGame(courtId);
   return { ok: true };
 }
 
@@ -1021,7 +1031,6 @@ function confirmSquad(nextLineId, actorPlayerId) {
   const count = getSquadRoster(nextLineId).length;
   if (size && count !== size) return { ok: false, error: `Pick exactly ${size} players before confirming.` };
   db.prepare('UPDATE next_line SET confirmed = 1 WHERE id = ?').run(nextLineId);
-  ensureLiveGame(court.id);
   return { ok: true };
 }
 
@@ -1051,7 +1060,7 @@ function isPlayerInActiveLiveGame(courtId, playerId) {
     .prepare(
       `SELECT 1 FROM live_game_players lgp
        JOIN live_games lg ON lg.id = lgp.live_game_id
-       WHERE lg.court_id = ? AND lg.status != 'done' AND lgp.player_id = ? AND lgp.time_off IS NULL`
+       WHERE lg.court_id = ? AND lg.status = 'in_progress' AND lgp.player_id = ? AND lgp.time_off IS NULL`
     )
     .get(courtId, playerId);
 }
@@ -1082,7 +1091,7 @@ function getRosterEdits(liveGameId) {
 
 function getActiveLiveGame(courtId) {
   return db
-    .prepare(`SELECT * FROM live_games WHERE court_id = ? AND status != 'done' ORDER BY id DESC LIMIT 1`)
+    .prepare(`SELECT * FROM live_games WHERE court_id = ? AND status = 'in_progress' ORDER BY id DESC LIMIT 1`)
     .get(courtId);
 }
 
@@ -1213,10 +1222,8 @@ function resolveCountdown(courtId) {
 // resolve a finished countdown, then start a game if two squads are up.
 function tickCourt(courtId) {
   const pending = getActiveLiveGame(courtId);
-  if (pending) expireStaleResult(pending);
   tickQueueForCourt(courtId);
   resolveCountdown(courtId);
-  ensureLiveGame(courtId);
 }
 
 function isCaptainOf(liveGameId, playerId) {
@@ -1255,9 +1262,10 @@ function voidPendingResult(game, note) {
       `INSERT OR IGNORE INTO result_notices (player_id, live_game_id, kind, snapshot) VALUES (?, ?, 'voided', ?)`
     ).run(player_id, game.id, JSON.stringify({ format: game.format || null, parkId: game.park_id, courtId: game.court_id }));
   }
+  db.prepare('UPDATE live_game_players SET time_off = NULL WHERE live_game_id = ?').run(game.id);
   db.prepare(
     `UPDATE live_games SET status = 'in_progress', team_a_won = NULL, confirmed_a = 0, confirmed_b = 0,
-       result_submitted_at = NULL, result_submitted_by = NULL, result_note = ? WHERE id = ?`
+       result_submitted_at = NULL, result_submitted_by = NULL, result_submitted_team = NULL, result_note = ? WHERE id = ?`
   ).run(note, game.id);
 }
 
@@ -1333,15 +1341,16 @@ function declareWinner(liveGameId, actorPlayerId) {
   return { ok: true };
 }
 
-// The other team confirms the submitted result. Both sides agreeing locks it.
+// The other team confirms the submitted result. Teammates of the reporting
+// team cannot confirm for each other. Both sides agreeing locks it.
 function confirmResult(liveGameId, actorPlayerId) {
   const game = db.prepare('SELECT * FROM live_games WHERE id = ?').get(liveGameId);
   if (!game || game.status !== 'awaiting_confirmation') return { ok: false, error: 'Nothing to confirm.' };
-  const team = activeRosterTeam(liveGameId, actorPlayerId);
+  const team = playerTeamInGame(liveGameId, actorPlayerId);
   if (!team) return { ok: false, error: 'Only players on this game can confirm a result.' };
-
-  const declaringTeam = game.team_a_won ? 'a' : 'b';
-  if (team === declaringTeam) return { ok: false, error: 'Waiting on the other team to confirm.' };
+  if (team === game.result_submitted_team) {
+    return { ok: false, error: 'Your own team cannot confirm. A player from the other team has to.' };
+  }
 
   const column = team === 'a' ? 'confirmed_a' : 'confirmed_b';
   db.prepare(`UPDATE live_games SET ${column} = 1 WHERE id = ?`).run(liveGameId);
@@ -1352,6 +1361,14 @@ function confirmResult(liveGameId, actorPlayerId) {
     lockResult(updated);
   }
   return { ok: true };
+}
+
+// The team a player is on in this game (even after the game ended), or null.
+function playerTeamInGame(liveGameId, playerId) {
+  const row = db
+    .prepare('SELECT team FROM live_game_players WHERE live_game_id = ? AND player_id = ? ORDER BY id DESC LIMIT 1')
+    .get(liveGameId, playerId);
+  return row ? row.team : null;
 }
 
 // The other team disputes: the result is voided and nothing is saved.
@@ -1620,54 +1637,8 @@ function lockResult(game) {
 
   db.prepare(`UPDATE live_games SET status = 'done', locked_at = datetime('now') WHERE id = ?`).run(game.id);
 
-  const winners = [...byPlayer.entries()].filter(
-    ([playerId, info]) => info.team === winningTeam && stillOnCourt.has(playerId)
-  );
-  // Nobody from the winning team is still around to stay on (everyone
-  // subbed out or left) — the court just goes idle; whoever's queued
-  // stays queued for the normal two-squads auto-start.
-  if (winners.length === 0) return;
-
-  const captainEntry = winners.find(([, info]) => info.captain) || winners[0];
-  const park = getParkById(game.park_id);
-  const nextSquad = getWaitingSquads(game.court_id).find((squad) => squad.locked);
-
-  db.prepare(
-    `INSERT INTO live_games (court_id, park_id, target, status, countdown_seconds, countdown_ends_at, format)
-     VALUES (?, ?, ?, 'countdown', ?, datetime('now', '+' || ? || ' seconds'), ?)`
-  ).run(game.court_id, game.park_id, park.game_target, park.between_games_seconds, park.between_games_seconds, game.format);
-  const newGameId = lastId();
-
-  const insertPlayer = db.prepare(
-    `INSERT INTO live_game_players (live_game_id, player_id, team, captain, time_on) VALUES (?, ?, 'a', ?, NULL)`
-  );
-  for (const [playerId, info] of winners) {
-    insertPlayer.run(newGameId, playerId, info.captain ? 1 : 0);
-  }
-
-  if (nextSquad) {
-    seatSquad(newGameId, nextSquad, 'b', false);
-    db.prepare('DELETE FROM next_line_members WHERE next_line_id = ?').run(nextSquad.id);
-    db.prepare('DELETE FROM next_line WHERE id = ?').run(nextSquad.id);
-  } else {
-    // No one waiting — skip the countdown; the court shows the winners
-    // as "next up" until a new squad arrives. Delete the child rows
-    // first — live_game_players.live_game_id has no ON DELETE CASCADE.
-    db.prepare('DELETE FROM live_game_players WHERE live_game_id = ?').run(newGameId);
-    db.prepare('DELETE FROM live_games WHERE id = ?').run(newGameId);
-    const frontPosition = db.prepare('SELECT COALESCE(MIN(position), 1) AS min FROM next_line WHERE court_id = ?').get(game.court_id).min - 1;
-    db.prepare(
-      `INSERT INTO next_line (court_id, captain_player_id, position, status, created_at)
-       VALUES (?, ?, ?, 'waiting', datetime('now'))`
-    ).run(game.court_id, captainEntry[0], frontPosition);
-    const nextLineId = lastId();
-    db.prepare('UPDATE next_line SET confirmed = 1 WHERE id = ?').run(nextLineId);
-    for (const [playerId] of winners) {
-      if (playerId !== captainEntry[0]) {
-        db.prepare('INSERT INTO next_line_members (next_line_id, player_id) VALUES (?, ?)').run(nextLineId, playerId);
-      }
-    }
-  }
+  // The court is already free (it was freed when the game was reported done).
+  // Nothing else starts here: the next player in line gets a 'You're up' prompt.
 }
 
 function applyGameResult(gameId, parkId, courtId, playerId, result, minutes, format) {
@@ -2770,6 +2741,16 @@ module.exports = {
   getCourtLabelsByPark,
   courtFormatLabel,
   formatSize,
+  setPresenceHidden,
+  isPresenceHidden,
+  lockResult,
+  playerTeamInGame,
+  activeRosterTeam,
+  getWaitingSquads,
+  isPlayerInActiveLiveGame,
+  getActiveLiveGame,
+  getLiveGamePlayers,
+  getSquadRoster,
   removeSquadMember,
   confirmSquad,
   handOffCaptain,

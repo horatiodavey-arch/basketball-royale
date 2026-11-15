@@ -17,9 +17,16 @@
   </div>
 
   <div class="live-part" data-live-key="body">
-    <%- include('partials/profile-body-live', { kingRows: kingRows, trophyCount: trophyCount, trophyByFormat: trophyByFormat, gamesThisSeason: gamesThisSeason, topBreakdown: topBreakdown, badges: badges }) %>
+    <%- include('partials/profile-body-live', { pendingGames: pendingGames || [], kingRows: kingRows, trophyCount: trophyCount, trophyByFormat: trophyByFormat, gamesThisSeason: gamesThisSeason, topBreakdown: topBreakdown, badges: badges }) %>
   </div>
 
+  <% if (isSelf) { %>
+    <form method="POST" action="/profile/hide" class="hide-form">
+      <input type="hidden" name="hide" value="<%= presenceHidden ? '0' : '1' %>">
+      <button type="submit" class="small-btn"><%= presenceHidden ? 'Show me in the here-now list' : 'Hide me from the here-now list' %></button>
+      <p class="invite-line">Hidden players still count at the park. They just aren't listed by name.</p>
+    </form>
+  <% } %>
   <% if (isSelf) { %>
     <div class="push-toggle" id="upNextWrap" hidden>
       <button type="button" id="upNextBtn" class="small-btn">Notify me when I'm up next</button>

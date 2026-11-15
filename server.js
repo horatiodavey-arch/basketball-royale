@@ -48,6 +48,9 @@ const {
   markLeft,
   addSub,
   declareWinner,
+  playerTeamInGame,
+  setPresenceHidden,
+  isPresenceHidden,
   confirmResult,
   disputeResult,
   displayNameError,
@@ -117,6 +120,8 @@ const {
   notifyUpNext,
 } = require('./db/push');
 const { DATA_DIR, writeBackup } = require('./db/index');
+const gameNow = require('./db/game-now');
+const QRCode = require('qrcode');
 const { geocodeAddress, fillMissingParkLocations, startBackgroundGeocoding } = require('./db/geocode');
 const parkPhotos = require('./db/park-photos');
 const { getTrophyCount, getTierLadder } = require('./db/trophies');
@@ -796,6 +801,21 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
   if (!court || court.park_id !== Number(req.params.parkId)) return res.redirect('/runs');
 
   const screen = getCourtScreen(court.id, profile.player_id);
+  const pending = gameNow.pendingGameForCourt(court.id);
+  const gameNowState = {
+    formats: gameNow.FORMATS,
+    viewerCheckedIn: !!getCheckIn(profile.player_id, court.park_id),
+    pending: pending
+      ? {
+          id: pending.id,
+          winner: pending.team_a_won ? 'a' : 'b',
+          submittedTeam: pending.result_submitted_team,
+          viewerTeam: playerTeamInGame(pending.id, profile.player_id),
+          qr: `/live_games/${pending.id}/qr.png`,
+          shareUrl: `${req.protocol}://${req.get('host')}/parks/${court.park_id}/courts/${court.id}?join=${pending.id}`,
+        }
+      : null,
+  };
   const countdownEndsAtIso =
     screen.liveGame && screen.liveGame.status === 'countdown'
       ? new Date(screen.liveGame.countdown_ends_at + 'Z').toISOString()
@@ -803,6 +823,7 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
 
   res.render('court', {
     ...screen,
+    gameNow: gameNowState,
     profile,
     formatLabel: courtFormatLabel(court),
     active: 'runs',
@@ -1031,10 +1052,59 @@ app.post('/live_games/:id/sub', requireAuth, (req, res) => {
   redirectWithResult(req, res, result, '/runs');
 });
 
+// Game now: start a game on a free court (format and side picked by the player).
+app.post('/courts/:courtId/game-now', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const court = getCourtById(req.params.courtId);
+  const result = gameNow.startGame(Number(req.params.courtId), profile.player_id, req.body.format, req.body.side);
+  const fallback = court ? `/parks/${court.park_id}/courts/${court.id}` : '/runs';
+  redirectWithResult(req, res, result, fallback);
+});
+
+app.post('/live_games/:id/join', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const result = gameNow.joinGame(Number(req.params.id), profile.player_id, req.body.side);
+  redirectWithResult(req, res, result, '/runs');
+});
+
+// Game done: a player in the game picks the winning side. The result waits for the other team.
 app.post('/live_games/:id/declare', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  const result = declareWinner(Number(req.params.id), profile.player_id);
+  const result = gameNow.reportDone(Number(req.params.id), profile.player_id, req.body.side);
   redirectWithResult(req, res, result, '/runs');
+});
+
+// Every 10 minutes: "Did you win?" Yes, No or Still playing.
+app.post('/live_games/:id/poll', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const result = gameNow.answerPoll(Number(req.params.id), profile.player_id, req.body.round, req.body.answer);
+  res.status(result.ok ? 200 : 400).json(result);
+});
+
+// What this player should see right now: a poll question, and "You're up".
+app.get('/api/game-status', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  res.json({
+    ok: true,
+    poll: gameNow.pollDueFor(profile.player_id),
+    up: gameNow.upNextFor(profile.player_id),
+  });
+});
+
+// QR code for joining or confirming a game.
+app.get('/live_games/:id/qr.png', requireAuth, async (req, res) => {
+  const game = gameNow.gameLocation(Number(req.params.id));
+  if (!game) return res.status(404).end();
+  const url = `${req.protocol}://${req.get('host')}/parks/${game.park_id}/courts/${game.court_id}?join=${game.id}`;
+  const png = await QRCode.toBuffer(url, { type: 'png', width: 320, margin: 2 });
+  res.type('png').send(png);
+});
+
+// Hide me: keeps this player out of the "here now" lists on the map.
+app.post('/profile/hide', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  setPresenceHidden(profile.player_id, req.body.hide === '1');
+  res.redirect(`/players/${profile.player_id}`);
 });
 
 app.post('/live_games/:id/dispute', requireAuth, (req, res) => {
@@ -1137,6 +1207,8 @@ function profileContext(playerId, viewer, query) {
     isSelf,
     // Your own invite code, for the "Invite a hooper" link (own profile only).
     inviteTag: isSelf ? viewer.tag : null,
+    pendingGames: isSelf ? gameNow.pendingGamesFor(player.player_id) : [],
+    presenceHidden: isSelf ? isPresenceHidden(player.player_id) : false,
     nameError: query.nameError || null,
     player,
     points,

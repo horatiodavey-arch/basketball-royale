@@ -1,4 +1,17 @@
 <%# Everything under the player card. Also the live refresh's body. %>
+<% if (typeof pendingGames !== 'undefined' && pendingGames.length > 0) { %>
+<div class="pf-section">
+  <div class="pf-title pf-title-purple">Pending</div>
+  <% pendingGames.forEach((g) => { %>
+    <div class="pf-pending-row">
+      <span><%= g.format || 'Game' %> &middot; <%= g.won ? 'Won' : 'Lost' %></span>
+      <span class="pf-pending-pts">+<%= g.points %> pts waiting</span>
+    </div>
+  <% }); %>
+  <div class="pf-empty">Points count once a player from the other team confirms.</div>
+</div>
+<% } %>
+
 <div class="pf-section">
   <div class="pf-title pf-title-purple">King of the court</div>
   <% if (kingRows.length === 0) { %>

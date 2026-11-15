@@ -496,6 +496,26 @@ function migrateKingOfTheCourtColumns() {
       PRIMARY KEY (next_line_id, player_id)
     );
   `);
+  // Game now: which team reported the pending result (the other team confirms),
+  // a player's "hide me" choice, and the every-10-minutes "Did you win?" answers.
+  addColumnIfMissing('live_games', 'result_submitted_team', 'TEXT');
+  addColumnIfMissing('players', 'hide_presence', 'INTEGER NOT NULL DEFAULT 0');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS live_game_polls (
+      live_game_id  INTEGER NOT NULL REFERENCES live_games(id),
+      round         INTEGER NOT NULL,
+      player_id     INTEGER NOT NULL REFERENCES players(id),
+      answer        TEXT NOT NULL,
+      created_at    TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (live_game_id, round, player_id)
+    );
+  `);
+  // Results waiting before this change were reported by the winning side.
+  runOnce('result_submitted_team_backfill_v1', () => {
+    db.exec(
+      "UPDATE live_games SET result_submitted_team = CASE WHEN team_a_won = 1 THEN 'a' ELSE 'b' END WHERE status = 'awaiting_confirmation' AND result_submitted_team IS NULL AND team_a_won IS NOT NULL"
+    );
+  });
   // One pop-up per player per result: written when a result locks or is voided,
   // marked seen once shown. Additive; nothing else reads it.
   db.exec(`
