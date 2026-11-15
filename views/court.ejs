@@ -88,20 +88,44 @@
     <% }); %>
   </div>
 
-  <% if (liveGame) { %>
+  <% const gn = gameNow; %>
+  <% if (gn.pending) { %>
+    <% const p = gn.pending; %>
     <div class="live-card">
-      <% if (liveGame.status === 'countdown') { %>
-        <div class="countdown-label">Next game in</div>
-        <div id="countdown" class="countdown-big heading">&ndash;:&ndash;&ndash;</div>
-      <% } else { %>
-        <div class="live-target">to <%= liveGame.target %></div>
+      <div class="live-target">Result waiting for confirmation</div>
+      <div class="winners-note">Team <%= p.winner === 'a' ? 'A' : 'B' %> says they won. It counts once a player from the other team confirms.</div>
+      <% if (p.viewerTeam && p.viewerTeam !== p.submittedTeam) { %>
+        <div class="declare-row">
+          <form method="POST" action="/live_games/<%= p.id %>/confirm">
+            <button type="submit" class="small-btn small-btn-accent">Confirm</button>
+          </form>
+          <form method="POST" action="/live_games/<%= p.id %>/dispute">
+            <button type="submit" class="small-btn">Dispute</button>
+          </form>
+        </div>
+      <% } else if (p.viewerTeam) { %>
+        <div class="winners-note">Waiting on a player from the other team to confirm.</div>
       <% } %>
+      <div class="qr-share">
+        <img src="<%= p.qr %>" alt="QR code to open this game" width="160" height="160">
+        <button type="button" class="small-btn" data-share-url="<%= p.shareUrl %>">Send QR link</button>
+      </div>
+    </div>
+  <% } %>
+  <% if (liveGame) { %>
+    <% const size = Number(String(liveGame.format || '0').charAt(0)); %>
+    <% const onCount = liveGame.teamA.length + liveGame.teamB.length; %>
+    <% const slots = size * 2; %>
+    <% const openSpots = Math.max(0, slots - onCount); %>
+    <div class="live-card">
+      <div class="live-target"><%= liveGame.format %> &middot; game on</div>
+      <div class="live-count">On court: <%= onCount %> of <%= slots %> on the app, <%= openSpots %> open spots</div>
 
       <div class="live-teams">
         <div class="live-team">
           <div class="live-team-label">Team A</div>
           <% liveGame.teamA.forEach((p) => { %>
-            <div class="live-player"><%= p.name %><% if (p.captain) { %> <span class="cap-tag">C</span><% } %></div>
+            <div class="live-player"><%= p.name %></div>
           <% }); %>
           <% if (liveGame.teamA.length === 0) { %><div class="live-player live-player-empty">&mdash;</div><% } %>
         </div>
@@ -109,46 +133,39 @@
         <div class="live-team">
           <div class="live-team-label">Team B</div>
           <% liveGame.teamB.forEach((p) => { %>
-            <div class="live-player"><%= p.name %><% if (p.captain) { %> <span class="cap-tag">C</span><% } %></div>
+            <div class="live-player"><%= p.name %></div>
           <% }); %>
-          <% if (liveGame.teamB.length === 0) { %><div class="live-player live-player-empty">Waiting for a squad&hellip;</div><% } %>
+          <% if (liveGame.teamB.length === 0) { %><div class="live-player live-player-empty">&mdash;</div><% } %>
         </div>
       </div>
 
-      <% if (liveGame.result_note) { %>
-        <div class="winners-note"><%= liveGame.result_note %></div>
-      <% } %>
-      <% if (liveGame.status === 'in_progress') { %>
-        <div class="winners-note">Winners stay on</div>
-        <% if (liveGame.viewerTeam) { %>
+      <% if (liveGame.viewerTeam) { %>
+        <div class="winners-note">Game done? Tap the team that won.</div>
+        <div class="declare-row">
           <form method="POST" action="/live_games/<%= liveGame.id %>/declare">
-            <button type="submit" class="small-btn">Our team won</button>
+            <input type="hidden" name="side" value="a">
+            <button type="submit" class="small-btn">Team A won</button>
           </form>
-        <% } %>
-      <% } else if (liveGame.status === 'awaiting_confirmation') { %>
-        <% const declaringTeam = liveGame.team_a_won ? 'a' : 'b'; %>
-        <div class="winners-note">Team <%= declaringTeam === 'a' ? 'A' : 'B' %> says they won. Confirm within 20 minutes or it's voided.</div>
-        <% if (liveGame.viewerTeam && liveGame.viewerTeam !== declaringTeam) { %>
-          <div class="declare-row">
-            <form method="POST" action="/live_games/<%= liveGame.id %>/confirm">
-              <button type="submit" class="small-btn small-btn-accent">Confirm</button>
+          <form method="POST" action="/live_games/<%= liveGame.id %>/declare">
+            <input type="hidden" name="side" value="b">
+            <button type="submit" class="small-btn">Team B won</button>
+          </form>
+        </div>
+      <% } else if (gn.viewerCheckedIn) { %>
+        <div class="declare-row">
+          <% if (liveGame.teamA.length < size) { %>
+            <form method="POST" action="/live_games/<%= liveGame.id %>/join">
+              <input type="hidden" name="side" value="a">
+              <button type="submit" class="small-btn small-btn-accent">Join Team A</button>
             </form>
-            <form method="POST" action="/live_games/<%= liveGame.id %>/dispute">
-              <button type="submit" class="small-btn">Dispute</button>
+          <% } %>
+          <% if (liveGame.teamB.length < size) { %>
+            <form method="POST" action="/live_games/<%= liveGame.id %>/join">
+              <input type="hidden" name="side" value="b">
+              <button type="submit" class="small-btn small-btn-accent">Join Team B</button>
             </form>
-          </div>
-        <% } else if (liveGame.viewerTeam) { %>
-          <div class="winners-note">Waiting on the other team to confirm.</div>
-        <% } %>
-      <% } %>
-
-      <% if (liveGame.edits.length > 0) { %>
-        <details class="captain-tools">
-          <summary>Roster changes (<%= liveGame.edits.length %>)</summary>
-          <% liveGame.edits.forEach((e) => { %>
-            <div class="inline-form"><span><%= e.name %> <%= e.action === 'added' ? 'added to' : (e.action === 'left' ? 'left' : 'removed from') %> Team <%= e.team === 'a' ? 'A' : 'B' %> &middot; by <%= e.byName %></span></div>
-          <% }); %>
-        </details>
+          <% } %>
+        </div>
       <% } %>
 
       <% if (liveGame.viewerCaptainTeam && liveGame.status !== 'done') { %>
@@ -174,7 +191,25 @@
       <% } %>
     </div>
   <% } else { %>
-    <div class="live-card live-card-idle"><%= formatLabel %> &mdash; the next two confirmed squads in line start the next game.</div>
+    <div class="live-card live-card-idle">
+      <div class="live-target">Court is open</div>
+      <% if (gn.viewerCheckedIn) { %>
+        <form method="POST" action="/courts/<%= court.id %>/game-now" class="game-now-form">
+          <label class="game-now-label" for="gnFormat">Format</label>
+          <select id="gnFormat" name="format" required>
+            <option value="" selected disabled>Pick a format</option>
+            <% gn.formats.forEach((f) => { %><option value="<%= f %>"><%= f %></option><% }); %>
+          </select>
+          <div class="game-now-sides">
+            <label><input type="radio" name="side" value="a" required> Team A</label>
+            <label><input type="radio" name="side" value="b"> Team B</label>
+          </div>
+          <button type="submit" class="submit-btn">Game now</button>
+        </form>
+      <% } else { %>
+        <div class="winners-note">Check in at this park to start a game.</div>
+      <% } %>
+    </div>
   <% } %>
 
   <div class="section">Next up on <%= court.nickname || ('Court ' + court.number) %></div>
