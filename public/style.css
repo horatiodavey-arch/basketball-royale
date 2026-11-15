@@ -1060,3 +1060,28 @@ a.here-now-player { text-decoration: none; color: inherit; }
   background: #6D28D9; color: #FFFFFF; border-radius: 12px;
   padding: 12px 14px; margin: 10px 0; font-weight: 600; font-size: 15px; line-height: 1.4;
 }
+/* --- Game now: court screen, poll sheet, QR --- */
+.game-now-form { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.game-now-label { font-size: 13px; color: var(--text2); }
+.game-now-form select { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid #E6E6EA; }
+.game-now-sides { display: flex; gap: 16px; font-size: 15px; }
+.live-count { font-size: 14px; margin: 4px 0 8px; color: var(--text2); }
+.qr-share { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 12px; }
+.pf-pending-row { display: flex; justify-content: space-between; font-size: 15px; padding: 8px 0; border-bottom: 1px solid #E6E6EA; }
+.pf-pending-pts { color: #6D28D9; font-weight: 600; }
+.hide-form { margin: 12px 0 4px; }
+.gp-sheet {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  width: calc(100% - 24px); max-width: 356px; z-index: 1200;
+  bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+  background: #FFFFFF; border: 1px solid #E6E6EA; border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16); padding: 16px; font-family: 'Inter', sans-serif; color: #111;
+}
+.gp-title { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 20px; text-transform: uppercase; }
+.gp-text { font-size: 14px; color: #55555F; margin: 6px 0 12px; }
+.gp-row { display: flex; gap: 8px; }
+.gp-btn { flex: 1; border: 0; border-radius: 12px; padding: 12px 6px; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
+.gp-btn:disabled { opacity: 0.5; }
+.gp-yes { background: #DCFCE7; color: #15803D; }
+.gp-no { background: #F4F4F6; color: #111; }
+.gp-still { background: #F4F4F6; color: #6B6B76; }
