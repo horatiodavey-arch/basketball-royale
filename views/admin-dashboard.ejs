@@ -11,6 +11,9 @@
 <body class="kotc">
 <div class="page admin-dashboard">
   <div class="page-title heading">Admin</div>
+  <% (locals.milestones || []).forEach(function (m) { %>
+  <div class="milestone-banner" role="status"><%= m.name %> just hit 20 players. Time to consider game alerts there.</div>
+  <% }); %>
   <div class="page-sub"><%= dashboard.rangeLabel %> &middot; updated <%= dashboard.generatedAt %> UTC &middot; read-only</div>
 
   <div class="section admin-section">Tracking check</div>

@@ -1055,6 +1055,11 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .push-toggle { margin: 12px 0 4px; }
 .push-toggle[hidden] { display: none; }
 
+/* --- Park milestone banner (admin) --- */
+.milestone-banner {
+  background: #6D28D9; color: #FFFFFF; border-radius: 12px;
+  padding: 12px 14px; margin: 10px 0; font-weight: 600; font-size: 15px; line-height: 1.4;
+}
 /* --- Game now: court screen, poll sheet, QR --- */
 .game-now-form { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
 .game-now-label { font-size: 13px; color: var(--text2); }

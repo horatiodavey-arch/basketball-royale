@@ -127,7 +127,41 @@ async function notifyUpNext(courtId, nextLineId) {
   return sent;
 }
 
+// Sends one payload to every subscription of the given players. Dead
+// subscriptions are removed. Returns how many players were reached.
+async function notifyPlayers(playerIds, payload) {
+  if (!CONFIGURED) return 0;
+  const body = JSON.stringify(payload);
+  let reached = 0;
+  for (const playerId of playerIds) {
+    let delivered = false;
+    for (const sub of subscriptionsFor(playerId)) {
+      try {
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+          body,
+          { TTL: 600 }
+        );
+        delivered = true;
+      } catch (err) {
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(sub.endpoint);
+        }
+      }
+    }
+    if (delivered) reached++;
+  }
+  return reached;
+}
+
+// Organizer accounts (the owner's among them), with notifications on.
+function organizerPlayerIds() {
+  return db.prepare('SELECT id FROM players WHERE is_organizer = 1').all().map((r) => r.id);
+}
+
 module.exports = {
+  notifyPlayers,
+  organizerPlayerIds,
   pushPublicKey,
   saveSubscription,
   removeSubscription,
