@@ -1405,12 +1405,27 @@ function playerTeamInGame(liveGameId, playerId) {
 function disputeResult(liveGameId, actorPlayerId) {
   const game = db.prepare('SELECT * FROM live_games WHERE id = ?').get(liveGameId);
   if (!game || game.status !== 'awaiting_confirmation') return { ok: false, error: 'Nothing to dispute.' };
-  const team = activeRosterTeam(liveGameId, actorPlayerId);
+  const team = playerTeamInGame(liveGameId, actorPlayerId);
   if (!team) return { ok: false, error: 'Only players on this game can dispute a result.' };
-  if (team === (game.team_a_won ? 'a' : 'b')) return { ok: false, error: 'Only the other team can dispute.' };
-  logEvent(actorPlayerId, 'result_disputed', null, game.park_id);
-  voidPendingResult(game, 'Disputed. The result was voided. Submit it again once both teams agree.');
+  if (team === game.result_submitted_team) return { ok: false, error: 'Only the other team can dispute.' };
+  markDisputed(game, actorPlayerId);
   return { ok: true };
+}
+
+// Both teams disagree about who won. The game closes as disputed: no result is
+// saved and nobody gets points. Each player is told once, through the pop-up.
+function markDisputed(game, actorPlayerId) {
+  logEvent(actorPlayerId, 'result_disputed', null, game.park_id);
+  const roster = db.prepare('SELECT DISTINCT player_id FROM live_game_players WHERE live_game_id = ?').all(game.id);
+  for (const { player_id } of roster) {
+    db.prepare(
+      `INSERT OR IGNORE INTO result_notices (player_id, live_game_id, kind, snapshot) VALUES (?, ?, 'voided', ?)`
+    ).run(player_id, game.id, JSON.stringify({ format: game.format || null, parkId: game.park_id, courtId: game.court_id }));
+  }
+  db.prepare(
+    `UPDATE live_games SET status = 'done', outcome = 'disputed', locked_at = datetime('now'),
+       result_note = 'Disputed. Both teams claimed a different result, so no points were given.' WHERE id = ?`
+  ).run(game.id);
 }
 
 // A submitted result nobody answers within the window is voided.
@@ -1839,6 +1854,7 @@ const TRACKED_EVENTS = [
   { name: 'install_prompt_dismissed', label: 'Add to home screen: not now' },
   { name: 'opened_from_home_screen', label: 'Opened from home screen (once a day)' },
   { name: 'push_sent_up_next', label: 'Push sent: up next' },
+  { name: 'checked_in', label: 'Checked in (successful)' },
 ];
 
 // Events a page reports itself (POST /api/events) because the tap never
@@ -2803,6 +2819,7 @@ module.exports = {
   formatSize,
   setPresenceHidden,
   isPresenceHidden,
+  markDisputed,
   lockResult,
   playerTeamInGame,
   activeRosterTeam,

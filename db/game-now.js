@@ -10,6 +10,7 @@ const FORMATS = ['5v5', '4v4', '3v3', '2v2', '1v1'];
 const SIDES = ['a', 'b'];
 const ANSWERS = ['yes', 'no', 'still'];
 const POLL_MINUTES = 10;
+const STALE_MINUTES = 30;
 
 const fail = (error) => ({ ok: false, error });
 const gameFor = (id) => db.prepare('SELECT * FROM live_games WHERE id = ?').get(id);
@@ -22,6 +23,7 @@ function startGame(courtId, playerId, format) {
   if (!court) return fail('Court not found.');
   if (!q.getCheckIn(playerId, court.park_id)) return fail('Check in at the park first.');
   if (!FORMATS.includes(format)) return fail('Pick a format first.');
+  closeStaleGames();
   if (q.getActiveLiveGame(courtId)) return fail('A game is already on this court. Join it, or wait for it to finish.');
   if (q.isPlayerInActiveLiveGame(courtId, playerId)) return fail("You're already in the game on this court.");
 
@@ -112,44 +114,70 @@ function pollDueFor(playerId) {
   return { liveGameId: game.id, round };
 }
 
+// An answer to "Did you win?". Only players in the game can answer.
+// - Still playing: recorded, and keeps the game open.
+// - Yes or No while the game is on: creates a pending result only (the same as
+//   Game done). It counts once a player from the other team confirms.
+// - Yes or No from the other team once a result is pending: agreeing confirms
+//   it, and a conflicting claim marks the game disputed, with no points.
 function answerPoll(liveGameId, playerId, round, answer) {
   const game = gameFor(liveGameId);
-  if (!game || game.status !== 'in_progress') return fail('This game is not in progress.');
-  if (!q.activeRosterTeam(liveGameId, playerId)) return fail('Only players in this game can answer.');
+  if (!game) return fail('Game not found.');
   if (!ANSWERS.includes(answer)) return fail('Pick Yes, No or Still playing.');
-  if (Number(round) !== roundOf(game)) return fail('That question has expired.');
+  const team = q.playerTeamInGame(liveGameId, playerId);
+  if (!team) return fail('Only players in this game can answer.');
+  const other = team === 'a' ? 'b' : 'a';
+  const claimedWinner = answer === 'yes' ? team : other;
 
-  db.prepare(
-    'INSERT OR REPLACE INTO live_game_polls (live_game_id, round, player_id, answer) VALUES (?, ?, ?, ?)'
-  ).run(liveGameId, round, playerId, answer);
-  const settled = settlePoll(liveGameId, Number(round));
-  return { ok: true, settled };
+  if (game.status === 'in_progress') {
+    if (!q.activeRosterTeam(liveGameId, playerId)) return fail('Only players in this game can answer.');
+    if (Number(round) !== roundOf(game)) return fail('That question has expired.');
+    db.prepare(
+      'INSERT OR REPLACE INTO live_game_polls (live_game_id, round, player_id, answer) VALUES (?, ?, ?, ?)'
+    ).run(liveGameId, round, playerId, answer);
+    if (answer === 'still') return { ok: true, state: 'playing' };
+    const done = reportDone(liveGameId, playerId, claimedWinner);
+    return done.ok ? { ok: true, state: 'pending' } : done;
+  }
+
+  if (game.status === 'awaiting_confirmation') {
+    if (answer === 'still') return { ok: true, state: 'pending' };
+    // Teammates of the player who reported it cannot confirm or dispute.
+    if (team === game.result_submitted_team) return { ok: true, state: 'pending' };
+    const pendingWinner = game.team_a_won ? 'a' : 'b';
+    if (claimedWinner === pendingWinner) {
+      const confirmed = q.confirmResult(liveGameId, playerId);
+      return confirmed.ok ? { ok: true, state: 'confirmed' } : confirmed;
+    }
+    q.markDisputed(game, playerId);
+    return { ok: true, state: 'disputed' };
+  }
+  return fail('This game is already closed.');
 }
 
-// A Yes from one side and a No from the other creates and confirms the result,
-// which then locks and awards points.
-function settlePoll(liveGameId, round) {
-  const answers = db
+// A game nobody has touched for 30 minutes (no Game done, and no answer to
+// "Did you win?", Still playing included) closes with no result. The court
+// frees up and nobody gets points.
+function closeStaleGames() {
+  const stale = db
     .prepare(
-      `SELECT lgp.team, lp.answer FROM live_game_polls lp
-       JOIN live_game_players lgp ON lgp.live_game_id = lp.live_game_id AND lgp.player_id = lp.player_id
-       WHERE lp.live_game_id = ? AND lp.round = ? AND lgp.time_off IS NULL`
+      `SELECT lg.id FROM live_games lg
+       WHERE lg.status = 'in_progress'
+         AND lg.started_at <= datetime('now', '-${STALE_MINUTES} minutes')
+         AND NOT EXISTS (
+           SELECT 1 FROM live_game_polls lp
+           WHERE lp.live_game_id = lg.id AND lp.created_at > datetime('now', '-${STALE_MINUTES} minutes')
+         )`
     )
-    .all(liveGameId, round);
-  const yes = new Set(answers.filter((a) => a.answer === 'yes').map((a) => a.team));
-  const no = new Set(answers.filter((a) => a.answer === 'no').map((a) => a.team));
-  const winner = ['a', 'b'].find((side) => yes.has(side) && no.has(side === 'a' ? 'b' : 'a'));
-  if (!winner) return false;
-
-  const loser = winner === 'a' ? 'b' : 'a';
-  db.prepare("UPDATE live_game_players SET time_off = datetime('now') WHERE live_game_id = ? AND time_off IS NULL").run(liveGameId);
-  db.prepare(
-    `UPDATE live_games SET status = 'awaiting_confirmation', team_a_won = ?, result_submitted_team = ?,
-       result_submitted_by = NULL, result_submitted_at = datetime('now'), confirmed_a = 1, confirmed_b = 1, result_note = NULL
-     WHERE id = ?`
-  ).run(winner === 'a' ? 1 : 0, loser, liveGameId);
-  q.lockResult(gameFor(liveGameId));
-  return true;
+    .all();
+  for (const { id } of stale) {
+    db.prepare("UPDATE live_game_players SET time_off = datetime('now') WHERE live_game_id = ? AND time_off IS NULL").run(id);
+    db.prepare(
+      `UPDATE live_games SET status = 'done', outcome = 'no_result', locked_at = datetime('now'),
+         result_note = 'Closed with no result: nobody reported it for 30 minutes.' WHERE id = ?`
+    ).run(id);
+  }
+  return stale.length;
 }
 
 // "You're up": the court is free and this player is on the first squad in line.
@@ -234,6 +262,7 @@ module.exports = {
   reportDone,
   pollDueFor,
   answerPoll,
+  closeStaleGames,
   upNextFor,
   pendingGamesFor,
   pendingGameForCourt,

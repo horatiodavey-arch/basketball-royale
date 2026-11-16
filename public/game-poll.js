@@ -36,7 +36,7 @@
   function showPoll(poll) {
     if (open) return;
     open = true;
-    var s = sheet('Did you win?', 'Quick check, every 10 minutes. Your answer settles it when the other side answers the opposite.');
+    var s = sheet('Did you win?', 'Yes or No ends the game. It counts once a player on the other team confirms.');
     var row = el('div', 'gp-row');
     [['Yes', 'yes', 'gp-yes'], ['No', 'no', 'gp-no'], ['Still playing', 'still', 'gp-still']].forEach(function (b) {
       var btn = el('button', 'gp-btn ' + b[2], b[0]);

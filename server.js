@@ -130,6 +130,11 @@ const { notifyPlayers, organizerPlayerIds } = require('./db/push');
 backfillMilestones();
 const { DATA_DIR, writeBackup } = require('./db/index');
 const gameNow = require('./db/game-now');
+const { buildToday } = require('./db/admin-today');
+// Games nobody has touched for 30 minutes close with no result.
+setInterval(() => {
+  try { gameNow.closeStaleGames(); } catch (err) { console.error('stale game sweep failed', err); }
+}, 60 * 1000).unref();
 const QRCode = require('qrcode');
 const { geocodeAddress, fillMissingParkLocations, startBackgroundGeocoding } = require('./db/geocode');
 const parkPhotos = require('./db/park-photos');
@@ -872,6 +877,7 @@ app.post('/parks/:parkId/check-in', requireAuth, (req, res) => {
   const parkId = Number(req.params.parkId);
   const outcome = checkIn(profile.player_id, parkId, lat, lng, accuracy);
   if (outcome.ok) {
+    logEvent(profile.player_id, 'checked_in', pagePathFromReferer(req, '/'), parkId);
     recordVisit(profile.player_id, parkId);
     const reached = reachMilestone(parkId);
     if (reached) {
@@ -961,7 +967,9 @@ app.post('/open-courts/check-in', requireAuth, (req, res) => {
   if (!osmId || typeof lat !== 'number' || typeof lng !== 'number') {
     return res.status(400).json({ ok: false, error: 'Missing court location.' });
   }
-  res.json(checkInAtOpenCourt(profile.player_id, String(osmId), name, lat, lng, playerLat, playerLng, accuracy));
+  const opened = checkInAtOpenCourt(profile.player_id, String(osmId), name, lat, lng, playerLat, playerLng, accuracy);
+  if (opened.ok) logEvent(profile.player_id, 'checked_in', pagePathFromReferer(req, '/'), opened.parkId || null);
+  res.json(opened);
   fillParkLocationsInBackground();
 });
 
@@ -1338,7 +1346,14 @@ app.post('/admin/logout', (req, res) => {
 
 app.get('/admin', requireAdmin, (req, res) => {
   const dashboard = buildDashboard(req.query.range, req.query.event);
-  res.render('admin-dashboard', { dashboard, tracking: getTrackingCheck(), milestones: reachedMilestones(), active: '' });
+  res.render('admin-dashboard', {
+    dashboard,
+    tracking: getTrackingCheck(),
+    milestones: reachedMilestones(),
+    today: buildToday(req.query.day),
+    query: { range: req.query.range || '', event: req.query.event || '' },
+    active: '',
+  });
 });
 
 // A full copy of the database for safekeeping. Written to a temporary file

@@ -514,6 +514,8 @@ function migrateKingOfTheCourtColumns() {
   // Game now: which team reported the pending result (the other team confirms),
   // a player's "hide me" choice, and the every-10-minutes "Did you win?" answers.
   addColumnIfMissing('live_games', 'result_submitted_team', 'TEXT');
+  // How a closed game ended when it has no confirmed result: 'disputed' or 'no_result'.
+  addColumnIfMissing('live_games', 'outcome', 'TEXT');
   addColumnIfMissing('players', 'hide_presence', 'INTEGER NOT NULL DEFAULT 0');
   db.exec(`
     CREATE TABLE IF NOT EXISTS live_game_polls (
