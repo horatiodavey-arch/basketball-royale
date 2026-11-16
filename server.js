@@ -642,6 +642,7 @@ app.get('/runs/:id', (req, res) => {
     run,
     profile,
     isOrganizer: !!profile && run.organizerPlayerId === profile.player_id,
+    viewerCheckedIn: !!profile && !!getCheckIn(profile.player_id, run.parkId),
     error: req.query.error || null,
     ...runTimeDefaults(),
     formatRunTime,
