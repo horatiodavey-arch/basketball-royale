@@ -27,20 +27,35 @@
     <div class="run-organizer">Started by <%= run.organizerName %></div>
   </div>
 
+  <% const playerChip = (p) => { %>
+    <div class="here-now-player person-chip">
+      <div class="here-now-avatar"><%= p.initials %></div>
+      <div class="here-now-name"><%= p.name.replace(/\s#\d{4}$/, '') %></div>
+      <%- include('partials/player-preview', { p: p }) %>
+    </div>
+  <% }; %>
+
   <div class="here-now-head">
-    <span class="section" style="margin: 0;"><%= run.rsvpCount %> coming</span>
+    <span class="section" style="margin: 0;">Here now &middot; <%= run.hereNow.length %></span>
   </div>
-  <% if (run.rsvps.length === 0) { %>
+  <% if (run.hereNow.length === 0) { %>
+    <div class="next-action-note">Nobody checked in at this park yet.</div>
+  <% } else { %>
+    <div class="here-now-row">
+      <% run.hereNow.forEach((p) => { %><%- playerChip(p) %><% }); %>
+    </div>
+  <% } %>
+
+  <div class="here-now-head" style="margin-top: 14px;">
+    <span class="section" style="margin: 0;">Coming &middot; <%= run.rsvpCount %></span>
+  </div>
+  <% if (run.cancelled || run.ended) { %>
+    <div class="next-action-note"><%= run.cancelled ? 'This run was cancelled.' : 'This run has ended.' %></div>
+  <% } else if (run.rsvps.length === 0) { %>
     <div class="next-action-note">Nobody's said they're coming yet &mdash; be the first.</div>
   <% } else { %>
     <div class="here-now-row">
-      <% run.rsvps.forEach((p) => { %>
-        <div class="here-now-player person-chip">
-          <div class="here-now-avatar"><%= p.initials %></div>
-          <div class="here-now-name"><%= p.name.replace(/\s#\d{4}$/, '') %></div>
-          <%- include('partials/player-preview', { p: p }) %>
-        </div>
-      <% }); %>
+      <% run.rsvps.forEach((p) => { %><%- playerChip(p) %><% }); %>
     </div>
   <% } %>
 

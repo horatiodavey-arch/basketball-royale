@@ -638,6 +638,34 @@ function getParkNextRun(parkId) {
   return soonest;
 }
 
+// Players checked in at a park, minus anyone who hides. Used by "Here now".
+function hereAtPark(parkId) {
+  return getCheckedInPlayers(parkId)
+    .filter((p) => !p.hidden)
+    .map((p) => ({ id: p.id, name: p.name, initials: nameInitials(p.name) }));
+}
+
+// Players who tapped I'm coming on a run at this park that hasn't ended or been
+// cancelled, minus anyone already checked in there (they're in "Here now") and
+// anyone who hides. Distinct players.
+function comingAtPark(parkId) {
+  const now = appNowSql();
+  const here = new Set(getCheckedInPlayers(parkId).map((p) => p.id));
+  return db
+    .prepare(
+      `SELECT DISTINCT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden
+       FROM run_rsvps rr
+       JOIN runs r ON r.id = rr.run_id
+       JOIN courts c ON c.id = r.court_id
+       JOIN players pl ON pl.id = rr.player_id
+       JOIN users u ON u.id = pl.user_id
+       WHERE c.park_id = ? AND r.cancelled_at IS NULL AND datetime(r.scheduled_at, '+${LIVE_AFTER_MINUTES} minutes') >= ?`
+    )
+    .all(parkId, now)
+    .filter((p) => !here.has(p.id) && !p.hidden)
+    .map((p) => ({ id: p.id, name: p.name, initials: nameInitials(p.name) }));
+}
+
 function getParkMapPins(seasonStart) {
   const liveParks = getLiveParkIds();
   return getParks().map((park) => ({
@@ -647,6 +675,8 @@ function getParkMapPins(seasonStart) {
     lng: park.lng,
     checkInRadiusMeters: park.check_in_radius_meters,
     activeCount: getCheckedInPlayers(park.id).length,
+    hereCount: hereAtPark(park.id).length,
+    comingCount: comingAtPark(park.id).length,
     liveCount: getLiveGameCountByPark(park.id),
     king: getParkKing(park.id, seasonStart),
     nextRun: getParkNextRun(park.id),
@@ -2425,17 +2455,27 @@ function getRunById(runId, viewerPlayerId) {
   if (!run) return null;
   const state = runLockState(run);
 
-  const rsvps = db
+  const rsvpsAll = db
     .prepare(
-      `SELECT pl.id, ${DISPLAY_NAME} AS name, rr.created_at
+      `SELECT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden, rr.created_at
        FROM run_rsvps rr
        JOIN players pl ON pl.id = rr.player_id
        JOIN users u ON u.id = pl.user_id
        WHERE rr.run_id = ?
        ORDER BY rr.created_at ASC`
     )
-    .all(runId)
-    .map((r) => ({ id: r.id, name: r.name, initials: nameInitials(r.name), ...previewFields(r.id) }));
+    .all(runId);
+  // The run's park: who is here, and who is coming but not yet here. Coming is
+  // cleared once the run has ended or been cancelled.
+  const ended = addMinutesSql(run.scheduled_at, LIVE_AFTER_MINUTES) < appNowSql();
+  const hereNow = hereAtPark(run.park_id);
+  const hereIds = new Set(hereNow.map((p) => p.id));
+  const rsvps = run.cancelled_at || ended
+    ? []
+    : rsvpsAll
+        .filter((r) => !r.hidden && !hereIds.has(r.id))
+        .map((r) => ({ id: r.id, name: r.name, initials: nameInitials(r.name), ...previewFields(r.id) }));
+  const viewerComingRow = viewerPlayerId ? rsvpsAll.some((r) => r.id === viewerPlayerId) : false;
 
   return {
     id: run.id,
@@ -2450,7 +2490,9 @@ function getRunById(runId, viewerPlayerId) {
     organizerName: run.organizer_name,
     rsvps,
     rsvpCount: rsvps.length,
-    viewerComing: viewerPlayerId ? rsvps.some((r) => r.id === viewerPlayerId) : false,
+    hereNow,
+    ended,
+    viewerComing: viewerComingRow && !(run.cancelled_at || ended),
     organizerPlayerId: run.organizer_player_id,
     cancelled: state.cancelled,
     started: state.started,
