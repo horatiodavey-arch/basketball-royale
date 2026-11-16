@@ -1080,3 +1080,11 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .gp-yes { background: #DCFCE7; color: #15803D; }
 .gp-no { background: #F4F4F6; color: #111; }
 .gp-still { background: #F4F4F6; color: #6B6B76; }
+
+/* --- Runs page: Scheduled tag, and the distance message on suggested parks --- */
+.scheduled-badge {
+  display: inline-block; font-size: 11px; font-weight: 600; color: #6B6B76;
+  background: #F4F4F6; border-radius: 999px; padding: 2px 8px; margin-right: 4px; vertical-align: middle;
+}
+.suggested-away { font-size: 14px; color: #55555F; margin-top: 8px; }
+.suggested-away.away-msg { color: #6B6B76; }
