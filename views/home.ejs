@@ -232,11 +232,10 @@
       var crownHtml = pin.activeCount > 0 ? crownSvg(fill, stroke, 16) : '';
       var label = pin.king ? pin.king.name : pin.name;
       var distanceHtml = miles != null ? '<div class="pin-distance">' + RoyaleGeo.pinDistanceLabel(miles) + '</div>' : '';
-      var runHtml = pin.live
-        ? '<div class="pin-run"><span class="live-badge">Live</span>' + (pin.nextRun ? ' ' + pin.nextRun.rsvpCount + ' coming' : '') + '</div>'
-        : (pin.nextRun
-          ? '<div class="pin-run">' + formatRunTimeShort(pin.nextRun.scheduledAt) + ' · ' + pin.nextRun.rsvpCount + ' coming</div>'
-          : '');
+      // Both counts, as the lists on the park show them: "4 here · 3 coming".
+      var countsHtml = '<div class="pin-run">' + (pin.live ? '<span class="live-badge">Live</span> ' : '') +
+        (pin.hereCount || 0) + ' here · ' + (pin.comingCount || 0) + ' coming</div>';
+      var runHtml = countsHtml;
       return '<div class="kotc-marker-content"><div class="pin' + (isSelected ? ' pin-selected' : '') + (isTop ? ' pin-top' : '') + '">' +
         crownHtml +
         '<span class="pin-count">' + pin.activeCount + '</span>' +
