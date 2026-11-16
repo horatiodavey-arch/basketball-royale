@@ -1105,3 +1105,7 @@ a.here-now-player { text-decoration: none; color: inherit; }
   background: none; border: 0; padding: 6px 2px; font: inherit; font-size: 14px;
   font-weight: 600; color: #6D28D9; text-decoration: none; cursor: pointer;
 }
+
+/* --- Admin: day picker for the Today summary --- */
+.admin-day-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 10px; font-size: 14px; }
+.admin-day-form input[type="date"] { font: inherit; padding: 6px 8px; border: 1px solid #E6E6EA; border-radius: 8px; }

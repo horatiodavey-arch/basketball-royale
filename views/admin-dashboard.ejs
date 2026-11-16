@@ -16,6 +16,25 @@
   <% }); %>
   <div class="page-sub"><%= dashboard.rangeLabel %> &middot; updated <%= dashboard.generatedAt %> UTC &middot; read-only</div>
 
+  <div class="section admin-section"><%= today.isToday ? 'Today' : 'Day' %> &middot; <%= today.day %></div>
+  <form method="GET" action="/admin" class="admin-day-form">
+    <% if (query.range) { %><input type="hidden" name="range" value="<%= query.range %>"><% } %>
+    <% if (query.event) { %><input type="hidden" name="event" value="<%= query.event %>"><% } %>
+    <label for="adminDay">Pick a day</label>
+    <input type="date" id="adminDay" name="day" value="<%= today.day %>" max="<%= today.maxDay %>">
+    <button type="submit" class="small-btn">Show</button>
+    <% if (!today.isToday) { %><a href="/admin" class="player-link">Back to today</a><% } %>
+  </form>
+  <div class="admin-big">
+    <% today.stats.forEach((s) => { %>
+      <div class="admin-stat">
+        <div class="admin-stat-value heading"><%= s.value %></div>
+        <div class="admin-stat-label"><%= s.label %></div>
+      </div>
+    <% }); %>
+  </div>
+  <div class="season-note">Games are counted on the day they started. Unfinished means nobody reported it for 30 minutes. Check-ins count successful check-ins, from the day this was added.</div>
+
   <div class="section admin-section">Tracking check</div>
   <div class="admin-big">
     <div class="admin-stat">
