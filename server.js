@@ -119,6 +119,15 @@ const {
   courtIdForLiveGame,
   notifyUpNext,
 } = require('./db/push');
+const {
+  recordVisit,
+  reachMilestone,
+  markPushed,
+  reachedMilestones,
+  backfillMilestones,
+} = require('./db/milestones');
+const { notifyPlayers, organizerPlayerIds } = require('./db/push');
+backfillMilestones();
 const { DATA_DIR, writeBackup } = require('./db/index');
 const gameNow = require('./db/game-now');
 const QRCode = require('qrcode');
@@ -803,20 +812,33 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
 
   const screen = getCourtScreen(court.id, profile.player_id);
   const pending = gameNow.pendingGameForCourt(court.id);
+  const origin = `${req.protocol}://${req.get('host')}/parks/${court.park_id}/courts/${court.id}`;
+  // A join link carries the team the sender was on. It only applies to a game on this court.
+  const joinTeam = ['a', 'b'].includes(req.query.team) ? req.query.team : null;
+  const joinLink =
+    screen.liveGame && joinTeam && String(screen.liveGame.id) === String(req.query.join)
+      ? { gameId: screen.liveGame.id, team: joinTeam }
+      : null;
   const gameNowState = {
     formats: gameNow.FORMATS,
     viewerCheckedIn: !!getCheckIn(profile.player_id, court.park_id),
+    joinLink,
+    shareUrl: (gameId, team) => `${origin}?join=${gameId}${team ? '&team=' + team : ''}`,
     pending: pending
       ? {
           id: pending.id,
           winner: pending.team_a_won ? 'a' : 'b',
           submittedTeam: pending.result_submitted_team,
           viewerTeam: playerTeamInGame(pending.id, profile.player_id),
+          rosters: gameNow.rosterByTeam(pending.id),
           qr: `/live_games/${pending.id}/qr.png`,
-          shareUrl: `${req.protocol}://${req.get('host')}/parks/${court.park_id}/courts/${court.id}?join=${pending.id}`,
+          shareUrl: `${origin}?join=${pending.id}`,
         }
       : null,
   };
+  if (screen.liveGame) {
+    gameNowState.liveShare = { a: gameNowState.shareUrl(screen.liveGame.id, 'a'), b: gameNowState.shareUrl(screen.liveGame.id, 'b') };
+  }
   const countdownEndsAtIso =
     screen.liveGame && screen.liveGame.status === 'countdown'
       ? new Date(screen.liveGame.countdown_ends_at + 'Z').toISOString()
@@ -847,7 +869,23 @@ app.post('/parks/:parkId/check-in', requireAuth, (req, res) => {
   if (typeof lat !== 'number' || typeof lng !== 'number') {
     return res.status(400).json({ ok: false, error: 'Location not available.' });
   }
-  res.json(checkIn(profile.player_id, Number(req.params.parkId), lat, lng, accuracy));
+  const parkId = Number(req.params.parkId);
+  const outcome = checkIn(profile.player_id, parkId, lat, lng, accuracy);
+  if (outcome.ok) {
+    recordVisit(profile.player_id, parkId);
+    const reached = reachMilestone(parkId);
+    if (reached) {
+      const payload = {
+        title: 'Park milestone',
+        body: `${reached.name} just hit 20 players. Time to consider game alerts there.`,
+        url: '/admin',
+      };
+      notifyPlayers(organizerPlayerIds(), payload)
+        .catch((err) => console.error('milestone push failed', err))
+        .finally(() => markPushed(reached.id));
+    }
+  }
+  res.json(outcome);
 });
 
 // A photo of the park, straight from the phone's camera. The body is the
@@ -1057,7 +1095,7 @@ app.post('/live_games/:id/sub', requireAuth, (req, res) => {
 app.post('/courts/:courtId/game-now', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   const court = getCourtById(req.params.courtId);
-  const result = gameNow.startGame(Number(req.params.courtId), profile.player_id, req.body.format, req.body.side);
+  const result = gameNow.startGame(Number(req.params.courtId), profile.player_id, req.body.format);
   const fallback = court ? `/parks/${court.park_id}/courts/${court.id}` : '/runs';
   redirectWithResult(req, res, result, fallback);
 });
@@ -1096,7 +1134,8 @@ app.get('/api/game-status', requireAuth, (req, res) => {
 app.get('/live_games/:id/qr.png', requireAuth, async (req, res) => {
   const game = gameNow.gameLocation(Number(req.params.id));
   if (!game) return res.status(404).end();
-  const url = `${req.protocol}://${req.get('host')}/parks/${game.park_id}/courts/${game.court_id}?join=${game.id}`;
+  const team = ['a', 'b'].includes(req.query.team) ? `&team=${req.query.team}` : '';
+  const url = `${req.protocol}://${req.get('host')}/parks/${game.park_id}/courts/${game.court_id}?join=${game.id}${team}`;
   const png = await QRCode.toBuffer(url, { type: 'png', width: 320, margin: 2 });
   res.type('png').send(png);
 });
@@ -1299,7 +1338,7 @@ app.post('/admin/logout', (req, res) => {
 
 app.get('/admin', requireAdmin, (req, res) => {
   const dashboard = buildDashboard(req.query.range, req.query.event);
-  res.render('admin-dashboard', { dashboard, tracking: getTrackingCheck(), active: '' });
+  res.render('admin-dashboard', { dashboard, tracking: getTrackingCheck(), milestones: reachedMilestones(), active: '' });
 });
 
 // A full copy of the database for safekeeping. Written to a temporary file

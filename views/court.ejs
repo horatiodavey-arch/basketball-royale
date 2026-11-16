@@ -93,7 +93,18 @@
     <% const p = gn.pending; %>
     <div class="live-card">
       <div class="live-target">Result waiting for confirmation</div>
-      <div class="winners-note">Team <%= p.winner === 'a' ? 'A' : 'B' %> says they won. It counts once a player from the other team confirms.</div>
+      <div class="winners-note">Team <%= p.winner === 'a' ? 'A' : 'B' %> won. It counts once a player from the other team confirms.</div>
+      <div class="live-teams">
+        <div class="live-team">
+          <div class="live-team-label">Team A</div>
+          <% p.rosters.a.forEach((n) => { %><div class="live-player"><%= n %></div><% }); %>
+        </div>
+        <div class="live-vs">vs</div>
+        <div class="live-team">
+          <div class="live-team-label">Team B</div>
+          <% p.rosters.b.forEach((n) => { %><div class="live-player"><%= n %></div><% }); %>
+        </div>
+      </div>
       <% if (p.viewerTeam && p.viewerTeam !== p.submittedTeam) { %>
         <div class="declare-row">
           <form method="POST" action="/live_games/<%= p.id %>/confirm">
@@ -139,32 +150,58 @@
         </div>
       </div>
 
-      <% if (liveGame.viewerTeam) { %>
-        <div class="winners-note">Game done? Tap the team that won.</div>
+      <% const roomA = liveGame.teamA.length < size; const roomB = liveGame.teamB.length < size; %>
+      <% const myTeam = liveGame.viewerTeam; %>
+      <% const link = gn.joinLink && gn.joinLink.gameId === liveGame.id ? gn.joinLink : null; %>
+      <% if (myTeam) { %>
+        <div class="winners-note">You're on Team <%= myTeam === 'a' ? 'A' : 'B' %>.</div>
+        <% const other = myTeam === 'a' ? 'b' : 'a'; %>
+        <% if ((other === 'a' ? roomA : roomB)) { %>
+          <form method="POST" action="/live_games/<%= liveGame.id %>/join" class="declare-row">
+            <input type="hidden" name="side" value="<%= other %>">
+            <button type="submit" class="small-btn">Wrong team? Switch to Team <%= other === 'a' ? 'A' : 'B' %></button>
+          </form>
+        <% } %>
+      <% } else if (gn.viewerCheckedIn && link) { %>
+        <div class="winners-note">You're joining Team <%= link.team === 'a' ? 'A' : 'B' %>.</div>
+        <form method="POST" action="/live_games/<%= liveGame.id %>/join" class="declare-row">
+          <input type="hidden" name="side" value="<%= link.team %>">
+          <button type="submit" class="small-btn small-btn-accent">Join Team <%= link.team === 'a' ? 'A' : 'B' %></button>
+        </form>
+      <% } else if (gn.viewerCheckedIn) { %>
+        <div class="winners-note">Tap the team your teammate is on.</div>
+        <div class="declare-row">
+          <% if (roomA) { %>
+            <form method="POST" action="/live_games/<%= liveGame.id %>/join">
+              <input type="hidden" name="side" value="a">
+              <button type="submit" class="small-btn small-btn-accent">I'm on Team A</button>
+            </form>
+          <% } %>
+          <% if (roomB) { %>
+            <form method="POST" action="/live_games/<%= liveGame.id %>/join">
+              <input type="hidden" name="side" value="b">
+              <button type="submit" class="small-btn small-btn-accent">I'm on Team B</button>
+            </form>
+          <% } %>
+        </div>
+      <% } %>
+      <% if (myTeam) { %>
+        <div class="winners-note">Game done? Who won?</div>
         <div class="declare-row">
           <form method="POST" action="/live_games/<%= liveGame.id %>/declare">
             <input type="hidden" name="side" value="a">
-            <button type="submit" class="small-btn">Team A won</button>
+            <button type="submit" class="small-btn">Team A</button>
           </form>
           <form method="POST" action="/live_games/<%= liveGame.id %>/declare">
             <input type="hidden" name="side" value="b">
-            <button type="submit" class="small-btn">Team B won</button>
+            <button type="submit" class="small-btn">Team B</button>
           </form>
         </div>
-      <% } else if (gn.viewerCheckedIn) { %>
-        <div class="declare-row">
-          <% if (liveGame.teamA.length < size) { %>
-            <form method="POST" action="/live_games/<%= liveGame.id %>/join">
-              <input type="hidden" name="side" value="a">
-              <button type="submit" class="small-btn small-btn-accent">Join Team A</button>
-            </form>
-          <% } %>
-          <% if (liveGame.teamB.length < size) { %>
-            <form method="POST" action="/live_games/<%= liveGame.id %>/join">
-              <input type="hidden" name="side" value="b">
-              <button type="submit" class="small-btn small-btn-accent">Join Team B</button>
-            </form>
-          <% } %>
+      <% } %>
+      <% if (liveGame.teamA.length + liveGame.teamB.length > 0) { %>
+        <div class="qr-share">
+          <button type="button" class="small-btn" data-share-url="<%= gn.liveShare.a %>">Send QR link for Team A</button>
+          <button type="button" class="small-btn" data-share-url="<%= gn.liveShare.b %>">Send QR link for Team B</button>
         </div>
       <% } %>
 
@@ -200,10 +237,7 @@
             <option value="" selected disabled>Pick a format</option>
             <% gn.formats.forEach((f) => { %><option value="<%= f %>"><%= f %></option><% }); %>
           </select>
-          <div class="game-now-sides">
-            <label><input type="radio" name="side" value="a" required> Team A</label>
-            <label><input type="radio" name="side" value="b"> Team B</label>
-          </div>
+          <div class="winners-note">You start on Team A. Others tap the team their teammate is on.</div>
           <button type="submit" class="submit-btn">Game now</button>
         </form>
       <% } else { %>
