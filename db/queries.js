@@ -2378,7 +2378,7 @@ function getCancelledRunsForPlayer(playerId) {
        JOIN runs r ON r.id = rr.run_id
        JOIN courts c ON c.id = r.court_id
        JOIN parks p ON p.id = c.park_id
-       WHERE rr.player_id = ? AND r.cancelled_at IS NOT NULL AND r.cancelled_at >= datetime('now', '-7 days')
+       WHERE rr.player_id = ? AND r.cancelled_at IS NOT NULL AND r.cancelled_at >= datetime('now', '-24 hours')
        ORDER BY r.cancelled_at DESC`
     )
     .all(playerId)
@@ -2413,6 +2413,7 @@ function getRunById(runId, viewerPlayerId) {
       `SELECT r.id, r.scheduled_at, r.note, r.court_id, r.organizer_player_id, r.cancelled_at,
               c.number AS court_number, c.nickname AS court_nickname,
               p.id AS park_id, p.name AS park_name, p.city AS park_city, p.location AS park_location,
+              p.lat AS park_lat, p.lng AS park_lng, p.check_in_radius_meters AS park_radius,
               ${DISPLAY_NAME} AS organizer_name
        FROM runs r
        JOIN courts c ON c.id = r.court_id
@@ -2447,6 +2448,10 @@ function getRunById(runId, viewerPlayerId) {
     parkName: run.park_name,
     parkCity: run.park_city,
     parkLocation: run.park_location,
+    parkLat: run.park_lat,
+    parkLng: run.park_lng,
+    checkInRadiusMeters: run.park_radius || 250,
+    live: !state.cancelled && parksWithCheckIns().has(run.park_id),
     organizerName: run.organizer_name,
     rsvps,
     rsvpCount: rsvps.length,
@@ -2596,6 +2601,12 @@ function isRunLive(scheduledAt, nowSql = appNowSql()) {
 
 // Courts with a live run right now, or a game in progress there.
 function getLiveCourtIds() {
+  // Live needs at least one player checked in at the park. A run's time window,
+  // or a game in progress, does not make it live on its own.
+  const present = new Set(
+    db.prepare(`SELECT DISTINCT park_id FROM check_ins WHERE last_inside >= ${FRESH_SINCE_SQL}`).all().map((r) => r.park_id)
+  );
+  if (present.size === 0) return new Set();
   const now = appNowSql();
   const ids = new Set();
   for (const r of db
@@ -2606,7 +2617,8 @@ function getLiveCourtIds() {
   for (const g of db.prepare("SELECT DISTINCT court_id FROM live_games WHERE status = 'in_progress'").all()) {
     ids.add(g.court_id);
   }
-  return ids;
+  const parkOfCourt = new Map(db.prepare('SELECT id, park_id FROM courts').all().map((c) => [c.id, c.park_id]));
+  return new Set([...ids].filter((courtId) => present.has(parkOfCourt.get(courtId))));
 }
 
 // Parks where something is live right now.
@@ -2623,6 +2635,11 @@ function getLiveParkIds() {
 // Upcoming runs within radiusMeters of (lat, lng), soonest first, plus
 // the single nearest park/court overall (for the "No runs near you yet —
 // be the first King of X" empty state) regardless of whether it has a run.
+// Parks with at least one player checked in right now.
+function parksWithCheckIns() {
+  return new Set(db.prepare(`SELECT DISTINCT park_id FROM check_ins WHERE last_inside >= ${FRESH_SINCE_SQL}`).all().map((r) => r.park_id));
+}
+
 function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
   const candidates = db
     .prepare(
@@ -2635,6 +2652,7 @@ function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
     )
     .all(addMinutesSql(appNowSql(), -LIVE_AFTER_MINUTES));
   const rsvpCount = db.prepare('SELECT COUNT(*) AS c FROM run_rsvps WHERE run_id = ?');
+  const presentParks = parksWithCheckIns();
 
   const runs = candidates
     .map((r) => ({
@@ -2650,7 +2668,7 @@ function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
       rsvpCount: rsvpCount.get(r.id).c,
     }))
     .filter((r) => r.distanceMeters <= radiusMeters)
-    .map((r) => ({ ...r, live: isRunLive(r.scheduledAt) }))
+    .map((r) => ({ ...r, live: presentParks.has(r.parkId) }))
     .sort((a, b) => (b.live - a.live) || new Date(a.scheduledAt) - new Date(b.scheduledAt));
   const liveNearby = runs.filter((r) => r.live).sort((a, b) => a.distanceMeters - b.distanceMeters)[0] || null;
 
