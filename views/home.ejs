@@ -31,6 +31,22 @@
     <a href="/how-it-works" class="how-it-works-link">How it works &rsaquo;</a>
   </div>
 
+  <% if (locals.followedParks && followedParks.length > 0) { %>
+    <div class="followed-strip">
+      <div class="section" style="margin: 0 0 6px;">Following</div>
+      <% followedParks.forEach((fp) => { %>
+        <a href="/?park=<%= fp.id %>" class="followed-park-card">
+          <div class="followed-park-name"><%= fp.name %><% if (fp.live) { %> <span class="live-badge">Live</span><% } %></div>
+          <div class="followed-park-meta">
+            <span class="status-dot-inline status-dot-here"></span><%= fp.hereCount %> here &middot;
+            <span class="status-dot-inline status-dot-coming"></span><%= fp.comingCount %> coming
+            &middot; <%= fp.nextRun ? ('Next run ' + formatRunTime(fp.nextRun.scheduledAt)) : 'No runs yet' %>
+          </div>
+        </a>
+      <% }); %>
+    </div>
+  <% } %>
+
   <% if (pins.length === 0) { %>
     <div class="empty-board">No parks yet.</div>
   <% } else { %>
@@ -103,7 +119,7 @@
       <% } %>
 
       <div class="here-now-head">
-        <span class="section" style="margin: 0;">Here now</span>
+        <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-here"></span>Here now</span>
         <% if (sheet.hereNow.length > 5) { %>
           <a href="/parks/<%= sheet.park.id %>" class="see-all-link">See all <%= sheet.hereNow.length %></a>
         <% } %>
@@ -117,10 +133,28 @@
               <div class="here-now-avatar <%= p.id === profile.player_id ? 'here-now-avatar-you' : '' %>">
                 <%= p.initials %>
                 <span class="here-now-crown"><%- include('partials/crown-icon', { size: 13, fill: p.crown ? p.crown.fill : 'none', stroke: p.crown ? p.crown.stroke : 'var(--muted)' }) %></span>
+                <span class="status-dot status-dot-here" title="Checked in"></span>
               </div>
               <div class="here-now-name"><%= p.id === profile.player_id ? 'You' : p.name.replace(/\s#\d{4}$/, '') %></div>
               <div class="here-now-pts"><%= p.points %> pts</div>
               <%- include('partials/player-preview', { p: p }) %>
+            </div>
+          <% }); %>
+        </div>
+      <% } %>
+
+      <% if (sheet.comingNow && sheet.comingNow.length > 0) { %>
+        <div class="here-now-head" style="margin-top: 14px;">
+          <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-coming"></span>Coming &middot; <%= sheet.comingNow.length %></span>
+        </div>
+        <div class="here-now-row">
+          <% sheet.comingNow.slice(0, 5).forEach((p) => { %>
+            <div class="here-now-player person-chip">
+              <div class="here-now-avatar <%= p.id === profile.player_id ? 'here-now-avatar-you' : '' %>">
+                <%= p.initials %>
+                <span class="status-dot status-dot-coming" title="Coming"></span>
+              </div>
+              <div class="here-now-name"><%= p.id === profile.player_id ? 'You' : p.name.replace(/\s#\d{4}$/, '') %></div>
             </div>
           <% }); %>
         </div>
@@ -234,7 +268,8 @@
       var distanceHtml = miles != null ? '<div class="pin-distance">' + RoyaleGeo.pinDistanceLabel(miles) + '</div>' : '';
       // Both counts, as the lists on the park show them: "4 here · 3 coming".
       var countsHtml = '<div class="pin-run">' + (pin.live ? '<span class="live-badge">Live</span> ' : '') +
-        (pin.hereCount || 0) + ' here · ' + (pin.comingCount || 0) + ' coming</div>';
+        '<span class="status-dot-inline status-dot-here"></span>' + (pin.hereCount || 0) + ' here · ' +
+        '<span class="status-dot-inline status-dot-coming"></span>' + (pin.comingCount || 0) + ' coming</div>';
       var runHtml = countsHtml;
       return '<div class="kotc-marker-content"><div class="pin' + (isSelected ? ' pin-selected' : '') + (isTop ? ' pin-top' : '') + '">' +
         crownHtml +

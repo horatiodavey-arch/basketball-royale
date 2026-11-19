@@ -721,6 +721,8 @@ function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
     liveCount: getLiveGameCountByPark(parkId),
     king,
     hereNow,
+    // Said I'm coming to a run here but not checked in yet (yellow dot).
+    comingNow: comingAtPark(parkId),
     viewerStatus,
     checkedIn: !!getCheckIn(viewerPlayerId, parkId),
     firstCourtId: firstCourt ? firstCourt.id : null,

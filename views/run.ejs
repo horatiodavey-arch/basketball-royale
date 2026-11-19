@@ -31,27 +31,28 @@
     <div class="run-organizer">Started by <%= run.organizerName %></div>
   </div>
 
-  <% const playerChip = (p) => { %>
+  <%# Green dot: checked in at the park (live). Yellow dot: said I'm coming, not here yet. %>
+  <% const playerChip = (p, status) => { %>
     <div class="here-now-player person-chip">
-      <div class="here-now-avatar"><%= p.initials %></div>
+      <div class="here-now-avatar"><%= p.initials %><span class="status-dot status-dot-<%= status %>" title="<%= status === 'here' ? 'Checked in' : 'Coming' %>"></span></div>
       <div class="here-now-name"><%= p.name.replace(/\s#\d{4}$/, '') %></div>
       <%- include('partials/player-preview', { p: p }) %>
     </div>
   <% }; %>
 
   <div class="here-now-head">
-    <span class="section" style="margin: 0;">Here now &middot; <%= run.hereNow.length %></span>
+    <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-here"></span>Here now &middot; <%= run.hereNow.length %></span>
   </div>
   <% if (run.hereNow.length === 0) { %>
     <div class="next-action-note">Nobody checked in at this park yet.</div>
   <% } else { %>
     <div class="here-now-row">
-      <% run.hereNow.forEach((p) => { %><%- playerChip(p) %><% }); %>
+      <% run.hereNow.forEach((p) => { %><%- playerChip(p, 'here') %><% }); %>
     </div>
   <% } %>
 
   <div class="here-now-head" style="margin-top: 14px;">
-    <span class="section" style="margin: 0;">Coming &middot; <%= run.rsvpCount %></span>
+    <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-coming"></span>Coming &middot; <%= run.rsvpCount %></span>
   </div>
   <% if (run.cancelled || run.ended) { %>
     <div class="next-action-note"><%= run.cancelled ? 'This run was cancelled.' : 'This run has ended.' %></div>
@@ -59,7 +60,7 @@
     <div class="next-action-note">Nobody's said they're coming yet &mdash; be the first.</div>
   <% } else { %>
     <div class="here-now-row">
-      <% run.rsvps.forEach((p) => { %><%- playerChip(p) %><% }); %>
+      <% run.rsvps.forEach((p) => { %><%- playerChip(p, 'coming') %><% }); %>
     </div>
   <% } %>
 

@@ -1109,3 +1109,25 @@ a.here-now-player { text-decoration: none; color: inherit; }
 /* --- Admin: day picker for the Today summary --- */
 .admin-day-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 10px; font-size: 14px; }
 .admin-day-form input[type="date"] { font: inherit; padding: 6px 8px; border: 1px solid #E6E6EA; border-radius: 8px; }
+
+/* Player status dots: green = checked in at the park (live, inside the
+   radius); yellow = tapped I'm coming but not checked in yet. */
+.status-dot {
+  position: absolute; bottom: 0; right: 0; width: 12px; height: 12px;
+  border-radius: 50%; border: 2px solid #FFFFFF; box-sizing: border-box;
+}
+.status-dot-inline {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 5px; vertical-align: middle; position: relative; top: -1px;
+}
+.status-dot-here { background: #16A34A; }
+.status-dot-coming { background: #EAB308; }
+
+/* Map page: parks you follow, with here (green) and coming (yellow) counts. */
+.followed-strip { margin: 10px 0 12px; }
+.followed-park-card {
+  display: block; padding: 10px 12px; margin-bottom: 6px; border-radius: 12px;
+  background: #FFFFFF; border: 1px solid #E7E5DF; text-decoration: none; color: inherit;
+}
+.followed-park-name { font-weight: 700; font-size: 14px; }
+.followed-park-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
