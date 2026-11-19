@@ -372,7 +372,26 @@ app.get('/', requireAuth, (req, res) => {
   }
   const sheet = getParkSheetDetail(selectedPark.id, season.startSql, profile.player_id);
 
+  // Parks this player follows, with who's here (green) and who's coming
+  // (yellow), so they can see a run forming without opening Runs.
+  const pinById = new Map(pins.map((p) => [p.id, p]));
+  const followedParks = [];
+  for (const fc of getFollowedCourtsForPlayer(profile.player_id, season.startSql)) {
+    if (followedParks.some((fp) => fp.id === fc.parkId)) continue;
+    const pin = pinById.get(fc.parkId);
+    if (!pin) continue;
+    followedParks.push({
+      id: pin.id,
+      name: pin.name,
+      hereCount: pin.hereCount || 0,
+      comingCount: pin.comingCount || 0,
+      live: !!pin.live,
+      nextRun: pin.nextRun || null,
+    });
+  }
+
   res.render('home', {
+    followedParks,
     active: 'map',
     profile,
     season,

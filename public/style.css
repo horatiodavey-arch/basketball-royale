@@ -1122,3 +1122,12 @@ a.here-now-player { text-decoration: none; color: inherit; }
 }
 .status-dot-here { background: #16A34A; }
 .status-dot-coming { background: #EAB308; }
+
+/* Map page: parks you follow, with here (green) and coming (yellow) counts. */
+.followed-strip { margin: 10px 0 12px; }
+.followed-park-card {
+  display: block; padding: 10px 12px; margin-bottom: 6px; border-radius: 12px;
+  background: #FFFFFF; border: 1px solid #E7E5DF; text-decoration: none; color: inherit;
+}
+.followed-park-name { font-weight: 700; font-size: 14px; }
+.followed-park-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
