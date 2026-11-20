@@ -35,6 +35,55 @@
   </div>
   <div class="season-note">Games are counted on the day they started. Unfinished means nobody reported it for 30 minutes. Check-ins count successful check-ins, from the day this was added.</div>
 
+  <div class="section admin-section" id="courts">Courts and home courts</div>
+  <div class="admin-big">
+    <% courtsAdmin.big.forEach((s) => { %>
+      <div class="admin-stat">
+        <div class="admin-stat-value heading"><%= s.value %></div>
+        <div class="admin-stat-label"><%= s.label %></div>
+      </div>
+    <% }); %>
+  </div>
+  <div class="season-note"><%= courtsAdmin.importedCount %> courts imported from OpenStreetMap &middot; <%= courtsAdmin.hiddenCount %> hidden.</div>
+
+  <div class="admin-table-head"><span class="admin-table-title">Home court picks per court</span></div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead><tr><th>Court</th><th>Players</th></tr></thead>
+      <tbody>
+        <% if (courtsAdmin.picks.length === 0) { %><tr><td colspan="2">No home courts picked yet.</td></tr><% } %>
+        <% courtsAdmin.picks.forEach((p) => { %>
+          <tr><td><%= p.name %><%= p.city ? ' · ' + p.city : '' %></td><td><%= p.players %></td></tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="admin-table-head"><span class="admin-table-title">"Can't play here" reports and hidden courts</span></div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead><tr><th>Court</th><th>Reports</th><th>Why</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        <% if (courtsAdmin.reported.length === 0) { %><tr><td colspan="5">No reports.</td></tr><% } %>
+        <% courtsAdmin.reported.forEach((p) => { %>
+          <tr>
+            <td><%= p.name %><%= p.city ? ' · ' + p.city : '' %></td>
+            <td><%= p.reports %></td>
+            <td><%= [p.private ? p.private + ' private' : '', p.locked ? p.locked + ' locked' : '', p.school ? p.school + ' school' : ''].filter(Boolean).join(', ') || '—' %></td>
+            <td><%= p.hidden ? 'Hidden' : 'On the map' %></td>
+            <td>
+              <form method="POST" action="/admin/parks/<%= p.id %>/visibility">
+                <input type="hidden" name="hidden" value="<%= p.hidden ? '0' : '1' %>">
+                <button type="submit" class="tiny-btn"><%= p.hidden ? 'Unhide' : 'Hide' %></button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+  <div class="season-note">A court is hidden automatically at 3 reports from different players. Unhiding it clears its reports.</div>
+
   <div class="section admin-section">Tracking check</div>
   <div class="admin-big">
     <div class="admin-stat">

@@ -40,10 +40,11 @@
   <% } else { %>
     <input type="search" id="parkSearch" class="park-search" placeholder="Search parks" autocomplete="off" aria-label="Search parks">
     <% const suggestedById = new Map(suggestedParks.map((sp) => [sp.park.id, sp])); %>
-    <% parks.forEach((park) => { %>
+    <% parks.forEach((park, parkIndex) => { %>
       <% const sp = suggestedById.get(park.id); %>
+      <% const extra = parkIndex >= 20; %>
       <% if (sp) { %>
-        <div class="stats-card suggested-park-card park-search-item" data-search="<%= [park.name, park.city, park.location].filter(Boolean).join(' ').toLowerCase() %>" data-park-id="<%= park.id %>" data-lat="<%= park.lat %>" data-lng="<%= park.lng %>" data-radius="<%= park.check_in_radius_meters || 250 %>">
+        <div class="stats-card suggested-park-card park-search-item<%= extra ? ' park-extra' : '' %>"<%- extra ? ' style="display: none;"' : '' %> data-search="<%= [park.name, park.city, park.location].filter(Boolean).join(' ').toLowerCase() %>" data-park-id="<%= park.id %>" data-lat="<%= park.lat %>" data-lng="<%= park.lng %>" data-radius="<%= park.check_in_radius_meters || 250 %>">
           <div class="park-link-with-thumb">
             <%- include('partials/park-thumb', { park: park }) %>
             <div class="park-link-body">
@@ -68,7 +69,7 @@
           </div>
         </div>
       <% } else { %>
-        <a href="/parks/<%= park.id %>" class="park-link park-link-with-thumb park-search-item" data-search="<%= [park.name, park.city, park.location].filter(Boolean).join(' ').toLowerCase() %>">
+        <a href="/parks/<%= park.id %>" class="park-link park-link-with-thumb park-search-item<%= extra ? ' park-extra' : '' %>"<%- extra ? ' style="display: none;"' : '' %> data-search="<%= [park.name, park.city, park.location].filter(Boolean).join(' ').toLowerCase() %>">
           <%- include('partials/park-thumb', { park: park }) %>
           <div class="park-link-body">
             <div class="park-link-name"><%- include('partials/park-name', { name: park.name, city: park.city }) %><% if (park.isNew) { %><span class="new-badge">New</span><% } %></div>
@@ -82,6 +83,7 @@
       <% } %>
     <% }); %>
     <div id="parkSearchEmpty" class="empty-board" style="display: none;">No parks match that search.</div>
+    <% if (parks.length > 20) { %><div id="parkSearchMore" class="next-action-note">Showing 20 of <%= parks.length %> courts. Search to find the rest.</div><% } %>
   <% } %>
 
   <% if (cancelledRuns.length > 0) { %>
@@ -121,10 +123,13 @@
         var term = parkSearch.value.trim().toLowerCase();
         var shown = 0;
         document.querySelectorAll('.park-search-item').forEach(function (item) {
-          var match = item.getAttribute('data-search').indexOf(term) !== -1;
+          // With no search, only the first 20 show; a search looks through all of them.
+          var match = term ? item.getAttribute('data-search').indexOf(term) !== -1 : !item.classList.contains('park-extra');
           item.style.display = match ? '' : 'none';
           if (match) shown += 1;
         });
+        var more = document.getElementById('parkSearchMore');
+        if (more) more.style.display = term ? 'none' : '';
         document.getElementById('parkSearchEmpty').style.display = shown === 0 ? 'block' : 'none';
       });
     }
