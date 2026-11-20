@@ -189,7 +189,7 @@
         </div>
       <% } else { %>
         <div id="sheetCheckInNormal" class="sheet-actions">
-          <button type="button" id="homeCheckInBtn" class="check-in-btn">Check in</button>
+          <button type="button" id="homeCheckInBtn" class="check-in-btn" data-park-id="<%= sheet.park.id %>">Check in</button>
           <form method="POST" action="/courts/<%= sheet.firstCourtId %>/next">
             <button type="submit" class="submit-btn" <%= sheet.firstCourtId ? '' : 'disabled' %>>I got next</button>
           </form>

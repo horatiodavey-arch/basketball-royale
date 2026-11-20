@@ -1,3 +1,5 @@
+<% if (locals.isGuest) { %><a href="/signup" class="guest-bar">Sign up with your number to get on the board.</a><% } %>
+<% if (locals.flash) { %><div class="flash-note" role="status"><%= flash %></div><% } %>
 <div class="royale-bar">
   <a href="/" class="royale-brand" aria-label="ROYALE, back to the map"><span class="royale-dot"></span>ROYALE</a>
   <div class="royale-reset">Crowns reset in <%= season.daysLeft %> day<%= season.daysLeft === 1 ? '' : 's' %>.</div>

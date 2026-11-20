@@ -16,8 +16,14 @@
     <%- include('partials/profile-header-live', { player: player, initials: initials, tierLabel: tierLabel }) %>
   </div>
 
+  <div class="pf-growth">
+    <span class="pf-streak"><%= streak.current > 0 ? streak.current + '-week streak' : 'No play streak yet' %></span>
+    <% if (streak.longest > 0) { %><span class="pf-growth-sub">Longest: <%= streak.longest %> week<%= streak.longest === 1 ? '' : 's' %></span><% } %>
+    <span class="pf-growth-sep">&middot;</span>
+    <span>Players recruited: <%= recruited %></span>
+  </div>
   <div class="live-part" data-live-key="body">
-    <%- include('partials/profile-body-live', { pendingGames: pendingGames || [], kingRows: kingRows, trophyCount: trophyCount, trophyByFormat: trophyByFormat, gamesThisSeason: gamesThisSeason, topBreakdown: topBreakdown, badges: badges }) %>
+    <%- include('partials/profile-body-live', { recruited: recruited, recruiterAt: recruiterAt, pendingGames: pendingGames || [], kingRows: kingRows, trophyCount: trophyCount, trophyByFormat: trophyByFormat, gamesThisSeason: gamesThisSeason, topBreakdown: topBreakdown, badges: badges }) %>
   </div>
 
   <div class="pf-home-court">

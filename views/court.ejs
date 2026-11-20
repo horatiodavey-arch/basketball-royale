@@ -42,7 +42,7 @@
       </form>
     <% } else { %>
       <div id="checkInNormal">
-        <button type="button" id="checkInBtn" class="checkin-pill checkin-pill-out">Check in</button>
+        <button type="button" id="checkInBtn" class="checkin-pill checkin-pill-out" data-park-id="<%= park.id %>">Check in</button>
         <span id="checkInStatus" class="checkin-status"></span>
       </div>
       <div id="checkInTooFar" class="too-far-box" style="display: none;">

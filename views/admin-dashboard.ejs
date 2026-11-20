@@ -35,6 +35,31 @@
   </div>
   <div class="season-note">Games are counted on the day they started. Unfinished means nobody reported it for 30 minutes. Check-ins count successful check-ins, from the day this was added.</div>
 
+  <div class="section admin-section" id="growth">Guests, streaks and invites</div>
+  <div class="admin-big">
+    <% growthAdmin.big.forEach((s) => { %>
+      <div class="admin-stat">
+        <div class="admin-stat-value heading"><%= s.value %></div>
+        <div class="admin-stat-label"><%= s.label %></div>
+      </div>
+    <% }); %>
+  </div>
+  <div class="season-note">A guest is someone who looked around without an account. An invite counts once the new player signs up and plays a confirmed game; until then it's pending.</div>
+  <% [['What made guests sign up', ['Action', 'Guests'], growthAdmin.signupActions, 'No guest sign-ups yet.'],
+      ['Active play streaks', ['Player', 'Weeks', 'Longest'], growthAdmin.topStreaks, 'Nobody is on a streak yet.'],
+      ['Top recruiters (counted invites)', ['Player', 'Recruited'], growthAdmin.topRecruiters, 'No counted invites yet.']].forEach(([title, headers, rows, empty]) => { %>
+    <div class="admin-table-head"><span class="admin-table-title"><%= title %></span></div>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><% headers.forEach((h) => { %><th><%= h %></th><% }); %></tr></thead>
+        <tbody>
+          <% if (rows.length === 0) { %><tr><td colspan="<%= headers.length %>"><%= empty %></td></tr><% } %>
+          <% rows.forEach((r) => { %><tr><% r.forEach((c) => { %><td><%= String(c).replace(/_/g, ' ') %></td><% }); %></tr><% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% }); %>
+
   <div class="section admin-section" id="courts">Courts and home courts</div>
   <div class="admin-big">
     <% courtsAdmin.big.forEach((s) => { %>
