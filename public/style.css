@@ -1177,3 +1177,18 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .hc-current { font-size: 14px; margin-top: 12px; }
 .pf-home-court { font-size: 14px; margin: 12px 0 4px; }
 .hc-row .small-btn { flex: 0 0 auto; width: auto; padding-left: 16px; padding-right: 16px; }
+
+/* --- Guests, flash note, streak and recruits --- */
+.guest-bar {
+  display: block; text-align: center; font-size: 13px; font-weight: 600;
+  background: #6D28D9; color: #FFFFFF; text-decoration: none;
+  border-radius: 10px; padding: 8px 12px; margin-bottom: 10px;
+}
+.flash-note { background: #DCFCE7; color: #15803D; font-size: 14px; font-weight: 600; border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; }
+.look-around { display: inline-block; margin-top: 8px; font-size: 14px; color: #6D28D9; font-weight: 600; text-decoration: none; }
+.pf-growth { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 14px; margin: 10px 0 4px; }
+.pf-streak { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 18px; text-transform: uppercase; color: #6D28D9; }
+.pf-growth-sub, .pf-growth-sep { color: #6B6B76; }
+.pf-badge-on .pf-badge { border-color: #6D28D9; background: #F3EEFF; }
+.pf-badge-on .pf-badge-label { color: #6D28D9; font-weight: 600; }
+.rp-streak { font-size: 14px; font-weight: 600; color: #6D28D9; margin-top: 4px; }

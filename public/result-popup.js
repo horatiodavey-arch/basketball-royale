@@ -36,7 +36,8 @@
       ? 'Your team beat Team ' + esc(d.oppTeam) + '.'
       : 'Team ' + esc(d.oppTeam) + ' beat your team.';
     var meta = '<div class="rp-meta">Game ' + esc(d.liveGameId) + ' · ' + esc(d.format || 'Legacy game') + ' · ' + esc(d.parkName) + '</div>';
-    var confirmed = '<div class="rp-confirmed">✓ Confirmed by both teams</div>';
+    var confirmed = '<div class="rp-confirmed">✓ Confirmed by both teams</div>' +
+      (d.streak > 0 ? '<div class="rp-streak">Streak alive: ' + esc(d.streak) + ' week' + (d.streak === 1 ? '' : 's') + '</div>' : '');
 
     var lines = '';
     if (d.newCrown && d.crownAfter) {

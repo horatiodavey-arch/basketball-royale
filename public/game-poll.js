@@ -96,6 +96,15 @@
     else location.href = fallback;
   });
 
+  // After sign-up, a guest who had tapped Check in lands back here: tap it for them.
+  var auto = /[?&]autocheckin=(\d+)/.exec(location.search);
+  if (auto) {
+    setTimeout(function () {
+      var btn = document.querySelector('[data-park-id="' + auto[1] + '"]#homeCheckInBtn, [data-park-id="' + auto[1] + '"]#checkInBtn, [data-park-id="' + auto[1] + '"]#runCheckInBtn, .suggested-checkin-btn[data-park-id="' + auto[1] + '"]');
+      if (btn && !btn.disabled) btn.click();
+    }, 900);
+  }
+
   if (!document.querySelector('.nav-bar')) return;
   check();
   setInterval(check, CHECK_MS);

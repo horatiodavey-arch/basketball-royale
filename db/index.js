@@ -554,6 +554,26 @@ function migrateKingOfTheCourtColumns() {
   // say none fit. Existing players stay NULL and are never sent to it.
   addColumnIfMissing('users', 'home_court_id', 'INTEGER REFERENCES parks(id)');
   addColumnIfMissing('users', 'home_court_step', 'TEXT');
+  // Play streak: the longest run of weeks with a confirmed game, kept so it
+  // survives a later reset. Display only; it gives no points.
+  addColumnIfMissing('players', 'longest_streak', 'INTEGER NOT NULL DEFAULT 0');
+  // Guests who look around before signing up. A guest is a random id in their
+  // session; nothing else about them is stored.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS guest_visits (
+      guest_id    TEXT NOT NULL,
+      day         TEXT NOT NULL,
+      first_path  TEXT,
+      PRIMARY KEY (guest_id, day)
+    );
+    CREATE TABLE IF NOT EXISTS guest_signups (
+      guest_id    TEXT NOT NULL,
+      user_id     INTEGER NOT NULL REFERENCES users(id),
+      action      TEXT NOT NULL,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (guest_id, user_id)
+    );
+  `);
   addColumnIfMissing('players', 'hide_presence', 'INTEGER NOT NULL DEFAULT 0');
   db.exec(`
     CREATE TABLE IF NOT EXISTS live_game_polls (

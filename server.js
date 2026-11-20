@@ -51,6 +51,7 @@ const {
   playerTeamInGame,
   setPresenceHidden,
   isPresenceHidden,
+  roundTenth,
   confirmResult,
   disputeResult,
   displayNameError,
@@ -131,6 +132,7 @@ backfillMilestones();
 const { DATA_DIR, writeBackup } = require('./db/index');
 const gameNow = require('./db/game-now');
 const courts = require('./db/courts');
+const growth = require('./db/growth');
 const { buildToday } = require('./db/admin-today');
 // Games nobody has touched for 30 minutes close with no result.
 setInterval(() => {
@@ -170,6 +172,13 @@ app.use((req, res, next) => {
   if (req.session.userId && !req.path.startsWith('/admin')) recordActiveDay(req.session.userId);
   // Where a new player came from. The first ?src= and ?ref= a visitor
   // arrives with are kept in their session until they sign up.
+  // Guests can look around before signing up. They get a random id in their
+  // session (nothing else is stored) so visits and sign-ups can be counted.
+  res.locals.isGuest = !req.session.userId && req.path !== '/signup';
+  if (!req.session.userId && req.method === 'GET' && !req.path.includes('.') && !/^\/(api|live|admin|signup|vendor)\b/.test(req.path)) {
+    if (!req.session.guestId) req.session.guestId = crypto.randomBytes(8).toString('hex');
+    growth.recordGuestVisit(req.session.guestId, req.path);
+  }
   if (req.method === 'GET') {
     const src = cleanSource(req.query.src);
     if (src && !req.session.src) req.session.src = src;
@@ -189,6 +198,16 @@ app.use((req, res, next) => {
   }
   if (!courts.homeCourtStepPending(req.session.userId)) return next();
   res.redirect('/welcome/home-court');
+});
+
+// A one-time note shown under the header on the next page (for example after
+// sign-up finished the action a guest had tapped).
+app.use((req, res, next) => {
+  if (req.method === 'GET' && req.session.flash && !req.path.includes('.') && !/^\/(api|live)\b/.test(req.path)) {
+    res.locals.flash = req.session.flash;
+    delete req.session.flash;
+  }
+  next();
 });
 
 // Short, plain values only: a link can't stuff arbitrary text into the database.
@@ -219,8 +238,89 @@ function optionalNumber(value) {
 }
 
 function requireAuth(req, res, next) {
-  if (!req.session.userId) return res.redirect('/signup');
+  if (!req.session.userId) {
+    rememberGuestIntent(req);
+    return res.redirect('/signup');
+  }
   next();
+}
+
+// Pages a guest can open: the map, courts, runs, the board. Actions still need
+// an account (requireAuth), and sign-up then finishes the action.
+function allowGuest(req, res, next) {
+  next();
+}
+
+// A guest's stand-in profile: no account and no player row behind it. player_id
+// 0 matches nobody, so every lookup comes back empty and nothing is written.
+const GUEST_PROFILE = Object.freeze({
+  user_id: 0,
+  player_id: 0,
+  name: 'Guest',
+  base_name: 'Guest',
+  tag: null,
+  phone: null,
+  is_organizer: 0,
+  how_it_works_shown_at: 'guest',
+  how_it_works_dismissed_at: 'guest',
+  tier: 'Rookie',
+  wins: 0,
+  losses: 0,
+  games_played: 0,
+  isGuest: true,
+});
+function profileFor(req) {
+  return (req.session.userId && getPlayerProfile(req.session.userId)) || GUEST_PROFILE;
+}
+
+// What a guest tapped that needs an account. Sign-up finishes it afterwards,
+// so they don't have to tap it again.
+const GUEST_ACTIONS = [
+  { method: 'POST', re: /^\/courts\/(\d+)\/next$/, type: 'i_got_next' },
+  { method: 'POST', re: /^\/runs\/(\d+)\/coming$/, type: 'im_coming' },
+  { method: 'POST', re: /^\/courts\/(\d+)\/follow$/, type: 'follow_court' },
+  { method: 'GET', re: /^\/runs\/new$/, type: 'start_run' },
+];
+function rememberGuestIntent(req) {
+  const back = pagePathFromReferer(req, '/');
+  const match = GUEST_ACTIONS.find((a) => a.method === req.method && a.re.test(req.path));
+  if (match) {
+    const id = Number((req.path.match(match.re) || [])[1]) || null;
+    req.session.afterSignup = {
+      type: match.type,
+      id,
+      returnTo: match.method === 'GET' ? req.originalUrl : back,
+    };
+  } else if (req.method === 'GET') {
+    req.session.afterSignup = { type: 'open_page', returnTo: req.originalUrl };
+  }
+}
+
+// After sign-up (or sign-in): do what the guest had tapped, then say where to go.
+function finishGuestIntent(req, playerId) {
+  const intent = req.session.afterSignup;
+  delete req.session.afterSignup;
+  if (!intent) return null;
+  const safe = (p) => (typeof p === 'string' && p.startsWith('/') && !p.startsWith('//') ? p : '/');
+  let note = null;
+  if (intent.type === 'i_got_next') {
+    const r = iGotNext(intent.id, playerId);
+    note = r.ok ? "You're in line. You got next." : r.error;
+    if (r.ok) logEvent(playerId, 'i_got_next', safe(intent.returnTo));
+  } else if (intent.type === 'im_coming') {
+    const r = rsvpToRun(intent.id, playerId);
+    note = r.ok ? "You're coming to this run." : r.error;
+    if (r.ok) logEvent(playerId, 'im_coming', safe(intent.returnTo));
+  } else if (intent.type === 'follow_court') {
+    followCourt(playerId, intent.id);
+    note = "You're following this court.";
+    logEvent(playerId, 'follow_court', safe(intent.returnTo));
+  } else if (intent.type === 'check_in') {
+    // Check-in needs the phone's location, so the page does it on arrival.
+    const to = safe(intent.returnTo);
+    return { type: intent.type, url: to + (to.includes('?') ? '&' : '?') + 'autocheckin=' + intent.id, note: null };
+  }
+  return { type: intent.type, url: safe(intent.returnTo), note };
 }
 
 function requireOrganizer(req, res, next) {
@@ -284,6 +384,9 @@ function winPayoutCents(stakeCents, rakePercent) {
 app.get('/signup', (req, res) => {
   const returnTo = safeReturnTo(req.query.returnTo);
   if (req.session.userId) return res.redirect(returnTo || '/');
+  // A guest tapped Check in: after sign-up, back to that page, which checks in.
+  const checkinPark = Number(req.query.checkin);
+  if (checkinPark > 0) req.session.afterSignup = { type: 'check_in', id: checkinPark, returnTo: returnTo || '/' };
   res.render('signup', { error: null, name: '', phone: '', returnTo });
 });
 
@@ -306,7 +409,10 @@ app.post('/signup', (req, res) => {
     // Phone already known — courtside sign-up doubles as sign-in.
     req.session.userId = user.id;
     syncOrganizerFlag(phone);
-    return res.redirect(returnTo || '/');
+    const signedIn = getPlayerProfile(user.id);
+    const done = signedIn ? finishGuestIntent(req, signedIn.player_id) : null;
+    if (done && done.note) req.session.flash = done.note;
+    return res.redirect((done && done.url) || returnTo || '/');
   }
 
   const nameProblem = displayNameError(name);
@@ -320,9 +426,14 @@ app.post('/signup', (req, res) => {
   });
   req.session.userId = userId;
   syncOrganizerFlag(phone);
+  // Finish what the guest had tapped (if anything), and count the sign-up.
+  const newProfile = getPlayerProfile(userId);
+  const done = finishGuestIntent(req, newProfile.player_id);
+  if (done && done.note) req.session.flash = done.note;
+  if (req.session.guestId) growth.recordGuestSignup(req.session.guestId, userId, done ? done.type : 'none');
   // New players pick a home court next, then go where they were headed.
   courts.markHomeCourtPending(userId);
-  req.session.afterHomeCourt = returnTo || '/';
+  req.session.afterHomeCourt = (done && done.url) || returnTo || '/';
   res.redirect('/welcome/home-court');
 });
 
@@ -349,18 +460,18 @@ function afterHomeCourt(req) {
 
 app.post('/home-court', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  const parkId = Number(req.body.parkId);
+  const parkId = Number((req.body || {}).parkId);
   const result = courts.setHomeCourt(req.session.userId, parkId);
   if (!result.ok) return res.redirect('/welcome/home-court?error=' + encodeURIComponent(result.error));
   logEvent(profile.player_id, 'home_court_pick', '/welcome/home-court', parkId);
-  res.redirect(req.body.change === '1' ? `/players/${profile.player_id}` : afterHomeCourt(req));
+  res.redirect((req.body || {}).change === '1' ? `/players/${profile.player_id}` : afterHomeCourt(req));
 });
 
 app.post('/home-court/skip', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   courts.finishHomeCourtStep(req.session.userId);
   logEvent(profile.player_id, 'home_court_skip', '/welcome/home-court');
-  res.redirect(req.body.change === '1' ? `/players/${profile.player_id}` : afterHomeCourt(req));
+  res.redirect((req.body || {}).change === '1' ? `/players/${profile.player_id}` : afterHomeCourt(req));
 });
 
 // "I don't hoop at any of these": opens Suggest a court on the map.
@@ -397,8 +508,8 @@ app.get('/health', (req, res) => {
   res.status(200).json({ ok: true });
 });
 
-app.get('/', requireAuth, (req, res) => {
-  const profile = getPlayerProfile(req.session.userId);
+app.get('/', allowGuest, (req, res) => {
+  const profile = profileFor(req);
   if (!profile) {
     req.session.destroy(() => res.redirect('/signup'));
     return;
@@ -588,17 +699,17 @@ function boardContext(query, profile) {
   return { parks, rows, scope, format, formats: FORMATS, selectedPark, season, crownLevels: CROWN_LEVELS, profile, liveUrl, onBoard };
 }
 
-app.get('/board', requireAuth, (req, res) => {
-  const profile = getPlayerProfile(req.session.userId);
+app.get('/board', allowGuest, (req, res) => {
+  const profile = profileFor(req);
   logEvent(profile.player_id, 'leaderboard_view', '/board');
   res.render('board', { ...boardContext(req.query, profile), liveVersion: getLiveVersion() });
 });
 
 // The leaderboard's live refresh: nothing is rendered unless the version changed.
-app.get('/live/board', requireAuth, (req, res) => {
+app.get('/live/board', allowGuest, (req, res) => {
   const version = getLiveVersion();
   if (req.query.v === version) return res.json({ v: version, changed: false });
-  const profile = getPlayerProfile(req.session.userId);
+  const profile = profileFor(req);
   res.render('partials/board-live', boardContext(req.query, profile), (err, html) => {
     if (err) return res.status(500).json({ ok: false });
     res.json({ v: version, changed: true, body: html });
@@ -630,8 +741,8 @@ app.get('/live/todays-run', requireAuth, (req, res) => {
 // The home screen (/) is the map now — keep the old URL working.
 app.get('/map', requireAuth, (req, res) => res.redirect('/'));
 
-app.get('/runs', requireAuth, (req, res) => {
-  const profile = getPlayerProfile(req.session.userId);
+app.get('/runs', allowGuest, (req, res) => {
+  const profile = profileFor(req);
   if (!profile.how_it_works_dismissed_at) markHowItWorksShown(profile.player_id);
   const season = getSeasonWindow();
   const pinsById = new Map(getParkMapPins(season.startSql).map((p) => [p.id, p]));
@@ -833,6 +944,7 @@ function popupPayload(latest, count, profile) {
     newCrown: !!s.newCrown,
     trophyEarned: !!s.trophyEarned,
     trophyCount: s.trophyCount ?? 0,
+    streak: s.streakWeeks || 0,
     nextCrown: null,
     progress: null,
     parkGap: null,
@@ -882,7 +994,7 @@ app.post('/api/result-popups/seen', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/nearby-runs', requireAuth, (req, res) => {
+app.get('/api/nearby-runs', allowGuest, (req, res) => {
   const lat = Number(req.query.lat);
   const lng = Number(req.query.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -897,14 +1009,14 @@ app.get('/api/nearby-runs', requireAuth, (req, res) => {
   });
 });
 
-app.get('/parks/:parkId', requireAuth, (req, res) => {
+app.get('/parks/:parkId', allowGuest, (req, res) => {
   const courts = getCourtsByPark(Number(req.params.parkId));
   if (courts.length === 0) return res.redirect('/runs');
   res.redirect(`/parks/${req.params.parkId}/courts/${courts[0].id}`);
 });
 
-app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
-  const profile = getPlayerProfile(req.session.userId);
+app.get('/parks/:parkId/courts/:courtId', allowGuest, (req, res) => {
+  const profile = profileFor(req);
   const court = getCourtById(req.params.courtId);
   if (!court || court.park_id !== Number(req.params.parkId)) return res.redirect('/runs');
 
@@ -921,7 +1033,7 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
     formats: gameNow.FORMATS,
     viewerCheckedIn: !!getCheckIn(profile.player_id, court.park_id),
     joinLink,
-    shareUrl: (gameId, team) => `${origin}?join=${gameId}${team ? '&team=' + team : ''}`,
+    shareUrl: (gameId, team) => `${origin}?join=${gameId}${team ? '&team=' + team : ''}${profile.tag ? '&ref=' + profile.tag : ''}`,
     pending: pending
       ? {
           id: pending.id,
@@ -930,7 +1042,7 @@ app.get('/parks/:parkId/courts/:courtId', requireAuth, (req, res) => {
           viewerTeam: playerTeamInGame(pending.id, profile.player_id),
           rosters: gameNow.rosterByTeam(pending.id),
           qr: `/live_games/${pending.id}/qr.png`,
-          shareUrl: `${origin}?join=${pending.id}`,
+          shareUrl: `${origin}?join=${pending.id}${profile.tag ? '&ref=' + profile.tag : ''}`,
         }
       : null,
   };
@@ -1042,7 +1154,7 @@ app.post('/parks/:parkId/heartbeat', requireAuth, (req, res) => {
 // OSM-sourced basketball courts near the player, not yet in our own
 // parks table — the map's lighter "Open court" pins. Looked up server-
 // side (and cached) so the Overpass API never sees the browser directly.
-app.get('/api/nearby-courts', requireAuth, async (req, res) => {
+app.get('/api/nearby-courts', allowGuest, async (req, res) => {
   const lat = Number(req.query.lat);
   const lng = Number(req.query.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -1236,7 +1348,9 @@ app.get('/live_games/:id/qr.png', requireAuth, async (req, res) => {
   const game = gameNow.gameLocation(Number(req.params.id));
   if (!game) return res.status(404).end();
   const team = ['a', 'b'].includes(req.query.team) ? `&team=${req.query.team}` : '';
-  const url = `${req.protocol}://${req.get('host')}/parks/${game.park_id}/courts/${game.court_id}?join=${game.id}${team}`;
+  const sender = getPlayerProfile(req.session.userId);
+  const ref = sender && sender.tag ? `&ref=${sender.tag}` : '';
+  const url = `${req.protocol}://${req.get('host')}/parks/${game.park_id}/courts/${game.court_id}?join=${game.id}${team}${ref}`;
   const png = await QRCode.toBuffer(url, { type: 'png', width: 320, margin: 2 });
   res.type('png').send(png);
 });
@@ -1349,6 +1463,9 @@ function profileContext(playerId, viewer, query) {
     // Your own invite code, for the "Invite a hooper" link (own profile only).
     inviteTag: isSelf ? viewer.tag : null,
     homeCourt: courts.homeCourtFor(player.user_id),
+    streak: growth.playStreak(player.player_id),
+    recruited: growth.recruitedCount(player.player_id),
+    recruiterAt: growth.RECRUITER_AT,
     pendingGames: isSelf ? gameNow.pendingGamesFor(player.player_id) : [],
     presenceHidden: isSelf ? isPresenceHidden(player.player_id) : false,
     nameError: query.nameError || null,
@@ -1452,6 +1569,7 @@ app.get('/admin', requireAdmin, (req, res) => {
     milestones: reachedMilestones(),
     today: buildToday(req.query.day),
     courtsAdmin: courts.adminCourtsSummary(),
+    growthAdmin: growth.adminGrowthSummary(),
     query: { range: req.query.range || '', event: req.query.event || '' },
     active: '',
   });

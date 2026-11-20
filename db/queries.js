@@ -1490,6 +1490,8 @@ function recordResultNotices(game, byPlayer, winningTeam, trophiesBefore, gameId
     const gained = roundTenth(winPoints + 1 + hours);
     let snapshot = {
       gameNo: gameId,
+      // Weeks in a row with a confirmed game, this one included. Display only.
+      streakWeeks: require('./growth').saveLongestStreak(playerId),
       outcome: won ? 'win' : 'loss',
       format: game.format || null,
       parkId: game.park_id,
@@ -1846,6 +1848,7 @@ function recordMilestone(playerId, milestone) {
 }
 
 function logEvent(playerId, eventName, page, parkId = null) {
+  if (!playerId) return; // a guest (no account yet)
   db.prepare('INSERT INTO events (player_id, event_name, page, park_id) VALUES (?, ?, ?, ?)').run(
     playerId,
     eventName,
@@ -2859,6 +2862,7 @@ module.exports = {
   formatSize,
   setPresenceHidden,
   isPresenceHidden,
+  roundTenth,
   markDisputed,
   lockResult,
   playerTeamInGame,
