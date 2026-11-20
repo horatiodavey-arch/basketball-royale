@@ -1131,3 +1131,49 @@ a.here-now-player { text-decoration: none; color: inherit; }
 }
 .followed-park-name { font-weight: 700; font-size: 14px; }
 .followed-park-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+/* --- Map: hoop pins, clusters, court filter, "Can't play here" --- */
+.kotc-marker-content .hoop-wrap { display: flex; justify-content: center; margin-top: 2px; }
+.kotc-marker-hoop { transform: translate(-50%, -100%); }
+.hoop-icon { display: block; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25)); }
+.hoop-selected .hoop-icon { transform: scale(1.25); }
+.court-cluster {
+  display: flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; border-radius: 50%;
+  background: #E8702A; color: #FFFFFF; border: 3px solid #FFFFFF;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); font-weight: 700; font-size: 14px; font-family: 'Inter', sans-serif;
+}
+.court-filter {
+  position: absolute; z-index: 500; left: 50%; transform: translateX(-50%);
+  bottom: 116px; display: flex; gap: 4px; padding: 4px;
+  background: #FFFFFF; border-radius: 999px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+}
+.court-filter-btn {
+  border: 0; background: none; border-radius: 999px; padding: 7px 12px;
+  font: inherit; font-size: 13px; font-weight: 600; color: #55555F; cursor: pointer; white-space: nowrap;
+}
+.court-filter-btn.active { background: #6D28D9; color: #FFFFFF; }
+.cant-play { margin-top: 14px; font-size: 13px; color: #6B6B76; }
+.cant-play summary { cursor: pointer; text-decoration: underline; }
+.cant-play-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.cant-play-note { width: 100%; font-size: 13px; }
+
+/* --- Home court step --- */
+.hc-card { background: #F4F4F6; border-radius: 16px; padding: 18px 16px; margin-top: 14px; }
+.hc-kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: #6D28D9; text-transform: uppercase; }
+.hc-title { font-family: 'Oswald', sans-serif; font-weight: 700; font-size: 24px; text-transform: uppercase; margin: 4px 0 6px; }
+.hc-text { font-size: 15px; color: #55555F; margin: 0 0 12px; }
+.hc-privacy { font-size: 13px; color: #6B6B76; margin: 10px 0 0; text-align: center; }
+.hc-error { font-size: 14px; color: #B42318; margin-top: 10px; }
+.hc-map { height: 200px; border-radius: 12px; overflow: hidden; margin-bottom: 10px; }
+.hc-list { display: flex; flex-direction: column; gap: 8px; }
+.hc-row { display: flex; align-items: center; gap: 10px; background: #FFFFFF; border: 1px solid #E6E6EA; border-radius: 12px; padding: 10px; }
+.hc-hoop { flex: 0 0 auto; }
+.hc-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.hc-row-name { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-row-meta { font-size: 13px; color: #6B6B76; }
+.hc-alt { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 16px; }
+.hc-skip { background: none; border: 0; color: #6B6B76; font: inherit; font-size: 14px; text-decoration: underline; cursor: pointer; }
+.hc-current { font-size: 14px; margin-top: 12px; }
+.pf-home-court { font-size: 14px; margin: 12px 0 4px; }
+.hc-row .small-btn { flex: 0 0 auto; width: auto; padding-left: 16px; padding-right: 16px; }

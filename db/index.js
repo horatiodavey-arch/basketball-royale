@@ -60,6 +60,13 @@ ensureKingOfTheCourtTables();
 migrateKingOfTheCourtColumns();
 consolidatePresetParks();
 backfillParkCities();
+// Every park says where it came from. Parks made before this column existed
+// (or by older code paths) get it here, on every boot; it never overwrites.
+db.exec(`UPDATE parks SET source = CASE
+  WHEN osm_id IS NOT NULL OR osm_members IS NOT NULL THEN 'osm'
+  WHEN added_by_player_id IS NOT NULL THEN 'player'
+  ELSE 'preset' END
+  WHERE source IS NULL`);
 // Funnel milestones reference players, so this table must exist before the
 // demo-data cleanup below deletes any demo players.
 db.exec(`
@@ -516,6 +523,37 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('live_games', 'result_submitted_team', 'TEXT');
   // How a closed game ended when it has no confirmed result: 'disputed' or 'no_result'.
   addColumnIfMissing('live_games', 'outcome', 'TEXT');
+  // Courts imported from OpenStreetMap, and courts players can't use.
+  // source: 'osm' | 'preset' | 'player'. osm_members: every OSM court merged
+  // into this location ("way/123,node/456"). hidden: kept off the map and
+  // lists (set by 3 "Can't play here" reports, or by the owner in /admin).
+  addColumnIfMissing('parks', 'source', 'TEXT');
+  addColumnIfMissing('parks', 'osm_members', 'TEXT');
+  addColumnIfMissing('parks', 'is_indoor', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing('parks', 'hidden', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing('parks', 'court_count', 'INTEGER');
+  addColumnIfMissing('parks', 'reports_cleared_at', 'TEXT');
+  // Re-running the import must never duplicate a court.
+  try {
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_parks_osm_id ON parks(osm_id) WHERE osm_id IS NOT NULL');
+  } catch (err) {
+    console.error('Could not add the unique osm_id index (duplicate osm_id rows?):', err.message);
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS court_reports (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      park_id     INTEGER NOT NULL REFERENCES parks(id),
+      player_id   INTEGER NOT NULL REFERENCES players(id),
+      reason      TEXT NOT NULL,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (park_id, player_id)
+    );
+  `);
+  // Home court: picked after signup. home_court_step is 'pending' for a new
+  // player who hasn't finished that step, 'done' once they pick, skip, or
+  // say none fit. Existing players stay NULL and are never sent to it.
+  addColumnIfMissing('users', 'home_court_id', 'INTEGER REFERENCES parks(id)');
+  addColumnIfMissing('users', 'home_court_step', 'TEXT');
   addColumnIfMissing('players', 'hide_presence', 'INTEGER NOT NULL DEFAULT 0');
   db.exec(`
     CREATE TABLE IF NOT EXISTS live_game_polls (

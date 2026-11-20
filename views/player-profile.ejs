@@ -20,6 +20,14 @@
     <%- include('partials/profile-body-live', { pendingGames: pendingGames || [], kingRows: kingRows, trophyCount: trophyCount, trophyByFormat: trophyByFormat, gamesThisSeason: gamesThisSeason, topBreakdown: topBreakdown, badges: badges }) %>
   </div>
 
+  <div class="pf-home-court">
+    <% if (homeCourt) { %>
+      Home court: <a href="/parks/<%= homeCourt.id %>" class="player-link"><%= homeCourt.name %></a>
+      <% if (isSelf) { %> &middot; <a href="/welcome/home-court?change=1" class="player-link">Change</a><% } %>
+    <% } else if (isSelf) { %>
+      No home court yet. <a href="/welcome/home-court?change=1" class="player-link">Pick one</a>
+    <% } %>
+  </div>
   <% if (isSelf) { %>
     <form method="POST" action="/profile/hide" class="hide-form">
       <input type="hidden" name="hide" value="<%= presenceHidden ? '0' : '1' %>">

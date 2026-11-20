@@ -668,12 +668,43 @@ function comingAtPark(parkId) {
 
 function getParkMapPins(seasonStart) {
   const liveParks = getLiveParkIds();
-  return getParks().map((park) => ({
+  // Most imported courts have had no activity. Those skip the per-park lookups
+  // (king, counts, runs), which keeps the map fast with hundreds of courts.
+  const ids = (sql, ...a) => new Set(db.prepare(sql).all(...a).map((r) => r.id));
+  const busy = new Set([
+    ...parksWithCheckIns(),
+    ...ids('SELECT DISTINCT park_id AS id FROM game_results'),
+    ...ids("SELECT DISTINCT park_id AS id FROM live_games WHERE status = 'in_progress'"),
+    ...ids(
+      `SELECT DISTINCT c.park_id AS id FROM runs r JOIN courts c ON c.id = r.court_id
+       WHERE r.cancelled_at IS NULL AND datetime(r.scheduled_at, '+${LIVE_AFTER_MINUTES} minutes') >= ?`,
+      appNowSql()
+    ),
+  ]);
+  const quiet = (park) => ({
     id: park.id,
     name: park.name,
     lat: park.lat,
     lng: park.lng,
     checkInRadiusMeters: park.check_in_radius_meters,
+    isIndoor: !!park.is_indoor,
+    source: park.source || 'preset',
+    activeCount: 0,
+    hereCount: 0,
+    comingCount: 0,
+    liveCount: 0,
+    king: null,
+    nextRun: null,
+    live: false,
+  });
+  return getParks().filter((park) => !park.hidden).map((park) => (!busy.has(park.id) ? quiet(park) : {
+    id: park.id,
+    name: park.name,
+    lat: park.lat,
+    lng: park.lng,
+    checkInRadiusMeters: park.check_in_radius_meters,
+    isIndoor: !!park.is_indoor,
+    source: park.source || 'preset',
     activeCount: getCheckedInPlayers(park.id).length,
     hereCount: hereAtPark(park.id).length,
     comingCount: comingAtPark(park.id).length,
@@ -1857,6 +1888,10 @@ const TRACKED_EVENTS = [
   { name: 'opened_from_home_screen', label: 'Opened from home screen (once a day)' },
   { name: 'push_sent_up_next', label: 'Push sent: up next' },
   { name: 'checked_in', label: 'Checked in (successful)' },
+  { name: 'home_court_pick', label: 'Home court picked' },
+  { name: 'home_court_none', label: "Home court: I don't hoop at any of these" },
+  { name: 'home_court_skip', label: 'Home court skipped' },
+  { name: 'court_report', label: "Can't play here (report)" },
 ];
 
 // Events a page reports itself (POST /api/events) because the tap never
@@ -2084,9 +2119,12 @@ async function getNearbyOpenCourts(lat, lng) {
     ).run(key, lat, lng, JSON.stringify(elements));
   }
 
-  const claimedOsmIds = new Set(
-    db.prepare('SELECT osm_id FROM parks WHERE osm_id IS NOT NULL').all().map((r) => r.osm_id)
-  );
+  const parkRows = db.prepare('SELECT osm_id, osm_members, lat, lng FROM parks').all();
+  const claimedOsmIds = new Set();
+  for (const p of parkRows) {
+    for (const k of [p.osm_id, ...String(p.osm_members || '').split(',')]) if (k) claimedOsmIds.add(k);
+  }
+  const nearAPark = (c) => parkRows.some((p) => p.lat != null && haversineMeters(p.lat, p.lng, c.lat, c.lng) <= 100);
 
   return elements
     .map((el) => {
@@ -2100,7 +2138,7 @@ async function getNearbyOpenCourts(lat, lng) {
         lng: elLng,
       };
     })
-    .filter((c) => c && !claimedOsmIds.has(c.osmId) && haversineMeters(lat, lng, c.lat, c.lng) <= OVERPASS_RADIUS_METERS);
+    .filter((c) => c && !claimedOsmIds.has(c.osmId) && !nearAPark(c) && haversineMeters(lat, lng, c.lat, c.lng) <= OVERPASS_RADIUS_METERS);
 }
 
 // Materializes a real park + "Main" court from an Overpass court the first
@@ -2123,7 +2161,7 @@ function findParkNear(lat, lng, meters) {
 
 // A park a player created at the spot: one court, added by them.
 function createParkFromSpot(name, lat, lng, playerId) {
-  db.prepare('INSERT INTO parks (name, lat, lng, added_by_player_id) VALUES (?, ?, ?, ?)').run(name, lat, lng, playerId);
+  db.prepare("INSERT INTO parks (name, lat, lng, added_by_player_id, source) VALUES (?, ?, ?, ?, 'player')").run(name, lat, lng, playerId);
   const parkId = lastId();
   db.prepare("INSERT INTO courts (park_id, number, nickname) VALUES (?, 1, 'Main')").run(parkId);
   return parkId;
@@ -2152,7 +2190,7 @@ function findOrCreateParkAndCourtFromOsm(osmId, name, lat, lng) {
   } else if (nearby) {
     parkId = nearby.id;
   } else {
-    db.prepare('INSERT INTO parks (name, lat, lng, osm_id) VALUES (?, ?, ?, ?)').run(
+    db.prepare("INSERT INTO parks (name, lat, lng, osm_id, source) VALUES (?, ?, ?, ?, 'osm')").run(
       name || 'Open court',
       lat,
       lng,
@@ -2203,7 +2241,7 @@ function approveCourtSuggestion(suggestionId, organizerPlayerId) {
   const suggestion = db.prepare('SELECT * FROM court_suggestions WHERE id = ?').get(suggestionId);
   if (!suggestion || suggestion.status !== 'pending') return { ok: false, error: 'Nothing to approve.' };
 
-  db.prepare('INSERT INTO parks (name, lat, lng, added_by_player_id) VALUES (?, ?, ?, ?)').run(
+  db.prepare("INSERT INTO parks (name, lat, lng, added_by_player_id, source) VALUES (?, ?, ?, ?, 'player')").run(
     suggestion.name,
     suggestion.lat,
     suggestion.lng,

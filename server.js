@@ -130,6 +130,7 @@ const { notifyPlayers, organizerPlayerIds } = require('./db/push');
 backfillMilestones();
 const { DATA_DIR, writeBackup } = require('./db/index');
 const gameNow = require('./db/game-now');
+const courts = require('./db/courts');
 const { buildToday } = require('./db/admin-today');
 // Games nobody has touched for 30 minutes close with no result.
 setInterval(() => {
@@ -176,6 +177,18 @@ app.use((req, res, next) => {
     if (ref && !req.session.ref) req.session.ref = ref;
   }
   next();
+});
+
+// A new player who left before finishing the home-court step goes straight
+// back to it. Only page views; the step's own pages, APIs and sign-out pass.
+app.use((req, res, next) => {
+  if (req.method !== 'GET' || !req.session.userId) return next();
+  const p = req.path;
+  if (p.startsWith('/welcome') || p.startsWith('/api') || p.startsWith('/live') || p.startsWith('/admin') || p === '/signup' || p.includes('.')) {
+    return next();
+  }
+  if (!courts.homeCourtStepPending(req.session.userId)) return next();
+  res.redirect('/welcome/home-court');
 });
 
 // Short, plain values only: a link can't stuff arbitrary text into the database.
@@ -307,7 +320,65 @@ app.post('/signup', (req, res) => {
   });
   req.session.userId = userId;
   syncOrganizerFlag(phone);
-  res.redirect(returnTo || '/');
+  // New players pick a home court next, then go where they were headed.
+  courts.markHomeCourtPending(userId);
+  req.session.afterHomeCourt = returnTo || '/';
+  res.redirect('/welcome/home-court');
+});
+
+// "Where do you hoop?" then "Pick your home court". The phone works out the
+// nearest courts itself; its location is never sent to the server.
+app.get('/welcome/home-court', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  res.render('home-court', {
+    profile,
+    changing: req.query.change === '1',
+    current: courts.homeCourtFor(req.session.userId),
+  });
+});
+
+app.get('/api/home-court/candidates', requireAuth, (req, res) => {
+  res.json({ ok: true, courts: courts.homeCourtCandidates() });
+});
+
+function afterHomeCourt(req) {
+  const to = req.session.afterHomeCourt || '/';
+  delete req.session.afterHomeCourt;
+  return to;
+}
+
+app.post('/home-court', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parkId = Number(req.body.parkId);
+  const result = courts.setHomeCourt(req.session.userId, parkId);
+  if (!result.ok) return res.redirect('/welcome/home-court?error=' + encodeURIComponent(result.error));
+  logEvent(profile.player_id, 'home_court_pick', '/welcome/home-court', parkId);
+  res.redirect(req.body.change === '1' ? `/players/${profile.player_id}` : afterHomeCourt(req));
+});
+
+app.post('/home-court/skip', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  courts.finishHomeCourtStep(req.session.userId);
+  logEvent(profile.player_id, 'home_court_skip', '/welcome/home-court');
+  res.redirect(req.body.change === '1' ? `/players/${profile.player_id}` : afterHomeCourt(req));
+});
+
+// "I don't hoop at any of these": opens Suggest a court on the map.
+app.post('/home-court/none', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  courts.finishHomeCourtStep(req.session.userId);
+  logEvent(profile.player_id, 'home_court_none', '/welcome/home-court');
+  delete req.session.afterHomeCourt;
+  res.redirect('/?suggest=1');
+});
+
+// "Can't play here": private, locked or school. Three reports hide a court until reviewed.
+app.post('/parks/:parkId/report', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parkId = Number(req.params.parkId);
+  const result = courts.reportCourt(parkId, profile.player_id, req.body.reason);
+  if (result.ok) logEvent(profile.player_id, 'court_report', pagePathFromReferer(req, '/'), parkId);
+  res.redirect(result.ok ? (result.hidden ? '/?reported=hidden' : `/?park=${parkId}&reported=1`) : `/?park=${parkId}&error=${encodeURIComponent(result.error)}`);
 });
 
 // "Got it" on the first-time card: it never shows again.
@@ -367,7 +438,9 @@ app.get('/', requireAuth, (req, res) => {
     // geolocation can jump to the true nearest park, guess the most
     // useful one: whichever has people on it right now, not a fixed
     // park picked some other way.
-    const mostActive = pins.slice().sort((a, b) => (b.activeCount + b.liveCount) - (a.activeCount + a.liveCount))[0];
+    const mostActive = pins
+      .slice()
+      .sort((a, b) => (b.activeCount + b.liveCount) - (a.activeCount + a.liveCount) || (a.source === 'preset' ? -1 : 0) - (b.source === 'preset' ? -1 : 0))[0];
     selectedPark = parks.find((p) => p.id === mostActive.id) || parks[0];
   }
   const sheet = getParkSheetDetail(selectedPark.id, season.startSql, profile.player_id);
@@ -562,15 +635,16 @@ app.get('/runs', requireAuth, (req, res) => {
   if (!profile.how_it_works_dismissed_at) markHowItWorksShown(profile.player_id);
   const season = getSeasonWindow();
   const pinsById = new Map(getParkMapPins(season.startSql).map((p) => [p.id, p]));
-  const parks = getParks().map((park) => {
+  const parks = getParks().filter((park) => !park.hidden).map((park) => {
     const pin = pinsById.get(park.id) || {};
     return { ...park, courts: getCourtLabelsByPark(park.id), live: !!pin.live, nextRun: pin.nextRun || null, isNew: isNewPark(park.id) };
   });
   // Live first, then parks with an upcoming run, then the rest. A new run
   // never ranks above a live one.
-  const rank = (p) => (p.live ? 0 : p.nextRun ? 1 : 2);
+  // Live, then upcoming runs, then the app's own parks, then imported courts.
+  const rank = (p) => (p.live ? 0 : p.nextRun ? 1 : p.source !== 'osm' ? 2 : 3);
   parks.sort((a, b) => rank(a) - rank(b));
-  const suggestedParks = getSuggestedParks(season.startSql, profile.player_id);
+  const suggestedParks = getSuggestedParks(season.startSql, profile.player_id).filter((sp) => !sp.park.hidden);
   const rankSuggested = (sp) => {
     const pin = pinsById.get(sp.park.id) || {};
     return pin.live ? 0 : pin.nextRun ? 1 : 2;
@@ -1274,6 +1348,7 @@ function profileContext(playerId, viewer, query) {
     isSelf,
     // Your own invite code, for the "Invite a hooper" link (own profile only).
     inviteTag: isSelf ? viewer.tag : null,
+    homeCourt: courts.homeCourtFor(player.user_id),
     pendingGames: isSelf ? gameNow.pendingGamesFor(player.player_id) : [],
     presenceHidden: isSelf ? isPresenceHidden(player.player_id) : false,
     nameError: query.nameError || null,
@@ -1363,6 +1438,12 @@ app.post('/admin/logout', (req, res) => {
   res.redirect('/admin/login');
 });
 
+// The owner hides or un-hides a court (for example after "Can't play here" reports).
+app.post('/admin/parks/:parkId/visibility', requireAdmin, (req, res) => {
+  courts.setCourtHidden(Number(req.params.parkId), req.body.hidden === '1');
+  res.redirect('/admin#courts');
+});
+
 app.get('/admin', requireAdmin, (req, res) => {
   const dashboard = buildDashboard(req.query.range, req.query.event);
   res.render('admin-dashboard', {
@@ -1370,6 +1451,7 @@ app.get('/admin', requireAdmin, (req, res) => {
     tracking: getTrackingCheck(),
     milestones: reachedMilestones(),
     today: buildToday(req.query.day),
+    courtsAdmin: courts.adminCourtsSummary(),
     query: { range: req.query.range || '', event: req.query.event || '' },
     active: '',
   });

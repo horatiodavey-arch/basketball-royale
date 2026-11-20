@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Home court — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<%- include('partials/pwa-head') %>
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/vendor/maplibre-gl/maplibre-gl.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc">
+<div class="page hc-page">
+  <%- include('partials/royale-header') %>
+
+  <% if (changing && current) { %>
+    <div class="hc-current">Your home court now: <strong><%= current.name %></strong></div>
+  <% } %>
+
+  <section id="hcStep1" class="hc-card">
+    <% if (!changing) { %><div class="hc-kicker">Step 1 of 2</div><% } %>
+    <h1 class="hc-title">Where do you hoop?</h1>
+    <p class="hc-text">We'll show you the courts closest to you.</p>
+    <button type="button" id="hcLocate" class="submit-btn">Use my location</button>
+    <p class="hc-privacy">Your exact location stays on your phone.</p>
+    <div id="hcLocateError" class="hc-error" hidden></div>
+  </section>
+
+  <section id="hcStep2" class="hc-card" hidden>
+    <% if (!changing) { %><div class="hc-kicker">Step 2 of 2</div><% } %>
+    <h1 class="hc-title">Pick your home court</h1>
+    <div id="hcMap" class="hc-map"></div>
+    <div id="hcList" class="hc-list"></div>
+  </section>
+
+  <div class="hc-alt">
+    <form method="POST" action="/home-court/none">
+      <button type="submit" class="small-btn">I don't hoop at any of these</button>
+    </form>
+    <form method="POST" action="/home-court/skip">
+      <% if (changing) { %><input type="hidden" name="change" value="1"><% } %>
+      <button type="submit" class="hc-skip"><%= changing ? 'Cancel' : 'Skip for now' %></button>
+    </form>
+  </div>
+</div>
+
+<script src="/geo.js"></script>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/vendor/maplibre-gl/maplibre-gl.js"></script>
+<script src="/vendor/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
+<script src="/map-tiles.js"></script>
+<script>
+  // The nearest courts are worked out here, on the phone: the location is
+  // never sent to the server. The server only sends the list of courts.
+  (function () {
+    var changing = <%- JSON.stringify(!!changing) %>;
+    var locateBtn = document.getElementById('hcLocate');
+    var errorEl = document.getElementById('hcLocateError');
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function hoopSvg(isIndoor) {
+      var c = isIndoor ? '#6D28D9' : '#E8702A';
+      return '<svg class="hoop-icon" width="26" height="30" viewBox="0 0 26 30" aria-hidden="true">' +
+        '<rect x="3" y="2" width="20" height="13" rx="2" fill="#FFFFFF" stroke="' + c + '" stroke-width="2"/>' +
+        '<rect x="9" y="6" width="8" height="5" fill="none" stroke="' + c + '" stroke-width="1.5"/>' +
+        '<ellipse cx="13" cy="16" rx="5" ry="1.6" fill="none" stroke="' + c + '" stroke-width="2"/>' +
+        '<path d="M9 16l1.5 4M13 17.5v3M17 16l-1.5 4" stroke="' + c + '" stroke-width="1" stroke-linecap="round"/>' +
+        '<rect x="12" y="20" width="2" height="9" rx="1" fill="' + c + '"/></svg>';
+    }
+    function showError(text) {
+      errorEl.textContent = text;
+      errorEl.hidden = false;
+      locateBtn.disabled = false;
+      locateBtn.textContent = 'Use my location';
+    }
+
+    function render(me, nearest) {
+      document.getElementById('hcStep1').hidden = true;
+      document.getElementById('hcStep2').hidden = false;
+      var list = document.getElementById('hcList');
+      if (nearest.length === 0) {
+        list.innerHTML = '<p class="hc-text">No courts on the map near you yet.</p>';
+      } else {
+        list.innerHTML = nearest.map(function (c) {
+          return '<form method="POST" action="/home-court" class="hc-row">' +
+            '<input type="hidden" name="parkId" value="' + c.id + '">' +
+            (changing ? '<input type="hidden" name="change" value="1">' : '') +
+            '<span class="hc-hoop">' + hoopSvg(c.isIndoor) + '</span>' +
+            '<span class="hc-row-main"><span class="hc-row-name">' + esc(c.name) + '</span>' +
+            '<span class="hc-row-meta">' + esc(RoyaleGeo.pinDistanceLabel(c.miles).replace('~', '')) + ' away' +
+            (c.city ? ' &middot; ' + esc(c.city) : '') + ' &middot; ' + esc(c.status) + '</span></span>' +
+            '<button type="submit" class="small-btn small-btn-accent">Pick</button>' +
+            '</form>';
+        }).join('');
+      }
+
+      var map = L.map('hcMap', { zoomControl: false, attributionControl: true, maxZoom: 19 });
+      RoyaleMap.addBaseLayer(map);
+      var bounds = [[me.lat, me.lng]];
+      L.marker([me.lat, me.lng], {
+        icon: L.divIcon({ className: 'kotc-marker', html: '<div class="kotc-dot-content"><div class="you-dot"></div></div>', iconSize: [0, 0] }),
+      }).addTo(map);
+      nearest.forEach(function (c) {
+        bounds.push([c.lat, c.lng]);
+        L.marker([c.lat, c.lng], {
+          icon: L.divIcon({ className: 'kotc-marker', html: '<div class="kotc-marker-content">' + hoopSvg(c.isIndoor) + '</div>', iconSize: [0, 0] }),
+        }).addTo(map);
+      });
+      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+      setTimeout(function () { map.invalidateSize(); }, 200);
+    }
+
+    locateBtn.addEventListener('click', function () {
+      errorEl.hidden = true;
+      locateBtn.disabled = true;
+      locateBtn.textContent = 'Finding courts near you…';
+      RoyaleGeo.getPosition(function (pos) {
+        var me = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        fetch('/api/home-court/candidates', { credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var nearest = (data.courts || [])
+              .map(function (c) { c.miles = RoyaleGeo.haversineMiles(me.lat, me.lng, c.lat, c.lng); return c; })
+              .sort(function (a, b) { return a.miles - b.miles; })
+              .slice(0, 3);
+            render(me, nearest);
+          })
+          .catch(function () { showError('Could not load courts. Check your connection and try again.'); });
+      }, function () {
+        showError('Location is off. Turn it on to see courts near you, or skip for now.');
+      });
+    });
+  })();
+</script>
+</body>
+</html>
