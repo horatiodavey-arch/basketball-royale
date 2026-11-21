@@ -5,6 +5,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const {
+  startOfAppDayUtcSql,
   getUserByPhone,
   getPlayerByUserId,
   createUserAndPlayer,
@@ -131,6 +132,7 @@ const { notifyPlayers, organizerPlayerIds } = require('./db/push');
 backfillMilestones();
 const { db, DATA_DIR, writeBackup } = require('./db/index');
 const gameNow = require('./db/game-now');
+const heater = require('./db/heater');
 const courts = require('./db/courts');
 const growth = require('./db/growth');
 const { buildToday } = require('./db/admin-today');
@@ -703,7 +705,11 @@ function boardContext(query, profile) {
   const scope = query.scope === 'city' ? 'city' : 'court';
   const selectedPark = parks.find((p) => p.id === Number(query.park)) || parks[0];
   const format = FORMATS.includes(query.format) ? query.format : null;
-  const rows = getLeaderboard({ scope, parkId: selectedPark.id, seasonStart: season.startSql, format });
+  const rows = getLeaderboard({ scope, parkId: selectedPark.id, seasonStart: season.startSql, format }).map((r) => ({
+    ...r,
+    // Confirmed wins in a row this season, shown only while the streak is on.
+    heater: heater.playerLabel(heater.playerStreak(r.playerId, season.startSql)),
+  }));
   const liveUrl = `/live/board?scope=${scope}&park=${selectedPark.id}${format ? '&format=' + format : ''}`;
   const onBoard = rows.some((r) => r.playerId === profile.player_id);
   return { parks, rows, scope, format, formats: FORMATS, selectedPark, season, crownLevels: CROWN_LEVELS, profile, liveUrl, onBoard };
@@ -1075,8 +1081,10 @@ app.get('/parks/:parkId/courts/:courtId', allowGuest, (req, res) => {
     isFollowing: isFollowingCourt(profile.player_id, court.id),
     courtLive: getLiveCourtIds().has(court.id),
     parkLive: getLiveParkIds().has(court.park_id),
-    // Every game on at this park, each its own card.
-    parkGames: gameNow.liveGamesAtPark(court.park_id),
+    // Every game on at this park, each its own card, with its "On a Heater" tag.
+    parkGames: gameNow.liveGamesAtPark(court.park_id).map((g) => ({ ...g, heater: heaterForGame(g.courtId, g.id) })),
+    // This court's streak: on its live game's team, or (court open) the last winners.
+    courtHeater: screen.liveGame ? heaterForGame(court.id, screen.liveGame.id) : heater.courtHeater(court.id, startOfAppDayUtcSql()),
     countdownEndsAtIso,
     error: req.query.error || null,
     formatRunTime,
@@ -1317,6 +1325,15 @@ app.post('/live_games/:id/sub', requireAuth, (req, res) => {
 });
 
 // Game now: start a game on a free court (format and side picked by the player).
+// "On a Heater" for a live game: the team (a/b) keeping the court's winning core.
+function heaterForGame(courtId, liveGameId) {
+  const teams = { a: [], b: [] };
+  for (const r of db.prepare('SELECT player_id, team FROM live_game_players WHERE live_game_id = ? AND time_off IS NULL').all(liveGameId)) {
+    teams[r.team].push(r.player_id);
+  }
+  return heater.courtHeater(courtId, startOfAppDayUtcSql(), teams);
+}
+
 // "Start your own game" / "Start the first run here": a confirm screen. Nothing
 // is created until "Start game" is tapped. Checked-in players only.
 app.get('/parks/:parkId/start-game', requireAuth, (req, res) => {

@@ -2846,6 +2846,7 @@ module.exports = {
   getParks,
   getParkById,
   getCourtsByPark,
+  startOfAppDayUtcSql,
   getCourtById,
   getSeasonWindow,
   CROWN_LEVELS,

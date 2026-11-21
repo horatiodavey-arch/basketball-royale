@@ -147,6 +147,7 @@
       <div class="live-teams">
         <div class="live-team">
           <div class="live-team-label">Team A</div>
+          <% if (courtHeater && courtHeater.team === 'a') { %><div class="heater-tag<%= courtHeater.count >= 3 ? ' hot' : '' %>"><%= courtHeater.label %></div><% } %>
           <% liveGame.teamA.forEach((p) => { %>
             <div class="live-player"><%= p.name %></div>
           <% }); %>
@@ -155,6 +156,7 @@
         <div class="live-vs">vs</div>
         <div class="live-team">
           <div class="live-team-label">Team B</div>
+          <% if (courtHeater && courtHeater.team === 'b') { %><div class="heater-tag<%= courtHeater.count >= 3 ? ' hot' : '' %>"><%= courtHeater.label %></div><% } %>
           <% liveGame.teamB.forEach((p) => { %>
             <div class="live-player"><%= p.name %></div>
           <% }); %>
@@ -242,6 +244,7 @@
   <% } else { %>
     <div class="live-card live-card-idle">
       <div class="live-target"><%= court.nickname || ('Court ' + court.number) %> is open</div>
+      <% if (courtHeater) { %><div class="heater-line">Last winners here: <span class="heater-tag<%= courtHeater.count >= 3 ? ' hot' : '' %>"><%= courtHeater.label %></span></div><% } %>
       <% if (gn.viewerCheckedIn) { %>
         <div class="winners-note">Pick a format and court on the next screen. Nothing starts until you tap Start game.</div>
       <% } else { %>
@@ -255,6 +258,7 @@
     <a href="/parks/<%= park.id %>/courts/<%= g.courtId %>#live-<%= g.id %>" class="live-card live-run-other" id="live-<%= g.id %>">
       <div class="live-target"><%= g.format %> &middot; <%= g.courtLabel %> &middot; game on</div>
       <div class="live-run-meta"><%= g.onCount %> on &middot; <%= g.nextCount %> <%= g.nextCount === 1 ? 'team' : 'teams' %> next</div>
+      <% if (g.heater) { %><div class="heater-line">Team <%= g.heater.team === 'a' ? 'A' : 'B' %>: <span class="heater-tag<%= g.heater.count >= 3 ? ' hot' : '' %>"><%= g.heater.label %></span></div><% } %>
       <div class="live-run-open">A separate game. Open <%= g.courtLabel %> &rsaquo;</div>
     </a>
   <% }); %>
