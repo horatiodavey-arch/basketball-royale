@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Start a game — Basketball Royale</title>
+<%- include('partials/fonts') %>
+<%- include('partials/pwa-head') %>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="kotc">
+<div class="page start-game-page">
+  <%- include('partials/royale-header') %>
+
+  <div class="page-title heading"><%= running ? 'Start your own game' : 'Start the first run here' %></div>
+  <div class="page-sub"><%- include('partials/park-name', { name: park.name, city: park.city }) %></div>
+
+  <% if (running) { %>
+    <div class="start-game-note">This is a separate game from the <strong><%= running.format || '' %></strong> run already going<%= running.courtLabel ? ' on ' + running.courtLabel : '' %>.</div>
+  <% } %>
+
+  <% if (error) { %><div class="error-msg"><%= error %></div><% } %>
+
+  <% const open = choices.filter((c) => !c.busy); %>
+  <% if (open.length === 0) { %>
+    <div class="start-game-note">Every court here already has a game on. Join one, or wait for a court to open up.</div>
+    <a href="<%= back %>" class="start-game-cancel">Back</a>
+  <% } else { %>
+    <form method="POST" action="/parks/<%= park.id %>/start-game" class="start-game-form">
+      <div class="start-game-label">Format</div>
+      <div class="start-game-options">
+        <% formats.forEach((f) => { %>
+          <label class="start-game-option">
+            <input type="radio" name="format" value="<%= f %>" required>
+            <span><%= f %></span>
+          </label>
+        <% }); %>
+      </div>
+
+      <div class="start-game-label">Court or hoop</div>
+      <div class="start-game-options start-game-courts">
+        <% choices.forEach((c) => { %>
+          <label class="start-game-option<%= c.busy ? ' is-busy' : '' %>">
+            <input type="radio" name="courtId" value="<%= c.id %>" <%= c.busy ? 'disabled' : '' %> <%= c.id === preselect ? 'checked' : '' %> required>
+            <span><%= c.label %><% if (c.busy) { %><small>Game on</small><% } %></span>
+          </label>
+        <% }); %>
+      </div>
+
+      <div class="winners-note">You start on Team A. Others tap the team their teammate is on.</div>
+      <button type="submit" class="run-cta">Start game</button>
+      <a href="<%= back %>" class="start-game-cancel">Cancel</a>
+    </form>
+  <% } %>
+</div>
+<%- include('partials/bottom-nav') %>
+</body>
+</html>

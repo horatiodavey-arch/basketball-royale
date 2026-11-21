@@ -1209,3 +1209,37 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .rp-streak { font-size: 14px; font-weight: 600; color: #6D28D9; margin-top: 4px; }
 .section-with-link { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .section-link { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; color: #6D28D9; text-decoration: none; text-transform: none; letter-spacing: 0; }
+
+/* Court page: "Join this run" / "Start the first run here" (orange) and
+   "Start your own game" (small, outlined). One card per game at the park. */
+.run-cta {
+  display: block; width: 100%; box-sizing: border-box; text-align: center; text-decoration: none;
+  background: #E8702A; color: #FFFFFF; border: 0; border-radius: 999px; padding: 14px;
+  font-family: inherit; font-size: 16px; font-weight: 700; cursor: pointer; margin: 12px 0 8px;
+}
+.run-cta-outline {
+  display: block; width: fit-content; margin: 8px auto 4px; padding: 7px 16px; text-decoration: none;
+  border: 1.5px solid #E8702A; color: #E8702A; background: #FFFFFF; border-radius: 999px;
+  font-size: 13px; font-weight: 700;
+}
+.live-run-meta { font-size: 13px; color: var(--text2); margin-top: 2px; }
+.live-run-other { display: block; text-decoration: none; color: inherit; }
+.live-run-open { font-size: 13px; font-weight: 700; color: var(--accent); margin-top: 6px; }
+
+/* "Start a game" confirm screen. */
+.start-game-note { background: #FFF4EC; color: #7A3A10; border-radius: 12px; padding: 12px 14px; font-size: 14px; margin: 12px 0; }
+.start-game-label { font-size: 13px; font-weight: 700; color: var(--text2); margin: 16px 0 8px; }
+.start-game-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.start-game-option { position: relative; }
+.start-game-option input { position: absolute; opacity: 0; pointer-events: none; }
+.start-game-option span {
+  display: inline-flex; flex-direction: column; align-items: center; min-width: 56px; padding: 10px 14px;
+  border: 1.5px solid var(--border); border-radius: 12px; background: var(--card); font-weight: 700; font-size: 15px; cursor: pointer;
+}
+.start-game-option span small { font-size: 11px; font-weight: 600; color: var(--muted); }
+.start-game-option input:checked + span { border-color: #E8702A; background: #FFF4EC; color: #B4501A; }
+.start-game-option input:focus-visible + span { outline: 2px solid #E8702A; outline-offset: 2px; }
+.start-game-option.is-busy span { opacity: 0.5; cursor: not-allowed; }
+.start-game-form .run-cta { margin-top: 18px; }
+.start-game-cancel { display: block; text-align: center; margin-top: 10px; color: var(--text2); font-size: 14px; }
+.start-game-form .winners-note { margin-top: 14px; }

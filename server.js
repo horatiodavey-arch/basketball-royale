@@ -129,7 +129,7 @@ const {
 } = require('./db/milestones');
 const { notifyPlayers, organizerPlayerIds } = require('./db/push');
 backfillMilestones();
-const { DATA_DIR, writeBackup } = require('./db/index');
+const { db, DATA_DIR, writeBackup } = require('./db/index');
 const gameNow = require('./db/game-now');
 const courts = require('./db/courts');
 const growth = require('./db/growth');
@@ -1075,6 +1075,8 @@ app.get('/parks/:parkId/courts/:courtId', allowGuest, (req, res) => {
     isFollowing: isFollowingCourt(profile.player_id, court.id),
     courtLive: getLiveCourtIds().has(court.id),
     parkLive: getLiveParkIds().has(court.park_id),
+    // Every game on at this park, each its own card.
+    parkGames: gameNow.liveGamesAtPark(court.park_id),
     countdownEndsAtIso,
     error: req.query.error || null,
     formatRunTime,
@@ -1315,6 +1317,44 @@ app.post('/live_games/:id/sub', requireAuth, (req, res) => {
 });
 
 // Game now: start a game on a free court (format and side picked by the player).
+// "Start your own game" / "Start the first run here": a confirm screen. Nothing
+// is created until "Start game" is tapped. Checked-in players only.
+app.get('/parks/:parkId/start-game', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const park = getParkById(Number(req.params.parkId));
+  if (!park) return res.redirect('/runs');
+  const firstCourt = getCourtsByPark(park.id)[0];
+  const back = `/parks/${park.id}/courts/${(firstCourt || {}).id || ''}`;
+  if (!getCheckIn(profile.player_id, park.id)) return res.redirect(back + '?error=' + encodeURIComponent('Check in at the park first.'));
+  const live = gameNow.liveGamesAtPark(park.id);
+  const choices = gameNow.courtChoices(park.id);
+  const wanted = Number(req.query.court);
+  const preselect = (choices.find((c) => c.id === wanted && !c.busy) || choices.find((c) => !c.busy) || {}).id || null;
+  res.render('start-game', {
+    park,
+    running: live[0] || null,
+    formats: gameNow.FORMATS.slice().reverse(),
+    choices,
+    preselect,
+    back: req.query.from && safeReturnTo(req.query.from) ? req.query.from : back,
+    error: req.query.error || null,
+    active: 'runs',
+  });
+});
+
+app.post('/parks/:parkId/start-game', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parkId = Number(req.params.parkId);
+  const body = req.body || {};
+  const court = getCourtById(Number(body.courtId));
+  if (!court || court.park_id !== parkId) {
+    return res.redirect(`/parks/${parkId}/start-game?error=` + encodeURIComponent('Pick a court or hoop.'));
+  }
+  const result = gameNow.startGame(court.id, profile.player_id, body.format);
+  if (!result.ok) return res.redirect(`/parks/${parkId}/start-game?court=${court.id}&error=` + encodeURIComponent(result.error));
+  res.redirect(`/parks/${parkId}/courts/${court.id}#live-${result.liveGameId}`);
+});
+
 app.post('/courts/:courtId/game-now', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   const court = getCourtById(req.params.courtId);
@@ -1580,6 +1620,12 @@ app.get('/admin', requireAdmin, (req, res) => {
     today: buildToday(req.query.day),
     courtsAdmin: courts.adminCourtsSummary(),
     growthAdmin: growth.adminGrowthSummary(),
+    // Games started while another game was already on at the same park.
+    gamesAlongside: db.prepare(
+      `SELECT COUNT(*) AS n, COUNT(DISTINCT park_id) AS parks FROM events
+       WHERE event_name = 'game_started_alongside' AND player_id NOT IN
+         (SELECT p.id FROM players p JOIN users u ON u.id = p.user_id WHERE u.name GLOB 'TEST*')`
+    ).get(),
     query: { range: req.query.range || '', event: req.query.event || '' },
     active: '',
   });
