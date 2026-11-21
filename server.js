@@ -136,6 +136,7 @@ backfillMilestones();
 const { db, DATA_DIR, writeBackup } = require('./db/index');
 const gameNow = require('./db/game-now');
 const line = require('./db/line');
+const progress = require('./db/progress');
 const heater = require('./db/heater');
 const courts = require('./db/courts');
 const growth = require('./db/growth');
@@ -1387,9 +1388,12 @@ function courtSheet(court, profile) {
     names: teamName(g.id, 'a') + ' vs ' + teamName(g.id, 'b'),
   }));
   const tag = profile.tag ? '?ref=' + profile.tag : '';
+  const checkedIn = !!(pid && getCheckIn(pid, park.id));
   return {
     court,
     park,
+    // I'm coming → Checked in → Got next → On the court, from the real state.
+    progress: progress.progressFor({ playerId: pid, parkId: park.id, courtId: court.id, isGuest: !!profile.isGuest, checkedIn }),
     courtCount: getCourtsByPark(park.id).length,
     checkedIn: !!(pid && getCheckIn(pid, park.id)),
     line: line.lineView(court.id, pid),
