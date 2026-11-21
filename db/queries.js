@@ -581,7 +581,14 @@ function getNextCrownProgress(totalPoints) {
     .reverse()
     .find((level) => level.min > totalPoints);
   if (!next) return null;
-  return { name: next.name, pointsNeeded: roundTenth(next.min - totalPoints) };
+  return {
+    name: next.name,
+    pointsNeeded: roundTenth(next.min - totalPoints),
+    points: roundTenth(totalPoints),
+    min: next.min,
+    fill: next.fill,
+    stroke: next.stroke,
+  };
 }
 
 function nameInitials(name) {
