@@ -35,6 +35,13 @@
   </div>
   <div class="season-note">Games are counted on the day they started. Unfinished means nobody reported it for 30 minutes. Check-ins count successful check-ins, from the day this was added.</div>
 
+  <div class="section admin-section" id="alongside">Separate games</div>
+  <div class="admin-big">
+    <div class="admin-stat"><div class="admin-stat-value heading"><%= gamesAlongside.n %></div><div class="admin-stat-label">Games started while another run was live at the same park</div></div>
+    <div class="admin-stat"><div class="admin-stat-value heading"><%= gamesAlongside.parks %></div><div class="admin-stat-label">Parks where it happened</div></div>
+  </div>
+  <div class="season-note">Counted from when this was added.</div>
+
   <div class="section admin-section" id="growth">Guests, streaks and invites</div>
   <div class="admin-big">
     <% growthAdmin.big.forEach((s) => { %>

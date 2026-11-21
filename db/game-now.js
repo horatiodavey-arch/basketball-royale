@@ -28,6 +28,8 @@ function startGame(courtId, playerId, format) {
   if (q.isPlayerInActiveLiveGame(courtId, playerId)) return fail("You're already in the game on this court.");
 
   const park = q.getParkById(court.park_id);
+  // Started while another game was already on at this park: counted on /admin.
+  const alongside = liveGamesAtPark(park.id).length > 0;
   db.prepare(
     "INSERT INTO live_games (court_id, park_id, target, status, started_at, format) VALUES (?, ?, ?, 'in_progress', datetime('now'), ?)"
   ).run(courtId, park.id, park.game_target, format);
@@ -37,7 +39,33 @@ function startGame(courtId, playerId, format) {
   ).run(liveGameId, playerId, 'a');
   db.prepare('UPDATE courts SET format = ? WHERE id = ?').run(format, courtId);
   q.logEvent(playerId, 'game_started', null, park.id);
+  if (alongside) q.logEvent(playerId, 'game_started_alongside', null, park.id);
   return { ok: true, liveGameId };
+}
+
+const courtLabel = (c) => c.nickname || `Court ${c.number}`;
+
+// Every game on at a park, one entry per game, so two games never read as
+// one run: format, court label, players on, and teams waiting next.
+function liveGamesAtPark(parkId) {
+  return db
+    .prepare(
+      `SELECT lg.id, lg.court_id AS courtId, lg.format, c.number, c.nickname,
+              (SELECT COUNT(*) FROM live_game_players p WHERE p.live_game_id = lg.id AND p.time_off IS NULL) AS onCount,
+              (SELECT COUNT(*) FROM next_line nl WHERE nl.court_id = lg.court_id AND nl.status = 'waiting') AS nextCount
+       FROM live_games lg JOIN courts c ON c.id = lg.court_id
+       WHERE lg.park_id = ? AND lg.status IN ('countdown', 'in_progress')
+       ORDER BY lg.started_at ASC, lg.id ASC`
+    )
+    .all(parkId)
+    .map((g) => ({ id: g.id, courtId: g.courtId, format: g.format, courtLabel: courtLabel(g), onCount: g.onCount, nextCount: g.nextCount }));
+}
+
+// The confirm screen's court/hoop choices: every court at the park, with the
+// ones that already have a game on marked busy.
+function courtChoices(parkId) {
+  const busy = new Set(liveGamesAtPark(parkId).map((g) => g.courtId));
+  return q.getCourtsByPark(parkId).map((c) => ({ id: c.id, label: courtLabel(c), busy: busy.has(c.id) }));
 }
 
 // A player joins by tapping the team his teammate is on. While the game is on he
@@ -257,6 +285,8 @@ module.exports = {
   FORMATS,
   POLL_MINUTES,
   startGame,
+  liveGamesAtPark,
+  courtChoices,
   joinGame,
   rosterByTeam,
   reportDone,

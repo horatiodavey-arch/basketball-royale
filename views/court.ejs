@@ -35,6 +35,10 @@
     <div class="error-msg"><%= error %></div>
   <% } %>
 
+  <% const firstRun = parkGames[0] || null; %>
+  <% if (firstRun) { %>
+    <a href="/parks/<%= park.id %>/courts/<%= firstRun.courtId %>#live-<%= firstRun.id %>" class="run-cta run-cta-join">Join this run</a>
+  <% } %>
   <div class="checkin-row">
     <% if (checkedIn) { %>
       <form method="POST" action="/parks/<%= park.id %>/check-out" class="check-out-form" style="display: inline;" onsubmit="return confirm('Check out of this park? You'll leave the here-now list and any squad here.');">
@@ -62,6 +66,12 @@
       </div>
     <% } %>
   </div>
+
+  <% if (checkedIn && firstRun) { %>
+    <a href="/parks/<%= park.id %>/start-game?court=<%= court.id %>" class="run-cta-outline">Start your own game</a>
+  <% } else if (checkedIn) { %>
+    <a href="/parks/<%= park.id %>/start-game?court=<%= court.id %>" class="run-cta">Start the first run here</a>
+  <% } %>
 
   <div class="court-actions-row">
     <a href="/runs/new?courtId=<%= court.id %>" class="small-btn link-btn">Start run</a>
@@ -128,8 +138,10 @@
     <% const onCount = liveGame.teamA.length + liveGame.teamB.length; %>
     <% const slots = size * 2; %>
     <% const openSpots = Math.max(0, slots - onCount); %>
-    <div class="live-card">
-      <div class="live-target"><%= liveGame.format %> &middot; game on</div>
+    <% const thisRun = parkGames.find((g) => g.id === liveGame.id); %>
+    <div class="live-card" id="live-<%= liveGame.id %>">
+      <div class="live-target"><%= liveGame.format %> &middot; <%= court.nickname || ('Court ' + court.number) %> &middot; game on</div>
+      <% if (thisRun) { %><div class="live-run-meta"><%= thisRun.onCount %> on &middot; <%= thisRun.nextCount %> <%= thisRun.nextCount === 1 ? 'team' : 'teams' %> next</div><% } %>
       <div class="live-count">On court: <%= onCount %> of <%= slots %> on the app, <%= openSpots %> open spots</div>
 
       <div class="live-teams">
@@ -229,22 +241,23 @@
     </div>
   <% } else { %>
     <div class="live-card live-card-idle">
-      <div class="live-target">Court is open</div>
+      <div class="live-target"><%= court.nickname || ('Court ' + court.number) %> is open</div>
       <% if (gn.viewerCheckedIn) { %>
-        <form method="POST" action="/courts/<%= court.id %>/game-now" class="game-now-form">
-          <label class="game-now-label" for="gnFormat">Format</label>
-          <select id="gnFormat" name="format" required>
-            <option value="" selected disabled>Pick a format</option>
-            <% gn.formats.forEach((f) => { %><option value="<%= f %>"><%= f %></option><% }); %>
-          </select>
-          <div class="winners-note">You start on Team A. Others tap the team their teammate is on.</div>
-          <button type="submit" class="submit-btn">Game now</button>
-        </form>
+        <div class="winners-note">Pick a format and court on the next screen. Nothing starts until you tap Start game.</div>
       <% } else { %>
         <div class="winners-note">Check in at this park to start a game.</div>
       <% } %>
     </div>
   <% } %>
+
+  <% const otherGames = parkGames.filter((g) => g.courtId !== court.id); %>
+  <% otherGames.forEach((g) => { %>
+    <a href="/parks/<%= park.id %>/courts/<%= g.courtId %>#live-<%= g.id %>" class="live-card live-run-other" id="live-<%= g.id %>">
+      <div class="live-target"><%= g.format %> &middot; <%= g.courtLabel %> &middot; game on</div>
+      <div class="live-run-meta"><%= g.onCount %> on &middot; <%= g.nextCount %> <%= g.nextCount === 1 ? 'team' : 'teams' %> next</div>
+      <div class="live-run-open">A separate game. Open <%= g.courtLabel %> &rsaquo;</div>
+    </a>
+  <% }); %>
 
   <div class="section">Next up on <%= court.nickname || ('Court ' + court.number) %></div>
   <% if (queue.length === 0) { %>
