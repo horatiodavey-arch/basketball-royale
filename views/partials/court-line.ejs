@@ -53,7 +53,7 @@
     <div class="cs-next-title">WHO'S GOT NEXT<% if (cs.courtCount > 1) { %> · <%= cs.court.nickname || ('Court ' + cs.court.number) %><% } %></div>
     <% L.rows.forEach((r) => { %>
       <div class="cs-next-row">
-        <span class="cs-next-who"><b><%= r.number %>.</b> <%= r.isYou ? 'You' : r.name %><% if (r.addedBy) { %><small> added by <%= r.addedBy.replace(/\s#\d{4}$/, '') %></small><% } %></span>
+        <span class="cs-next-who"><b><%= r.number %>.</b> <%= r.isYou ? 'You' : maskName(r.name) %><% if (r.addedBy) { %><small> added by <%= maskName(r.addedBy).replace(/\s#\d{4}$/, '') %></small><% } %></span>
         <span class="cs-next-right">
           <% if (r.status === 'confirmed') { %><span class="cs-tag cs-tag-ok">Team confirmed</span>
           <% } else if (r.status === 'picking') { %><span class="cs-tag cs-tag-picking">Picking <%= r.count %> of <%= r.size %></span>
@@ -89,7 +89,7 @@
     <div class="cs-chips">
       <% team.roster.forEach((p) => { %>
         <span class="cs-chip">
-          <%= p.kind === 'player' && p.id === profile.player_id ? 'You' : p.name %>
+          <%= p.kind === 'player' && p.id === profile.player_id ? 'You' : (p.kind === 'player' ? maskName(p.name) : p.name) %>
           <% if (team.isCaptain && !p.lead && !(p.kind === 'player' && p.id === profile.player_id)) { %>
             <form method="POST" action="/line/<%= team.spotId %>/remove" class="cs-inline-form">
               <input type="hidden" name="kind" value="<%= p.kind %>"><input type="hidden" name="id" value="<%= p.id %>">
@@ -107,7 +107,7 @@
               <% team.candidates.forEach((p) => { %>
                 <form method="POST" action="/line/<%= team.spotId %>/add" class="cs-add-row">
                   <input type="hidden" name="playerId" value="<%= p.id %>">
-                  <button type="submit" class="cs-add-btn"><%= p.name %></button>
+                  <button type="submit" class="cs-add-btn"><%= maskName(p.name) %></button>
                 </form>
               <% }); %>
             <% } else { %>

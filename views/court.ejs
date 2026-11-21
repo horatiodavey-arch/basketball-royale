@@ -28,7 +28,7 @@
   <div class="cs-sub"><%= park.is_indoor ? 'Indoor' : 'Outdoor' %> &middot; <%= courts.length %> court<%= courts.length === 1 ? '' : 's' %></div>
   <div id="parkPhotoStatus" class="park-photo-status"></div>
   <div class="park-now">
-    <% if (parkKing) { %>King of the Court: <span class="king-name-text"><%= parkKing.name %></span><% } else { %>No king yet. Be the first.<% } %>
+    <% if (parkKing) { %>King of the Court: <span class="king-name-text"><%= parkKing.private ? 'Private player' : parkKing.name %></span><% } else { %>No king yet. Be the first.<% } %>
     <% if (parkLive) { %><span class="live-badge">Live</span><% } %>
   </div>
   <% if (park.added_by_name) { %>
@@ -117,7 +117,7 @@
           <div class="live-team-label">Team A</div>
           <% if (courtHeater && courtHeater.team === 'a') { %><div class="heater-tag<%= courtHeater.count >= 3 ? ' hot' : '' %>"><%= courtHeater.label %></div><% } %>
           <% liveGame.teamA.forEach((p) => { %>
-            <div class="live-player"><%= p.name %></div>
+            <div class="live-player"><%= maskName(p.name) %></div>
           <% }); %>
           <% gameGuests.a.forEach((g) => { %><div class="live-player live-player-guest">Guest: <%= g.first_name %></div><% }); %>
           <% if (liveGame.teamA.length + gameGuests.a.length === 0) { %><div class="live-player live-player-empty">&mdash;</div><% } %>
@@ -127,7 +127,7 @@
           <div class="live-team-label">Team B</div>
           <% if (courtHeater && courtHeater.team === 'b') { %><div class="heater-tag<%= courtHeater.count >= 3 ? ' hot' : '' %>"><%= courtHeater.label %></div><% } %>
           <% liveGame.teamB.forEach((p) => { %>
-            <div class="live-player"><%= p.name %></div>
+            <div class="live-player"><%= maskName(p.name) %></div>
           <% }); %>
           <% gameGuests.b.forEach((g) => { %><div class="live-player live-player-guest">Guest: <%= g.first_name %></div><% }); %>
           <% if (liveGame.teamB.length + gameGuests.b.length === 0) { %><div class="live-player live-player-empty">&mdash;</div><% } %>
@@ -195,7 +195,7 @@
           <% [...liveGame.teamA, ...liveGame.teamB].filter((p) => p.team === liveGame.viewerCaptainTeam).forEach((p) => { %>
             <form method="POST" action="/live_games/<%= liveGame.id %>/left" class="inline-form">
               <input type="hidden" name="playerId" value="<%= p.playerId %>">
-              <span><%= p.name %></span>
+              <span><%= maskName(p.name) %></span>
               <button type="submit" class="tiny-btn">Mark left</button>
             </form>
           <% }); %>
@@ -203,7 +203,7 @@
             <form method="POST" action="/live_games/<%= liveGame.id %>/sub" class="inline-form">
               <input type="hidden" name="team" value="<%= liveGame.viewerCaptainTeam %>">
               <select name="playerId">
-                <% availablePlayers.forEach((p) => { %><option value="<%= p.id %>"><%= p.name %></option><% }); %>
+                <% availablePlayers.forEach((p) => { %><option value="<%= p.id %>"><%= maskName(p.name) %></option><% }); %>
               </select>
               <button type="submit" class="tiny-btn">Add sub</button>
             </form>

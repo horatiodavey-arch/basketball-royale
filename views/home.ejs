@@ -77,6 +77,20 @@
           <button type="button" role="menuitemradio" class="map-layers-item" data-filter="indoor"><span class="map-layers-check">&#10003;</span>Indoor</button>
         </div>
       </div>
+      <% if (locals.mapVisibility) { %>
+      <div class="map-layers map-visibility">
+        <button type="button" id="mapVisBtn" class="map-layers-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Show me on the map">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><% if (mapVisibility !== 'everyone') { %><path d="M4 4l16 16"/><% } %></svg>
+        </button>
+        <div id="mapVisMenu" class="map-layers-menu" role="menu" hidden>
+          <div class="map-vis-title">Show me on the map</div>
+          <% visibilityChoices.forEach((o) => { %>
+            <button type="button" role="menuitemradio" class="map-layers-item map-vis-item<%= o.value === mapVisibility ? ' active' : '' %>" aria-checked="<%= o.value === mapVisibility %>" data-visibility="<%= o.value %>"><span class="map-layers-check">&#10003;</span><%= o.label %></button>
+          <% }); %>
+          <div class="map-vis-note"><%= mapVisibility === 'everyone' ? "Your name shows at a court when you're there or coming." : 'Others just see a count, like "3 here", that includes you.' %></div>
+        </div>
+      </div>
+      <% } %>
       <button type="button" id="suggestCourtBtn" class="suggest-court-btn">+ Suggest a court</button>
       <div id="suggestCourtPanel" class="suggest-court-panel" style="display: none;">
         <p>Tap the map to drop a pin, then name the court.</p>
@@ -135,27 +149,29 @@
           </div>
         </div>
       <% } else { %>
-        <a href="/players/<%= sheet.king.playerId %>" class="king-card sheet-king-card">
+        <<%= sheet.king.private ? 'div' : 'a' %><% if (!sheet.king.private) { %> href="/players/<%= sheet.king.playerId %>"<% } %> class="king-card sheet-king-card">
           <div class="sheet-king-crown">
             <%- include('partials/crown-icon', { size: 26, fill: sheet.king.crown ? sheet.king.crown.fill : 'none', stroke: sheet.king.crown ? sheet.king.crown.stroke : 'var(--muted)' }) %>
           </div>
           <div class="sheet-king-body">
             <div class="king-label">KING OF THE COURT</div>
-            <div class="king-name heading"><%= sheet.king.name.replace(/\s#\d{4}$/, '') %></div>
+            <div class="king-name heading"><%= sheet.king.private ? 'Private player' : sheet.king.name.replace(/\s#\d{4}$/, '') %></div>
             <div class="king-level"><%= sheet.king.crown ? sheet.king.crown.name : 'No crown yet' %></div>
           </div>
           <div class="king-points heading"><%= sheet.king.points %> <span>pts</span></div>
-        </a>
+        </<%= sheet.king.private ? 'div' : 'a' %>>
       <% } %>
 
       <div class="here-now-head">
-        <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-here"></span>Here now</span>
+        <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-here"></span>Here now<% if (sheet.hereTotal > 0) { %> &middot; <%= sheet.hereTotal %><% } %></span>
         <% if (sheet.hereNow.length > 5) { %>
-          <a href="/parks/<%= sheet.park.id %>" class="see-all-link">See all <%= sheet.hereNow.length %></a>
+          <a href="/parks/<%= sheet.park.id %>" class="see-all-link">See all <%= sheet.hereTotal %></a>
         <% } %>
       </div>
-      <% if (sheet.hereNow.length === 0) { %>
+      <% if (sheet.hereTotal === 0) { %>
         <div class="next-action-note">Nobody checked in yet.</div>
+      <% } else if (sheet.hereNow.length === 0) { %>
+        <div class="next-action-note"><%= sheet.hereTotal %> here</div>
       <% } else { %>
         <div class="here-now-row">
           <% sheet.hereNow.slice(0, 5).forEach((p) => { %>
@@ -173,10 +189,11 @@
         </div>
       <% } %>
 
-      <% if (sheet.comingNow && sheet.comingNow.length > 0) { %>
+      <% if (sheet.comingNow && sheet.comingNow.total > 0) { %>
         <div class="here-now-head" style="margin-top: 14px;">
-          <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-coming"></span>Coming &middot; <%= sheet.comingNow.length %></span>
+          <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-coming"></span>Coming &middot; <%= sheet.comingNow.total %></span>
         </div>
+        <% if (sheet.comingNow.length === 0) { %><div class="next-action-note"><%= sheet.comingNow.total %> coming</div><% } %>
         <div class="here-now-row">
           <% sheet.comingNow.slice(0, 5).forEach((p) => { %>
             <div class="here-now-player person-chip">
@@ -290,7 +307,7 @@
       var dotClass = pin.activeCount > 0 ? 'pin-dot-active' : 'pin-dot-idle';
       // Nobody active: no crown, just "0" and a gray dot.
       var crownHtml = pin.activeCount > 0 ? crownSvg(fill, stroke, 16) : '';
-      var label = pin.king ? pin.king.name : pin.name;
+      var label = pin.king && !pin.king.private ? pin.king.name : pin.name;
       var distanceHtml = miles != null ? '<div class="pin-distance">' + RoyaleGeo.pinDistanceLabel(miles) + '</div>' : '';
       // Both counts, as the lists on the park show them: "4 here · 3 coming".
       var countsHtml = '<div class="pin-run">' + (pin.live ? '<span class="live-badge">Live</span> ' : '') +
@@ -383,7 +400,7 @@
         if (m.inCluster) quiet.push(m); else standalone.addLayer(m);
       });
       clusters.addLayers(quiet);
-      document.querySelectorAll('.map-layers-item').forEach(function (b) {
+      document.querySelectorAll('.map-layers-item[data-filter]').forEach(function (b) {
         var on = b.getAttribute('data-filter') === courtFilter;
         b.classList.toggle('active', on);
         b.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -402,7 +419,7 @@
       e.stopPropagation();
       setLayersOpen(layersMenu.hidden);
     });
-    document.querySelectorAll('.map-layers-item').forEach(function (b) {
+    document.querySelectorAll('.map-layers-item[data-filter]').forEach(function (b) {
       b.addEventListener('click', function (e) {
         e.stopPropagation();
         courtFilter = b.getAttribute('data-filter');
@@ -422,6 +439,32 @@
     document.addEventListener('click', function (e) {
       if (!layersMenu.hidden && !e.target.closest('.map-layers')) setLayersOpen(false);
     });
+
+    // "Show me on the map": Everyone / People I follow / Nobody.
+    var visBtn = document.getElementById('mapVisBtn');
+    var visMenu = document.getElementById('mapVisMenu');
+    if (visBtn) {
+      var setVisOpen = function (open) {
+        visMenu.hidden = !open;
+        visBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) setLayersOpen(false);
+      };
+      visBtn.addEventListener('click', function (e) { e.stopPropagation(); setVisOpen(visMenu.hidden); });
+      layersBtn.addEventListener('click', function () { setVisOpen(false); });
+      document.querySelectorAll('.map-vis-item').forEach(function (b) {
+        b.addEventListener('click', function (e) {
+          e.stopPropagation();
+          fetch('/profile/map-visibility', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ visibility: b.getAttribute('data-visibility') }),
+          }).then(function () { location.reload(); }).catch(function () { setVisOpen(false); });
+        });
+      });
+      document.addEventListener('click', function (e) {
+        if (!visMenu.hidden && !e.target.closest('.map-visibility')) setVisOpen(false);
+      });
+    }
     applyCourtFilter();
 
     if (selectedParkData.lat != null) {

@@ -35,6 +35,14 @@
   </div>
   <div class="season-note">Games are counted on the day they started. Unfinished means nobody reported it for 30 minutes. Check-ins count successful check-ins, from the day this was added.</div>
 
+  <div class="section admin-section" id="ages">Ages</div>
+  <div class="admin-big">
+    <div class="admin-stat"><div class="admin-stat-value heading"><%= ageAdmin.blocked %></div><div class="admin-stat-label">Sign-ups blocked (under 13)</div></div>
+    <div class="admin-stat"><div class="admin-stat-value heading"><%= ageAdmin.teens %></div><div class="admin-stat-label">Teen accounts (13&ndash;17)</div></div>
+    <div class="admin-stat"><div class="admin-stat-value heading"><%= ageAdmin.adults %></div><div class="admin-stat-label">Adult accounts (18+)</div></div>
+    <div class="admin-stat"><div class="admin-stat-value heading"><%= ageAdmin.unknown %></div><div class="admin-stat-label">Not asked yet</div></div>
+  </div>
+  <div class="season-note">Totals only. Birth years aren't shown here. Only the year is stored, so anyone who could still be 17 counts as a teen.</div>
   <div class="section admin-section" id="alongside">Separate games</div>
   <div class="admin-big">
     <div class="admin-stat"><div class="admin-stat-value heading"><%= gamesAlongside.n %></div><div class="admin-stat-label">Games started while another run was live at the same park</div></div>

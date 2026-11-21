@@ -140,6 +140,7 @@ const line = require('./db/line');
 const progress = require('./db/progress');
 const heater = require('./db/heater');
 const courts = require('./db/courts');
+const age = require('./db/age');
 const growth = require('./db/growth');
 const { buildToday } = require('./db/admin-today');
 // Games nobody has touched for 30 minutes close with no result.
@@ -194,6 +195,31 @@ app.use((req, res, next) => {
     if (ref && !req.session.ref) req.session.ref = ref;
   }
   next();
+});
+
+// Names of teens are masked next to a court for everyone but the teen. Views
+// call maskName(displayName); the list of teen names is only looked up once a
+// page actually uses it.
+app.use((req, res, next) => {
+  // No "Add a photo" button for teens.
+  res.locals.viewerIsTeen = !!req.session.userId && age.isTeenUser(req.session.userId);
+  let teens = null;
+  res.locals.maskName = (name) => {
+    if (!teens) teens = age.teenDisplayNames({ exceptUserId: req.session.userId || null });
+    return teens.has(name) ? 'Private player' : name;
+  };
+  next();
+});
+
+// Players from before the age question are asked their birth year once, the
+// next time they open the app, before anything else.
+app.use((req, res, next) => {
+  if (!req.session.userId) return next();
+  const p = req.path;
+  if (p === '/age' || p === '/logout' || p.includes('.') || p.startsWith('/admin')) return next();
+  if (!age.needsBirthYear(req.session.userId)) return next();
+  if (p.startsWith('/api') || p.startsWith('/live')) return res.status(403).json({ ok: false, error: 'birth_year_needed' });
+  res.redirect('/age');
 });
 
 // A new player who left before finishing the home-court step goes straight
@@ -435,11 +461,39 @@ app.post('/signup', (req, res) => {
   if (nameProblem) {
     return res.render('signup', { error: nameProblem, name, phone, returnTo });
   }
+  // Next: "What year were you born?" Nothing is saved until it's answered.
+  req.session.pendingSignup = { name, phone, returnTo };
+  res.redirect('/signup/age');
+});
+
+app.get('/signup/age', (req, res) => {
+  if (req.session.userId) return res.redirect('/');
+  if (!req.session.pendingSignup) return res.redirect('/signup');
+  res.render('age', { action: '/signup/age', years: age.yearOptions(), error: null });
+});
+
+app.post('/signup/age', (req, res) => {
+  const pending = req.session.pendingSignup;
+  if (!pending) return res.redirect('/signup');
+  const birthYear = age.parseBirthYear((req.body || {}).birthYear);
+  if (!birthYear) {
+    return res.render('age', { action: '/signup/age', years: age.yearOptions(), error: 'Pick the year you were born.' });
+  }
+  if (age.isUnder13(birthYear)) {
+    // No account, and nothing about them is kept: only the blocked count goes up.
+    delete req.session.pendingSignup;
+    delete req.session.afterSignup;
+    age.countBlockedSignup();
+    return res.render('age-blocked');
+  }
+  delete req.session.pendingSignup;
+  const { name, phone, returnTo } = pending;
   const referrerPlayerId = req.session.ref ? getPlayerIdByTag(req.session.ref) : null;
   const { userId } = createUserAndPlayer(name, phone, {
     source: req.session.src || 'direct',
     referrerPlayerId,
   });
+  age.setBirthYear(userId, birthYear);
   req.session.userId = userId;
   syncOrganizerFlag(phone);
   // Finish what the guest had tapped (if anything), and count the sign-up.
@@ -451,6 +505,41 @@ app.post('/signup', (req, res) => {
   courts.markHomeCourtPending(userId);
   req.session.afterHomeCourt = (done && done.url) || returnTo || '/';
   res.redirect('/welcome/home-court');
+});
+
+// The one-time birth year question for players from before it existed.
+app.get('/age', requireAuth, (req, res) => {
+  if (!age.needsBirthYear(req.session.userId)) return res.redirect('/');
+  res.render('age', { action: '/age', years: age.yearOptions(), error: null });
+});
+
+app.post('/age', requireAuth, (req, res) => {
+  if (!age.needsBirthYear(req.session.userId)) return res.redirect('/');
+  const birthYear = age.parseBirthYear((req.body || {}).birthYear);
+  if (!birthYear) return res.render('age', { action: '/age', years: age.yearOptions(), error: 'Pick the year you were born.' });
+  if (age.isUnder13(birthYear)) {
+    age.blockExistingUnder13(req.session.userId);
+    return req.session.destroy(() => res.render('age-blocked'));
+  }
+  age.setBirthYear(req.session.userId, birthYear);
+  res.redirect('/');
+});
+
+function visibilityChoices(userId) {
+  const teen = age.isTeenUser(userId);
+  return [
+    { value: 'everyone', label: 'Everyone' },
+    { value: 'followers', label: 'People I follow' },
+    { value: 'nobody', label: 'Nobody' },
+  ].filter((o) => !(teen && o.value === 'everyone'));
+}
+
+// "Show me on the map": everyone / people I follow / nobody. Set from the
+// button on the map, which sends JSON.
+app.post('/profile/map-visibility', requireAuth, (req, res) => {
+  const ok = age.setMapVisibility(req.session.userId, (req.body || {}).visibility);
+  if (req.is('json')) return res.status(ok ? 200 : 400).json({ ok, visibility: age.mapVisibility(req.session.userId) });
+  res.redirect('/');
 });
 
 // "Where do you hoop?" then "Pick your home court". The phone works out the
@@ -602,6 +691,9 @@ app.get('/', allowGuest, (req, res) => {
 
   res.render('home', {
     mapFilter: profile.isGuest ? 'all' : courts.getMapFilter(req.session.userId),
+    // "Show me on the map", a button on the map (signed-in players only).
+    mapVisibility: profile.isGuest ? null : age.mapVisibility(req.session.userId),
+    visibilityChoices: profile.isGuest ? [] : visibilityChoices(req.session.userId),
     followedParks,
     active: 'map',
     profile,
@@ -623,6 +715,8 @@ app.get('/', allowGuest, (req, res) => {
 // Only someone who's actually at the park can add a photo of it; an
 // organizer can from anywhere.
 function canAddParkPhoto(profile, parkId) {
+  // No park photos from under-18s.
+  if (age.isTeenUser(profile.user_id)) return false;
   return !!profile.is_organizer || !!getCheckIn(profile.player_id, parkId);
 }
 
@@ -721,11 +815,18 @@ function boardContext(query, profile) {
   const scope = query.scope === 'city' ? 'city' : 'court';
   const selectedPark = parks.find((p) => p.id === Number(query.park)) || parks[0];
   const format = FORMATS.includes(query.format) ? query.format : null;
-  const rows = getLeaderboard({ scope, parkId: selectedPark.id, seasonStart: season.startSql, format }).map((r) => ({
+  let rows = getLeaderboard({ scope, parkId: selectedPark.id, seasonStart: season.startSql, format }).map((r) => ({
     ...r,
     // Confirmed wins in a row this season, shown only while the streak is on.
     heater: heater.playerLabel(heater.playerStreak(r.playerId, season.startSql)),
   }));
+  // A court's board puts a name next to that court, so teens there show as
+  // "Private player" (same rank and points) to everyone but themselves. On the
+  // city board they're listed by display name and tag as usual.
+  if (scope === 'court') {
+    const teens = age.teenDisplayNames({ exceptPlayerId: profile.player_id || null });
+    rows = rows.map((r) => (teens.has(r.name) ? { ...r, name: 'Private player', private: true } : r));
+  }
   const liveUrl = `/live/board?scope=${scope}&park=${selectedPark.id}${format ? '&format=' + format : ''}`;
   const onBoard = rows.some((r) => r.playerId === profile.player_id);
   return { parks, rows, scope, format, formats: FORMATS, selectedPark, season, crownLevels: CROWN_LEVELS, profile, liveUrl, onBoard };
@@ -1104,7 +1205,7 @@ app.get('/parks/:parkId/courts/:courtId', allowGuest, (req, res) => {
     profile,
     formatLabel: courtFormatLabel(court),
     active: 'runs',
-    parkKing: getParkKing(court.park_id, getSeasonWindow().startSql),
+    parkKing: getParkKing(court.park_id, getSeasonWindow().startSql, profile.player_id),
     parkIsNew: isNewPark(court.park_id),
     isFollowing: isFollowingCourt(profile.player_id, court.id),
     courtLive: getLiveCourtIds().has(court.id),
@@ -1120,7 +1221,7 @@ app.get('/parks/:parkId/courts/:courtId', allowGuest, (req, res) => {
     countdownEndsAtIso,
     error: req.query.error || null,
     formatRunTime,
-    canAddPhoto: !!profile.is_organizer || screen.checkedIn,
+    canAddPhoto: age.isTeenUser(profile.user_id) ? false : !!profile.is_organizer || screen.checkedIn,
   });
 });
 
@@ -1165,6 +1266,9 @@ app.post(
     if (!park) return res.status(404).json({ ok: false, error: 'Park not found.' });
 
     logEvent(profile.player_id, 'add_park_photo', pagePathFromReferer(req, `/parks/${park.id}`));
+    if (age.isTeenUser(profile.user_id)) {
+      return res.status(403).json({ ok: false, error: 'Park photos are for players 18 and up.' });
+    }
     if (!canAddParkPhoto(profile, park.id)) {
       return res.status(403).json({ ok: false, error: 'Check in at this park to add a photo.' });
     }
@@ -1769,6 +1873,8 @@ function profileContext(playerId, viewer, query) {
     recruiterAt: growth.RECRUITER_AT,
     pendingGames: isSelf ? gameNow.pendingGamesFor(player.player_id) : [],
     presenceHidden: isSelf ? isPresenceHidden(player.player_id) : false,
+    // Teens: home court is shown only to themselves.
+    isTeen: age.isTeenUser(player.user_id),
     nameError: query.nameError || null,
     player,
     points,
@@ -1871,6 +1977,7 @@ app.get('/admin', requireAdmin, (req, res) => {
     today: buildToday(req.query.day),
     courtsAdmin: courts.adminCourtsSummary(),
     growthAdmin: growth.adminGrowthSummary(),
+    ageAdmin: age.adminAgeCounts(),
     // Games started while another game was already on at the same park.
     gamesAlongside: db.prepare(
       `SELECT COUNT(*) AS n, COUNT(DISTINCT park_id) AS parks FROM events

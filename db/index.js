@@ -680,6 +680,13 @@ function migrateKingOfTheCourtColumns() {
   // and referred_by_player_id stays NULL for anyone who didn't use an invite.
   addColumnIfMissing('users', 'source', "TEXT DEFAULT 'direct'");
   addColumnIfMissing('users', 'referred_by_player_id', 'INTEGER');
+  // Age safety. Only the birth year is kept, never a full date of birth.
+  // map_visibility: 'everyone' | 'followers' | 'nobody'; NULL means the default
+  // for the player's age. blocked_under13 marks an older account whose owner
+  // gave a birth year under 13: its name and phone are wiped.
+  addColumnIfMissing('users', 'birth_year', 'INTEGER');
+  addColumnIfMissing('users', 'map_visibility', 'TEXT');
+  addColumnIfMissing('users', 'blocked_under13', 'INTEGER NOT NULL DEFAULT 0');
   // Guests: players without the app, added to a team by first name. They fill
   // a roster spot; results and points are only ever saved for app players.
   db.exec(`
@@ -986,4 +993,4 @@ function writeBackup(filePath) {
   db.prepare('VACUUM INTO ?').run(filePath);
 }
 
-module.exports = { db, formingGameFor, lastId, DATA_DIR, cityFromAddress, runOnce, newUniqueTag, writeBackup };
+module.exports = { db, getMeta, setMeta, formingGameFor, lastId, DATA_DIR, cityFromAddress, runOnce, newUniqueTag, writeBackup };
