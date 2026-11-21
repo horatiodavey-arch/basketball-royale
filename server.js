@@ -197,6 +197,18 @@ app.use((req, res, next) => {
   next();
 });
 
+// "⚡ N": a player's current play streak in weeks, for the leaderboard and
+// the who's-here lists (shown from 2 weeks). Looked up once per player per page.
+app.use((req, res, next) => {
+  const cache = new Map();
+  res.locals.playStreakWeeks = (playerId) => {
+    if (!playerId) return 0;
+    if (!cache.has(playerId)) cache.set(playerId, growth.playStreak(playerId).current);
+    return cache.get(playerId);
+  };
+  next();
+});
+
 // Names of teens are masked next to a court for everyone but the teen. Views
 // call maskName(displayName); the list of teen names is only looked up once a
 // page actually uses it.
@@ -2134,29 +2146,28 @@ app.post('/admin/parks/:id/update', requireAuth, requireOrganizer, async (req, r
 });
 
 const PORT = process.env.PORT || 3000;
-// The OpenStreetMap courts load themselves on the first start that has none
-// (on Railway: the first deploy after this change). Never blocks start-up; a
-// failure is logged and tried again on the next start. Re-running never
-// duplicates. Set AUTO_IMPORT_COURTS=off to turn it off.
-async function autoImportCourts() {
+// The OpenStreetMap courts come from data/courts-south-florida.json, committed
+// to the repo. On a start with no OSM courts yet, they're saved from that file:
+// no network call. Never duplicates (osm ids). AUTO_IMPORT_COURTS=off turns it off.
+// To refresh the file: npm run fetch-courts (needs Overpass), then commit it.
+function seedCourtsFromFile() {
   if (process.env.AUTO_IMPORT_COURTS === 'off') return;
-  const { importCourts } = require('./db/courts-import');
-  if (courts.adminCourtsSummary().importedCount > 0) return;
-  console.log('No OpenStreetMap courts yet: importing South Florida courts...');
   try {
-    const { stats, saved, totals } = await importCourts();
+    const { seedFromFile } = require('./db/courts-import');
+    const result = seedFromFile();
+    if (!result) return;
     console.log(
-      `Court import done: ${stats.found} courts found, ${stats.schools} school courts left out, ` +
-        `${saved.created} locations saved (${totals.courts} courts, ${totals.indoor || 0} indoor).`
+      `Courts seeded from data/courts-south-florida.json (${result.generatedAt}): ` +
+        `${result.saved.created} locations saved, ${result.totals.courts} courts, ${result.totals.indoor || 0} indoor.`
     );
   } catch (err) {
-    console.error('Court import failed; the app runs as usual and will try again on the next start:', err.message);
+    console.error('Seeding courts from the file failed; the app runs as usual and tries again on the next start:', err.message);
   }
 }
 
 app.listen(PORT, () => {
   console.log(`Basketball Royale running at http://localhost:${PORT}`);
-  autoImportCourts();
+  seedCourtsFromFile();
   // After the port is open, never before: a slow or unreachable geocoder
   // must not hold up the app starting.
   startBackgroundGeocoding();

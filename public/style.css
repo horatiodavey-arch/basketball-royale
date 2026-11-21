@@ -885,7 +885,19 @@ body.profile-page { color: #141414; }
   background: #FFFFFF; border-radius: 12px; margin-top: 8px; padding: 8px 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
-.map-page .leaflet-map { height: 420px; }
+/* The map takes as much of the screen as it can (above the bottom bars). */
+.map-page .leaflet-map { height: 420px; height: calc(100vh - 150px); height: calc(100dvh - 150px); min-height: 420px; }
+/* One thin header over the map: ROYALE on the left, the crown reset on the right. */
+.map-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  height: 46px; padding: 0 14px; background: #FFFFFF; border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.map-header-brand { font-size: 18px; }
+.map-header-brand .royale-dot { width: 8px; height: 8px; margin-right: 6px; }
+.map-header-reset { font-size: 12px; color: #6B6B76; white-space: nowrap; }
+.map-float-top { top: 8px; left: 8px; right: 8px; }
+.map-flash { margin-top: 6px; }
 
 /* Park sheet, as in the mockup: active count in green, a gold King card, a status line. */
 .sheet-active { color: #15803D; font-weight: 600; }
@@ -907,7 +919,7 @@ body.profile-page { color: #141414; }
 
 /* Map page: zoom and "Suggest a court" move to the bottom so the ROYALE card has the top. */
 .map-page .leaflet-top.leaflet-left { top: auto; bottom: 40px; }
-.map-page .suggest-court-btn { top: auto; bottom: 46px; right: 12px; }
+.map-page .suggest-court-btn { top: auto; bottom: 46px; right: 12px; width: 140px; height: 34px; padding: 0 12px; }
 
 /* Park sheet: cream King card (a link to the King's profile), the empty King card, and avatar links. */
 .sheet-king-card { background: #F7F1E1; text-decoration: none; color: inherit; }
@@ -1143,21 +1155,22 @@ a.here-now-player { text-decoration: none; color: inherit; }
   background: #E8702A; color: #FFFFFF; border: 3px solid #FFFFFF;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); font-weight: 700; font-size: 14px; font-family: 'Inter', sans-serif;
 }
-/* Layers button: right edge, above "Suggest a court". Opens All / Outdoor / Indoor. */
-.map-layers { position: absolute; z-index: 600; right: 12px; bottom: 92px; }
+/* Layers button: bottom-right, stacked just above "Suggest a court", same width. Opens All / Outdoor / Indoor. */
+.map-layers { position: absolute; z-index: 600; right: 12px; bottom: 88px; }
 .map-layers-btn {
-  position: relative; width: 40px; height: 40px; border-radius: 50%; border: 0;
+  position: relative; width: 140px; height: 34px; border-radius: 999px; border: 0; gap: 6px;
+  font-family: inherit; font-size: 12px; font-weight: 700;
   background: #FFFFFF; color: #3A3A44; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .map-layers-btn[aria-expanded="true"] { color: #6D28D9; }
 .map-layers-dot {
-  position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%;
+  position: absolute; top: 4px; right: 10px; width: 9px; height: 9px; border-radius: 50%;
   background: #6D28D9; border: 2px solid #FFFFFF;
 }
 .map-layers-dot[hidden], .map-layers-menu[hidden] { display: none; }
 .map-layers-menu {
-  position: absolute; right: 0; bottom: 48px; min-width: 160px; padding: 6px;
+  position: absolute; right: 0; bottom: 42px; min-width: 160px; padding: 6px;
   background: #FFFFFF; border-radius: 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
 }
 .map-layers-item {
@@ -1210,6 +1223,117 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .section-with-link { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .section-link { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; color: #6D28D9; text-decoration: none; text-transform: none; letter-spacing: 0; }
 
+/* Guests: a thin strip just above the bottom bars, with an X to hide it for this visit. */
+.guest-strip {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 1001;
+  bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+  width: calc(100% - 16px); max-width: 372px; display: flex; align-items: center; gap: 6px;
+  background: #6D28D9; border-radius: 10px; padding: 0 4px 0 12px; height: 34px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.guest-strip-link { flex: 1; min-width: 0; color: #FFFFFF; font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.guest-strip-close { flex: 0 0 auto; width: 28px; height: 28px; border: 0; background: none; color: #FFFFFF; font-size: 20px; line-height: 1; cursor: pointer; }
+
+/* --- Map restyle (mockups/br-map-mockup.html) --- */
+/* Slim header: a 44px white bar across the top of the map. */
+.map-float-top { top: 0; left: 0; right: 0; }
+.map-header {
+  height: 44px; border-radius: 0; box-shadow: none; border-bottom: 1px solid #D3D1C7; padding: 0 14px;
+}
+.map-header-brand { font-size: 16px; letter-spacing: 1px; color: #2C2C2A; }
+.map-header-brand .royale-dot { width: 10px; height: 10px; background: #E8662A; }
+.map-header-reset { font-size: 11px; color: #5F5E5A; }
+.map-flash { margin: 6px 8px 0; }
+
+/* The map runs down to the bottom bars. */
+.map-page .leaflet-map {
+  height: calc(100vh - 100px); height: calc(100dvh - 100px - env(safe-area-inset-bottom, 0px)); min-height: 420px;
+}
+
+/* Bottom-right, together: layers on top, the orange "+ Suggest a court" pill
+   below it, 14px above the bottom bars. Attribution moves bottom-left. */
+.map-page .suggest-court-btn {
+  bottom: 11px; right: 12px; width: auto; height: 34px; padding: 0 16px; z-index: 1000;
+  background: #E8662A; color: #FFFFFF; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.map-page .suggest-court-btn.active { background: #B4501A; color: #FFFFFF; }
+.map-layers { right: 12px; bottom: 53px; z-index: 1000; }
+.map-layers-btn {
+  width: 40px; height: 40px; border-radius: 10px; border: 1px solid #D3D1C7; gap: 0; color: #444441;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+.map-layers-label { display: none; }
+.map-layers-dot { top: 4px; right: 4px; }
+.map-layers-menu { bottom: 48px; }
+.map-page .leaflet-bottom.leaflet-right { right: auto; left: 0; bottom: 16px; }
+.map-page .leaflet-control-attribution {
+  font-size: 9px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw;
+  background: rgba(255, 255, 255, 0.7); border-radius: 0 6px 6px 0;
+}
+.map-page .leaflet-top.leaflet-left { bottom: 34px; }
+/* While the guest strip is showing, the corner controls sit above it. */
+body:has(#guestStrip:not([style*="none"])) .map-page .suggest-court-btn { bottom: 52px; }
+body:has(#guestStrip:not([style*="none"])) .map-layers { bottom: 94px; }
+body:has(#guestStrip:not([style*="none"])) .map-page .leaflet-top.leaflet-left { bottom: 74px; }
+body:has(#guestStrip:not([style*="none"])) .map-page .leaflet-bottom.leaflet-right { bottom: 56px; }
+
+/* Hoops: same size as before. Crown above when the court has a King; a green
+   (here) or yellow (coming) dot at the hoop's top-right. */
+.kotc-marker-content .hoop-wrap { position: relative; flex-direction: column; align-items: center; }
+.hoop-crown { display: block; margin-bottom: 1px; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2)); }
+.hoop-dot {
+  position: absolute; right: -4px; bottom: 22px; width: 10px; height: 10px; border-radius: 50%;
+  border: 1.5px solid #FFFFFF; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.hoop-dot-here { background: #1D9E75; }
+.hoop-dot-coming { background: #EAB308; }
+.hc-map .leaflet-control-attribution {
+  font-size: 9px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%;
+  background: rgba(255, 255, 255, 0.7);
+}
+.hoop-dot { z-index: 2; }
+.hoop-selected .hoop-dot { right: -8px; bottom: 33px; }
+
+/* Play streak "⚡ N": weeks in a row with a confirmed game. The app's accent
+   color; its own tag, never combined with the heater flame. */
+.play-streak { color: var(--accent); font-weight: 700; white-space: nowrap; }
+.play-streak-tag { margin-left: 6px; font-size: 12px; vertical-align: middle; }
+.play-streak-chip { font-size: 11px; line-height: 1.2; }
+
+/* "Where do you hoop?" intro (mockups/br-where-do-you-hoop-mockup.html):
+   hoops drop in about 0.25s apart, the crown pops onto the center hoop, then
+   the card slides up. All done by 2.6s. */
+.hc-intro { position: fixed; inset: 0; z-index: 2000; background: #F4F3EE; display: flex; flex-direction: column; overflow: hidden; }
+.hc-intro[hidden] { display: none; }
+.hci-bar { height: 44px; flex: 0 0 auto; display: flex; align-items: center; padding: 0 14px; background: #FFFFFF; border-bottom: 1px solid #D3D1C7; }
+.hci-brand { display: flex; align-items: center; gap: 6px; text-decoration: none; color: #2C2C2A; font-weight: 600; letter-spacing: 1px; font-size: 15px; }
+.hci-dot { width: 10px; height: 10px; border-radius: 50%; background: #E8662A; display: inline-block; }
+.hci-map { position: absolute; top: 44px; left: 0; right: 0; bottom: 230px; width: 100%; height: calc(100% - 274px); display: block; }
+.hci-hoop { opacity: 0; animation: hci-drop 0.5s ease-out forwards; transform-box: fill-box; }
+.hci-crown { opacity: 0; animation: hci-pop 0.45s ease-out 1.6s forwards; transform-box: fill-box; transform-origin: center; }
+.hci-card {
+  position: absolute; left: 0; right: 0; bottom: 0; background: #FFFFFF; border-radius: 20px 20px 0 0;
+  padding: 18px 18px calc(20px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid #D3D1C7;
+  transform: translateY(100%); animation: hci-up 0.45s ease-out 2s forwards;
+}
+.hci-title { margin: 0 0 6px; font-size: 22px; font-weight: 600; color: #2C2C2A; font-family: inherit; text-transform: none; letter-spacing: 0; }
+.hci-text { margin: 0 0 14px; font-size: 13px; line-height: 1.5; color: #5F5E5A; }
+.hci-cta {
+  width: 100%; border: 0; border-radius: 12px; padding: 12px 0; background: #E8662A; color: #FFFFFF;
+  font-family: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.hci-cta:disabled { opacity: 0.7; }
+.hci-not-now { margin: 10px 0 0; text-align: center; }
+.hci-link { border: 0; background: none; padding: 4px 8px; font-family: inherit; font-size: 12px; color: #5F5E5A; cursor: pointer; }
+.hci-privacy { margin: 8px 0 0; text-align: center; font-size: 11px; color: #888780; }
+.hc-intro .hc-error { margin-top: 10px; }
+@keyframes hci-drop { 0% { transform: translateY(-40px); opacity: 0; } 70% { transform: translateY(4px); opacity: 1; } 100% { transform: translateY(0); opacity: 1; } }
+@keyframes hci-pop { 0% { transform: scale(0); opacity: 0; } 80% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes hci-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .hci-hoop, .hci-crown { animation: none; opacity: 1; }
+  .hci-card { animation: none; transform: none; }
+}
 /* Map: "Show me on the map" button, stacked above the layers button. */
 .map-layers.map-visibility { bottom: 140px; }
 .map-vis-title { font-size: 12px; font-weight: 700; color: #6B6B76; padding: 6px 10px 4px; }

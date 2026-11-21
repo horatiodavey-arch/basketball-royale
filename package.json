@@ -10,7 +10,8 @@
     "start": "node server.js",
     "db:reset": "rm -f db/basketball_royale.db && node -e \"require('./db')\"",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "import-courts": "node scripts/import-courts.js"
+    "import-courts": "node scripts/import-courts.js",
+    "fetch-courts": "node scripts/fetch-courts.js"
   },
   "repository": {
     "type": "git",

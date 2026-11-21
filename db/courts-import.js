@@ -7,26 +7,83 @@ const { db, lastId } = require('./index');
 
 // Broward, Miami-Dade and Palm Beach counties (south, west, north, east).
 const BBOX = '25.13,-80.88,26.98,-80.03';
-const OVERPASS_URL = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter';
+// The main Overpass server first, then public mirrors if it fails.
+const OVERPASS_URLS = [
+  ...(process.env.OVERPASS_URL ? [process.env.OVERPASS_URL] : []),
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
+const USER_AGENT = 'BasketballRoyale-court-import/1.1 (+https://github.com/horatiodavey-arch/basketball-royale)';
+// The courts file committed to the repo: the server seeds from it, no network needed.
+const COURTS_FILE = require('path').join(__dirname, '..', 'data', 'courts-south-florida.json');
 const MERGE_METERS = 100; // courts this close become one location
 const PRESET_METERS = 150; // an OSM location this close to a preset is the preset
 const PARK_NEAR_METERS = 100; // ...or this close to a park a player added
 const MAX_COURT_ROWS = 6; // court rows created per location (the count is stored in full)
 
-const COURT_FILTER = `
-  nwr["leisure"="pitch"]["sport"~"(^|;)basketball(;|$)"](${BBOX});
-  nwr["leisure"="sports_centre"]["sport"~"(^|;)basketball(;|$)"](${BBOX});`;
+// Which places to download. The default is the three South Florida counties
+// (a bounding box); a named county or state uses its OpenStreetMap boundary.
+const DEFAULT_AREA = { label: 'Broward, Miami-Dade and Palm Beach counties, FL', setup: '', scope: `(${BBOX})` };
 
-const COURTS_QUERY = `[out:json][timeout:180];(${COURT_FILTER});out tags center;`;
+const STATES = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut',
+  DE: 'Delaware', DC: 'District of Columbia', FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois',
+  IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
+  MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana',
+  NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
+  NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania',
+  RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah',
+  VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
+};
+
+function stateCode(text) {
+  const t = String(text || '').trim();
+  if (STATES[t.toUpperCase()]) return t.toUpperCase();
+  return Object.keys(STATES).find((k) => STATES[k].toLowerCase() === t.toLowerCase()) || null;
+}
+
+// "Orange County, FL", "Orange County, Florida", "FL" or "Florida".
+function parseArea(text) {
+  const parts = String(text || '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (parts.length === 1 && stateCode(parts[0])) {
+    const code = stateCode(parts[0]);
+    return {
+      label: STATES[code],
+      setup: `area["ISO3166-2"="US-${code}"]["admin_level"="4"]->.a;`,
+      scope: '(area.a)',
+    };
+  }
+  if (parts.length === 2 && stateCode(parts[1])) {
+    const code = stateCode(parts[1]);
+    const county = parts[0].replace(/"/g, '');
+    return {
+      label: `${county}, ${code}`,
+      setup:
+        `area["ISO3166-2"="US-${code}"]["admin_level"="4"]->.st;` +
+        `rel(area.st)["boundary"="administrative"]["admin_level"="6"]["name"="${county}"];map_to_area->.a;`,
+      scope: '(area.a)',
+    };
+  }
+  throw new Error(`Couldn't read "${text}". Use a county and state like "Orange County, FL", or a state like "FL" or "Florida".`);
+}
+
+const courtFilter = (area) => `
+  nwr["leisure"="pitch"]["sport"~"(^|;)basketball(;|$)"]${area.scope};
+  nwr["leisure"="sports_centre"]["sport"~"(^|;)basketball(;|$)"]${area.scope};`;
+
+const courtsQuery = (area) => `[out:json][timeout:600];${area.setup}(${courtFilter(area)});out tags center;`;
 
 // Schools, parks and buildings that touch a court. Classified by their tags.
-const CONTEXT_QUERY = `[out:json][timeout:180];(${COURT_FILTER})->.c;
+const contextQuery = (area) => `[out:json][timeout:600];${area.setup}(${courtFilter(area)})->.c;
 (
   wr["amenity"~"^(school|college|university)$"](around.c:0);
   wr["leisure"="park"](around.c:0);
   way["building"](around.c:0);
 );
 out tags geom;`;
+const COURTS_QUERY = courtsQuery(DEFAULT_AREA);
+const CONTEXT_QUERY = contextQuery(DEFAULT_AREA);
 
 const SCHOOL_WORDS = /\b(school|elementary|middle|high|academy|prep|college|university)\b/i;
 
@@ -40,24 +97,37 @@ function haversineMeters(lat1, lng1, lat2, lng2) {
 }
 
 async function overpass(query) {
-  const res = await fetch(OVERPASS_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/x-www-form-urlencoded',
-      'user-agent': 'BasketballRoyale-court-import/1.0 (+https://github.com/horatiodavey-arch/basketball-royale)',
-    },
-    body: 'data=' + encodeURIComponent(query),
-    signal: AbortSignal.timeout(240 * 1000),
-  });
-  if (!res.ok) throw new Error(`Overpass answered ${res.status}`);
-  return (await res.json()).elements || [];
+  const errors = [];
+  for (const url of OVERPASS_URLS) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          'user-agent': USER_AGENT,
+          accept: 'application/json',
+        },
+        body: 'data=' + encodeURIComponent(query),
+        signal: AbortSignal.timeout(660 * 1000),
+      });
+      if (!res.ok) throw new Error(`answered ${res.status}`);
+      const json = await res.json();
+      // Overpass can answer 200 with a "remark" and no data when the query
+      // runs out of time or memory. That's a failure, not an empty answer.
+      if (json.remark && /error|timed out|out of memory/i.test(json.remark)) throw new Error(json.remark.trim());
+      return json.elements || [];
+    } catch (err) {
+      errors.push(`${new URL(url).host}: ${err.message}`);
+    }
+  }
+  throw new Error('Every Overpass server failed (' + errors.join('; ') + ')');
 }
 
 // Both queries, a short pause apart (Overpass asks clients not to hammer it).
-async function fetchFromOverpass() {
-  const courts = await overpass(COURTS_QUERY);
+async function fetchFromOverpass(area = DEFAULT_AREA) {
+  const courts = await overpass(courtsQuery(area));
   await new Promise((r) => setTimeout(r, 2000));
-  const context = await overpass(CONTEXT_QUERY);
+  const context = courts.length ? await overpass(contextQuery(area)) : [];
   return { courts, context };
 }
 
@@ -245,4 +315,100 @@ async function importCourts({ data = null, dryRun = false, saveTo = null } = {})
   return { stats, saved, totals };
 }
 
-module.exports = { importCourts, buildLocations, saveLocations, COURTS_QUERY, CONTEXT_QUERY, SCHOOL_WORDS };
+const fileLocation = (l, areaLabel) => ({
+  name: l.name,
+  city: l.city,
+  address: l.address,
+  lat: Number(l.lat.toFixed(6)),
+  lng: Number(l.lng.toFixed(6)),
+  indoor: !!l.indoor,
+  courtCount: l.courtCount,
+  osmIds: l.keys,
+  area: areaLabel,
+});
+
+const FILE_RULES =
+  'Basketball pitches and sports centres; schools left out; courts within 100 m merged; indoor = indoor=yes, inside a building, or a sports centre.';
+
+// What goes in data/courts-south-florida.json: the merged locations, ready to save.
+function toCourtsFile(locations, stats, area = DEFAULT_AREA) {
+  return mergeIntoCourtsFile(null, locations, stats, area).file;
+}
+
+// Adds one area's locations to the courts file (or starts one). Downloading
+// an area again replaces that area's locations, so fixes in OpenStreetMap come
+// through. A court already in the file under another area is never added twice.
+function mergeIntoCourtsFile(existing, locations, stats, area = DEFAULT_AREA) {
+  const old = (existing && existing.locations) || [];
+  // Files from before areas were tracked hold only the South Florida default.
+  const areaOf = (l) => l.area || DEFAULT_AREA.label;
+  const kept = old.filter((l) => areaOf(l) !== area.label).map((l) => ({ ...l, area: areaOf(l) }));
+  const taken = new Set(kept.flatMap((l) => l.osmIds || []));
+  let duplicates = 0;
+  const added = [];
+  for (const l of locations) {
+    if (l.keys.some((k) => taken.has(k))) {
+      duplicates++;
+      continue;
+    }
+    l.keys.forEach((k) => taken.add(k));
+    added.push(fileLocation(l, area.label));
+  }
+  const areas = { ...((existing && existing.areas) || {}) };
+  if (existing && !existing.areas && old.length) {
+    areas[DEFAULT_AREA.label] = { generatedAt: existing.generatedAt, stats: existing.stats };
+  }
+  areas[area.label] = { generatedAt: new Date().toISOString(), stats: { ...stats, locations: added.length, duplicatesSkipped: duplicates } };
+  const all = [...kept, ...added];
+  return {
+    file: {
+      generatedAt: new Date().toISOString(),
+      source: 'OpenStreetMap contributors, via the Overpass API (ODbL)',
+      area: Object.keys(areas).join('; '),
+      rules: FILE_RULES,
+      areas,
+      stats: { locations: all.length, courts: all.reduce((a, l) => a + (l.courtCount || 1), 0), indoor: all.filter((l) => l.indoor).length },
+      locations: all,
+    },
+    added: added.length,
+    replaced: old.length - kept.length,
+    duplicates,
+  };
+}
+
+function locationsFromFile(file) {
+  return (file.locations || []).map((l) => ({
+    name: l.name,
+    city: l.city || null,
+    address: l.address || null,
+    lat: l.lat,
+    lng: l.lng,
+    indoor: !!l.indoor,
+    courtCount: l.courtCount || 1,
+    keys: [...(l.osmIds || [])].sort(),
+  }));
+}
+
+// On start: save any location in the committed file whose OpenStreetMap ids
+// aren't in the database yet. No network. Courts already saved are left as
+// they are (names, hidden), so nothing is duplicated or undone. Returns null
+// when there's nothing new.
+function seedFromFile(filePath = COURTS_FILE) {
+  const fs = require('fs');
+  if (!fs.existsSync(filePath)) return null;
+  const file = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  const known = new Set();
+  for (const p of db.prepare('SELECT osm_id, osm_members FROM parks').all()) {
+    for (const k of [p.osm_id, ...String(p.osm_members || '').split(',')]) if (k) known.add(k);
+  }
+  const fresh = locationsFromFile(file).filter((l) => !l.keys.some((k) => known.has(k)));
+  if (fresh.length === 0) return null;
+  const saved = saveLocations(fresh);
+  if (saved.created === 0) return null;
+  const totals = db
+    .prepare("SELECT COUNT(*) AS locations, COALESCE(SUM(court_count), 0) AS courts, SUM(is_indoor) AS indoor FROM parks WHERE source = 'osm'")
+    .get();
+  return { saved, totals, generatedAt: file.generatedAt };
+}
+
+module.exports = { importCourts, toCourtsFile, mergeIntoCourtsFile, parseArea, DEFAULT_AREA, locationsFromFile, seedFromFile, fetchFromOverpass, COURTS_FILE, buildLocations, saveLocations, COURTS_QUERY, CONTEXT_QUERY, SCHOOL_WORDS };

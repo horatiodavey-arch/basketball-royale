@@ -151,7 +151,19 @@ function adminCourtsSummary() {
        ORDER BY p.hidden DESC, reports DESC, p.name`
     )
     .all();
+  const bySource = db
+    .prepare(
+      `SELECT COALESCE(source, 'preset') AS source, COUNT(*) AS locations, COALESCE(SUM(COALESCE(court_count, 1)), 0) AS courts,
+              SUM(hidden) AS hidden
+       FROM parks GROUP BY COALESCE(source, 'preset')`
+    )
+    .all();
+  const src = (name) => bySource.find((r) => r.source === name) || { locations: 0, courts: 0, hidden: 0 };
   return {
+    bySource: ['osm', 'preset', 'player'].map((name) => {
+      const r = src(name);
+      return [{ osm: 'OpenStreetMap', preset: 'Preset', player: 'Added by players' }[name], r.locations, r.courts, r.hidden || 0];
+    }),
     big: [
       { label: 'Home courts picked', value: events('home_court_pick') },
       { label: '"I don\'t hoop at any of these"', value: events('home_court_none') },

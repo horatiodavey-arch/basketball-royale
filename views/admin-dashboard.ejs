@@ -84,7 +84,16 @@
       </div>
     <% }); %>
   </div>
-  <div class="season-note"><%= courtsAdmin.importedCount %> courts imported from OpenStreetMap &middot; <%= courtsAdmin.hiddenCount %> hidden.</div>
+  <div class="admin-table-head"><span class="admin-table-title">Courts on the map, by source</span></div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead><tr><th>Source</th><th>Locations</th><th>Courts</th><th>Hidden</th></tr></thead>
+      <tbody>
+        <% courtsAdmin.bySource.forEach((r) => { %><tr><% r.forEach((c) => { %><td><%= c %></td><% }); %></tr><% }); %>
+      </tbody>
+    </table>
+  </div>
+  <div class="season-note">A location can hold several courts. Hidden locations are kept off the map.</div>
 
   <div class="admin-table-head"><span class="admin-table-title">Home court picks per court</span></div>
   <div class="admin-table-wrap">

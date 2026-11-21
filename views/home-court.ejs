@@ -18,24 +18,44 @@
     <div class="hc-current">Your home court now: <strong><%= current.name %></strong></div>
   <% } %>
 
-  <section id="hcStep1" class="hc-card">
-    <% if (!changing) { %><div class="hc-kicker">Step 1 of 2</div><% } %>
-    <h1 class="hc-title">Where do you hoop?</h1>
-    <p class="hc-text">We'll show you the courts closest to you.</p>
-    <p class="hc-text">Your home court is the one court you play at most. It's not the same as following: you can still follow any courts you want to hear about.</p>
-    <button type="button" id="hcLocate" class="submit-btn">Use my location</button>
-    <p class="hc-privacy">Your exact location stays on your phone.</p>
-    <div id="hcLocateError" class="hc-error" hidden></div>
+  <%# "Where do you hoop?": a short drawn intro before the location request
+      (mockups/br-where-do-you-hoop-mockup.html). Pure CSS/SVG, under 3s, and
+      still for anyone who prefers reduced motion. %>
+  <section id="hcIntro" class="hc-intro" aria-labelledby="hcIntroTitle">
+    <div class="hci-bar"><a href="/" class="hci-brand"><span class="hci-dot"></span>ROYALE</a></div>
+    <svg class="hci-map" viewBox="0 0 300 330" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <rect width="300" height="330" fill="#F4F3EE"/>
+      <g transform="rotate(-6 150 165)">
+        <rect x="20" y="30" width="90" height="80" rx="6" fill="#A8DB82"/><rect x="170" y="20" width="110" height="130" rx="6" fill="#A8DB82"/>
+        <circle cx="245" cy="55" r="20" fill="#8CC8EE"/><rect x="30" y="210" width="80" height="70" rx="6" fill="#A8DB82"/>
+        <rect x="190" y="230" width="90" height="80" rx="6" fill="#A8DB82"/>
+        <g stroke="#7E7D77" stroke-width="9" stroke-linecap="round"><line x1="-20" y1="165" x2="330" y2="165"/><line x1="140" y1="-20" x2="140" y2="350"/></g>
+        <g stroke="#C9C7BF" stroke-width="5" stroke-linecap="round"><line x1="-20" y1="125" x2="330" y2="125"/><line x1="-20" y1="200" x2="330" y2="200"/><line x1="60" y1="-20" x2="60" y2="350"/><line x1="225" y1="-20" x2="225" y2="350"/></g>
+      </g>
+      <g class="hci-hoop" style="animation-delay:.2s"><g transform="translate(70,72)"><rect x="-12" y="-16" width="24" height="17" rx="2" fill="#fff" stroke="#D3D1C7"/><rect x="-5" y="-12" width="10" height="7" fill="none" stroke="#E8662A" stroke-width="1.8"/><rect x="-6" y="1" width="12" height="3" fill="#E8662A"/><rect x="-1.5" y="4" width="3" height="15" fill="#85B7EB"/></g></g><g class="hci-hoop" style="animation-delay:.45s"><g transform="translate(205,95)"><rect x="-12" y="-16" width="24" height="17" rx="2" fill="#fff" stroke="#D3D1C7"/><rect x="-5" y="-12" width="10" height="7" fill="none" stroke="#E8662A" stroke-width="1.8"/><rect x="-6" y="1" width="12" height="3" fill="#E8662A"/><rect x="-1.5" y="4" width="3" height="15" fill="#85B7EB"/></g></g><g class="hci-hoop" style="animation-delay:.7s"><g transform="translate(80,250)"><rect x="-12" y="-16" width="24" height="17" rx="2" fill="#fff" stroke="#D3D1C7"/><rect x="-5" y="-12" width="10" height="7" fill="none" stroke="#378ADD" stroke-width="1.8"/><rect x="-6" y="1" width="12" height="3" fill="#378ADD"/><rect x="-1.5" y="4" width="3" height="15" fill="#85B7EB"/></g></g><g class="hci-hoop" style="animation-delay:.95s"><g transform="translate(240,270)"><rect x="-12" y="-16" width="24" height="17" rx="2" fill="#fff" stroke="#D3D1C7"/><rect x="-5" y="-12" width="10" height="7" fill="none" stroke="#E8662A" stroke-width="1.8"/><rect x="-6" y="1" width="12" height="3" fill="#E8662A"/><rect x="-1.5" y="4" width="3" height="15" fill="#85B7EB"/></g></g><g class="hci-hoop" style="animation-delay:1.2s"><g transform="translate(160,215)"><rect x="-14" y="-19" width="28" height="20" rx="2" fill="#fff" stroke="#D3D1C7"/><rect x="-6" y="-15" width="12" height="8" fill="none" stroke="#E8662A" stroke-width="2"/><rect x="-7" y="1" width="14" height="3" fill="#E8662A"/><rect x="-1.5" y="4" width="3" height="17" fill="#85B7EB"/></g></g>
+      <g class="hci-crown"><path d="M148 182 L148 192 L172 192 L172 182 L166 188 L160 178 L154 188 Z" fill="#7F77DD" stroke="#534AB7" stroke-width="1"/></g>
+    </svg>
+    <div class="hci-card">
+      <h1 id="hcIntroTitle" class="hci-title">Where do you hoop?</h1>
+      <p class="hci-text">Share your location and we'll drop you onto the courts near you.</p>
+      <button type="button" id="hcLocate" class="hci-cta">Find courts near me</button>
+      <div id="hcLocateError" class="hc-error" hidden></div>
+      <form method="POST" action="/home-court/skip" class="hci-not-now">
+        <% if (changing) { %><input type="hidden" name="change" value="1"><% } %>
+        <button type="submit" class="hci-link"><%= changing ? 'Cancel' : 'Not now' %></button>
+      </form>
+      <p class="hci-privacy">Your exact location stays on your phone.</p>
+    </div>
   </section>
 
   <section id="hcStep2" class="hc-card" hidden>
-    <% if (!changing) { %><div class="hc-kicker">Step 2 of 2</div><% } %>
     <h1 class="hc-title">Pick your home court</h1>
+    <p class="hc-text">Your home court is the one court you play at most. It's not the same as following: you can still follow any courts you want to hear about.</p>
     <div id="hcMap" class="hc-map"></div>
     <div id="hcList" class="hc-list"></div>
   </section>
 
-  <div class="hc-alt">
+  <div class="hc-alt" id="hcAlt" hidden>
     <form method="POST" action="/home-court/none">
       <button type="submit" class="small-btn">I don't hoop at any of these</button>
     </form>
@@ -62,25 +82,21 @@
     function esc(s) {
       return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
+    // The same hoop as the main map (white backboard, orange rim outdoor, blue indoor).
     function hoopSvg(isIndoor) {
-      var c = isIndoor ? '#6D28D9' : '#E8702A';
-      return '<svg class="hoop-icon" width="26" height="30" viewBox="0 0 26 30" aria-hidden="true">' +
-        '<rect x="3" y="2" width="20" height="13" rx="2" fill="#FFFFFF" stroke="' + c + '" stroke-width="2"/>' +
-        '<rect x="9" y="6" width="8" height="5" fill="none" stroke="' + c + '" stroke-width="1.5"/>' +
-        '<ellipse cx="13" cy="16" rx="5" ry="1.6" fill="none" stroke="' + c + '" stroke-width="2"/>' +
-        '<path d="M9 16l1.5 4M13 17.5v3M17 16l-1.5 4" stroke="' + c + '" stroke-width="1" stroke-linecap="round"/>' +
-        '<rect x="12" y="20" width="2" height="9" rx="1" fill="' + c + '"/></svg>';
+      return RoyaleMap.hoopSvg(isIndoor);
     }
     function showError(text) {
       errorEl.textContent = text;
       errorEl.hidden = false;
       locateBtn.disabled = false;
-      locateBtn.textContent = 'Use my location';
+      locateBtn.textContent = 'Find courts near me';
     }
 
     function render(me, nearest) {
-      document.getElementById('hcStep1').hidden = true;
+      document.getElementById('hcIntro').hidden = true;
       document.getElementById('hcStep2').hidden = false;
+      document.getElementById('hcAlt').hidden = false;
       var list = document.getElementById('hcList');
       if (nearest.length === 0) {
         list.innerHTML = '<p class="hc-text">No courts on the map near you yet.</p>';
@@ -108,7 +124,7 @@
       nearest.forEach(function (c) {
         bounds.push([c.lat, c.lng]);
         L.marker([c.lat, c.lng], {
-          icon: L.divIcon({ className: 'kotc-marker', html: '<div class="kotc-marker-content">' + hoopSvg(c.isIndoor) + '</div>', iconSize: [0, 0] }),
+          icon: L.divIcon({ className: 'kotc-marker', html: '<div class="kotc-marker-content kotc-marker-hoop"><div class="hoop-wrap">' + hoopSvg(c.isIndoor) + '</div></div>', iconSize: [0, 0] }),
         }).addTo(map);
       });
       map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });

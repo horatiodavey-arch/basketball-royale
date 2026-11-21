@@ -17,7 +17,7 @@
   </div>
 
   <div class="pf-growth">
-    <span class="pf-streak"><%= streak.current > 0 ? streak.current + '-week streak' : 'No play streak yet' %></span>
+    <% if (streak.current > 0) { %><span class="pf-streak play-streak" title="Play streak: <%= streak.current %> week<%= streak.current === 1 ? '' : 's' %> in a row with a confirmed game">⚡ <%= streak.current %></span><% } else { %><span class="pf-streak">No play streak yet</span><% } %>
     <% if (streak.longest > 0) { %><span class="pf-growth-sub">Longest: <%= streak.longest %> week<%= streak.longest === 1 ? '' : 's' %></span><% } %>
     <span class="pf-growth-sep">&middot;</span>
     <span>Players recruited: <%= recruited %></span>
