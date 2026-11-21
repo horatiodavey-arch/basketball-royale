@@ -557,6 +557,17 @@ function migrateKingOfTheCourtColumns() {
   // Play streak: the longest run of weeks with a confirmed game, kept so it
   // survives a later reset. Display only; it gives no points.
   addColumnIfMissing('players', 'longest_streak', 'INTEGER NOT NULL DEFAULT 0');
+  // The map's court filter (all / outdoor / indoor), saved on the account.
+  addColumnIfMissing('users', 'map_filter', 'TEXT');
+  // Home court for everyone: a player with no home court is asked; one skip
+  // waits 7 days, a second skip stops asking (they can still pick from their profile).
+  addColumnIfMissing('users', 'home_court_skips', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing('users', 'home_court_skipped_at', 'TEXT');
+  // Players who skipped before this rule existed count as one skip, from now.
+  runOnce('home_court_skips_backfill_v1', () => {
+    db.exec(`UPDATE users SET home_court_skips = 1, home_court_skipped_at = datetime('now')
+             WHERE home_court_step = 'done' AND home_court_id IS NULL AND home_court_skips = 0`);
+  });
   // Guests who look around before signing up. A guest is a random id in their
   // session; nothing else about them is stored.
   db.exec(`

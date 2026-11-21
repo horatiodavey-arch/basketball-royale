@@ -55,10 +55,16 @@
     <div class="map-wrap">
       <div class="map-float-top"><%- include('partials/royale-header', { trophyNote: true }) %></div>
       <div id="map" class="leaflet-map"></div>
-      <div class="court-filter" role="group" aria-label="Show courts">
-        <button type="button" class="court-filter-btn active" data-filter="all">All courts</button>
-        <button type="button" class="court-filter-btn" data-filter="outdoor">Outdoor</button>
-        <button type="button" class="court-filter-btn" data-filter="indoor">Indoor</button>
+      <div class="map-layers">
+        <button type="button" id="mapLayersBtn" class="map-layers-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Show courts">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>
+          <span class="map-layers-dot" hidden></span>
+        </button>
+        <div id="mapLayersMenu" class="map-layers-menu" role="menu" hidden>
+          <button type="button" role="menuitemradio" class="map-layers-item" data-filter="all"><span class="map-layers-check">&#10003;</span>All courts</button>
+          <button type="button" role="menuitemradio" class="map-layers-item" data-filter="outdoor"><span class="map-layers-check">&#10003;</span>Outdoor</button>
+          <button type="button" role="menuitemradio" class="map-layers-item" data-filter="indoor"><span class="map-layers-check">&#10003;</span>Indoor</button>
+        </div>
       </div>
       <button type="button" id="suggestCourtBtn" class="suggest-court-btn">+ Suggest a court</button>
       <div id="suggestCourtPanel" class="suggest-court-panel" style="display: none;">
@@ -381,9 +387,15 @@
       parkMarkers[pin.id] = marker;
     });
 
-    // All courts / Outdoor / Indoor. Remembered on this phone only.
-    var courtFilter = 'all';
-    try { courtFilter = localStorage.getItem('royale_court_filter') || 'all'; } catch (e) { courtFilter = 'all'; }
+    // All courts / Outdoor / Indoor, from the layers button. Saved on the
+    // player's account; a guest's choice is kept on their phone.
+    var FILTERS = ['all', 'outdoor', 'indoor'];
+    var isGuest = <%- JSON.stringify(!!profile.isGuest) %>;
+    var courtFilter = <%- JSON.stringify(locals.mapFilter || 'all') %>;
+    if (isGuest) {
+      try { courtFilter = localStorage.getItem('royale_court_filter') || 'all'; } catch (e) { courtFilter = 'all'; }
+    }
+    if (FILTERS.indexOf(courtFilter) === -1) courtFilter = 'all';
     function applyCourtFilter() {
       clusters.clearLayers();
       standalone.clearLayers();
@@ -395,16 +407,44 @@
         if (m.inCluster) quiet.push(m); else standalone.addLayer(m);
       });
       clusters.addLayers(quiet);
-      document.querySelectorAll('.court-filter-btn').forEach(function (b) {
-        b.classList.toggle('active', b.getAttribute('data-filter') === courtFilter);
+      document.querySelectorAll('.map-layers-item').forEach(function (b) {
+        var on = b.getAttribute('data-filter') === courtFilter;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-checked', on ? 'true' : 'false');
       });
+      // A dot on the button when the map isn't showing all courts.
+      var dot = document.querySelector('.map-layers-dot');
+      if (dot) dot.hidden = courtFilter === 'all';
     }
-    document.querySelectorAll('.court-filter-btn').forEach(function (b) {
-      b.addEventListener('click', function () {
+    var layersBtn = document.getElementById('mapLayersBtn');
+    var layersMenu = document.getElementById('mapLayersMenu');
+    function setLayersOpen(open) {
+      layersMenu.hidden = !open;
+      layersBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    layersBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      setLayersOpen(layersMenu.hidden);
+    });
+    document.querySelectorAll('.map-layers-item').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
         courtFilter = b.getAttribute('data-filter');
-        try { localStorage.setItem('royale_court_filter', courtFilter); } catch (e) { /* per-phone only */ }
         applyCourtFilter();
+        setLayersOpen(false);
+        if (isGuest) {
+          try { localStorage.setItem('royale_court_filter', courtFilter); } catch (err) { /* this phone only */ }
+        } else {
+          fetch('/api/map-filter', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filter: courtFilter }),
+          }).catch(function () {});
+        }
       });
+    });
+    // Tap anywhere else to close the menu.
+    document.addEventListener('click', function (e) {
+      if (!layersMenu.hidden && !e.target.closest('.map-layers')) setLayersOpen(false);
     });
     applyCourtFilter();
 

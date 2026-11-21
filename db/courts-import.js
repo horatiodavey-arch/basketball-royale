@@ -47,6 +47,7 @@ async function overpass(query) {
       'user-agent': 'BasketballRoyale-court-import/1.0 (+https://github.com/horatiodavey-arch/basketball-royale)',
     },
     body: 'data=' + encodeURIComponent(query),
+    signal: AbortSignal.timeout(240 * 1000),
   });
   if (!res.ok) throw new Error(`Overpass answered ${res.status}`);
   return (await res.json()).elements || [];
