@@ -6,6 +6,9 @@ const fs = require('node:fs');
 
 const {
   startOfAppDayUtcSql,
+  isPlayerInActiveLiveGame,
+  getUpcomingRunsForCourt,
+  getActiveLiveGame,
   getUserByPhone,
   getPlayerByUserId,
   createUserAndPlayer,
@@ -132,6 +135,7 @@ const { notifyPlayers, organizerPlayerIds } = require('./db/push');
 backfillMilestones();
 const { db, DATA_DIR, writeBackup } = require('./db/index');
 const gameNow = require('./db/game-now');
+const line = require('./db/line');
 const heater = require('./db/heater');
 const courts = require('./db/courts');
 const growth = require('./db/growth');
@@ -566,6 +570,8 @@ app.get('/', allowGuest, (req, res) => {
     selectedPark = parks.find((p) => p.id === mostActive.id) || parks[0];
   }
   const sheet = getParkSheetDetail(selectedPark.id, season.startSql, profile.player_id);
+  const sheetCourt = sheetCourtFor(selectedPark.id, profile.player_id);
+  const cs = sheetCourt ? courtSheet(sheetCourt, profile) : null;
 
   // Parks this player follows, with who's here (green) and who's coming
   // (yellow), so they can see a run forming without opening Runs.
@@ -597,6 +603,7 @@ app.get('/', allowGuest, (req, res) => {
     pins,
     selectedPark,
     sheet,
+    cs,
     formatRunTime,
     canAddPhoto: canAddParkPhoto(profile, selectedPark.id),
     showIntro: !profile.how_it_works_dismissed_at,
@@ -1081,6 +1088,10 @@ app.get('/parks/:parkId/courts/:courtId', allowGuest, (req, res) => {
     isFollowing: isFollowingCourt(profile.player_id, court.id),
     courtLive: getLiveCourtIds().has(court.id),
     parkLive: getLiveParkIds().has(court.park_id),
+    // The shared court sheet: status line, line, your team, the orange button.
+    cs: courtSheet(court, profile),
+    // Guests (players without the app) on the live game's teams.
+    gameGuests: screen.liveGame ? line.liveGuests(screen.liveGame.id) : { a: [], b: [] },
     // Every game on at this park, each its own card, with its "On a Heater" tag.
     parkGames: gameNow.liveGamesAtPark(court.park_id).map((g) => ({ ...g, heater: heaterForGame(g.courtId, g.id) })),
     // This court's streak: on its live game's team, or (court open) the last winners.
@@ -1280,11 +1291,39 @@ app.post('/courts/:courtId/next', requireAuth, (req, res) => {
   const court = getCourtById(req.params.courtId);
   logEvent(profile.player_id, 'i_got_next', pagePathFromReferer(req, '/runs'), court.park_id);
   const result = iGotNext(Number(req.params.courtId), profile.player_id);
-  // Always lands on the court screen (not back to wherever the button was
-  // tapped from, e.g. home) — that's where squad-building continues.
-  const courtUrl = `/parks/${court.park_id}/courts/${court.id}`;
-  if (result.ok) return res.redirect(courtUrl);
-  res.redirect(`${courtUrl}?error=${encodeURIComponent(result.error || 'That action failed.')}`);
+  // Back to where it was tapped: the map's court sheet or the court page.
+  redirectWithResult(req, res, result, `/parks/${court.park_id}/courts/${court.id}`);
+});
+
+// --- The "I got next" line: leave it, pick a team, add guests, confirm.
+app.post('/courts/:courtId/leave-line', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const court = getCourtById(req.params.courtId);
+  const result = court ? line.leaveLine(court.id, profile.player_id) : { ok: false, error: 'Court not found.' };
+  if (result.ok) logEvent(profile.player_id, 'leave_line', pagePathFromReferer(req, '/'), court.park_id);
+  redirectWithResult(req, res, result, '/runs');
+});
+
+app.post('/line/:spotId/add', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.addPlayer(Number(req.params.spotId), Number((req.body || {}).playerId), profile.player_id), '/runs');
+});
+
+app.post('/line/:spotId/guest', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.addGuest(Number(req.params.spotId), (req.body || {}).firstName, profile.player_id), '/runs');
+});
+
+app.post('/line/:spotId/remove', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const body = req.body || {};
+  const kind = body.kind === 'guest' ? 'guest' : 'player';
+  redirectWithResult(req, res, line.removeFromTeam(Number(req.params.spotId), kind, Number(body.id), profile.player_id), '/runs');
+});
+
+app.post('/line/:spotId/confirm', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.confirmTeam(Number(req.params.spotId), profile.player_id), '/runs');
 });
 
 app.post('/next_line/:id/members', requireAuth, (req, res) => {
@@ -1325,6 +1364,57 @@ app.post('/live_games/:id/sub', requireAuth, (req, res) => {
 });
 
 // Game now: start a game on a free court (format and side picked by the player).
+// The court sheet (map) and court page share one layout: status line, the
+// live game card(s), "Who's got next", your team, and one orange button.
+function teamName(liveGameId, team) {
+  const cap = db
+    .prepare(
+      `SELECT u.name FROM live_game_players lgp JOIN players p ON p.id = lgp.player_id JOIN users u ON u.id = p.user_id
+       WHERE lgp.live_game_id = ? AND lgp.team = ? AND lgp.time_off IS NULL ORDER BY lgp.captain DESC, lgp.id LIMIT 1`
+    )
+    .get(liveGameId, team);
+  if (cap) return 'Team ' + String(cap.name).trim().split(/\s+/)[0];
+  const guest = db.prepare('SELECT first_name FROM live_game_guests WHERE live_game_id = ? AND team = ? LIMIT 1').get(liveGameId, team);
+  return guest ? 'Team ' + guest.first_name : 'Team ' + team.toUpperCase();
+}
+
+function courtSheet(court, profile) {
+  const park = getParkById(court.park_id);
+  const pid = profile.player_id || null;
+  const games = gameNow.liveGamesAtPark(park.id).map((g) => ({
+    ...g,
+    heater: heaterForGame(g.courtId, g.id),
+    names: teamName(g.id, 'a') + ' vs ' + teamName(g.id, 'b'),
+  }));
+  const tag = profile.tag ? '?ref=' + profile.tag : '';
+  return {
+    court,
+    park,
+    courtCount: getCourtsByPark(park.id).length,
+    checkedIn: !!(pid && getCheckIn(pid, park.id)),
+    line: line.lineView(court.id, pid),
+    games,
+    viewerPlaying: !!(pid && isPlayerInActiveLiveGame(court.id, pid)),
+    isFollowing: !!(pid && isFollowingCourt(pid, court.id)),
+    upcomingRuns: getUpcomingRunsForCourt(court.id, 3),
+    shareUrl: `/parks/${park.id}/courts/${court.id}${tag}`,
+    shareText: `Pull up to ${park.name}. Let's see who takes the crown.`,
+    isGuest: !!profile.isGuest,
+  };
+}
+
+// The map sheet's court: the one the viewer is in line for, else the one with
+// a game on, else the park's first court.
+function sheetCourtFor(parkId, playerId) {
+  const courtsHere = getCourtsByPark(parkId);
+  if (courtsHere.length === 0) return null;
+  const inLine = playerId
+    ? courtsHere.find((c) => line.lineView(c.id, playerId).mine)
+    : null;
+  const live = courtsHere.find((c) => getActiveLiveGame(c.id));
+  return inLine || live || courtsHere[0];
+}
+
 // "On a Heater" for a live game: the team (a/b) keeping the court's winning core.
 function heaterForGame(courtId, liveGameId) {
   const teams = { a: [], b: [] };
@@ -1450,6 +1540,8 @@ app.post('/live_games/:id/confirm', requireAuth, (req, res) => {
   const headBefore = courtId ? firstWaitingSquadId(courtId) : null;
   const queuedBefore = courtId ? waitingSquadIds(courtId) : [];
   const result = confirmResult(liveGameId, profile.player_id);
+  // Result locked: the next game starts from the line (#1 plays the winners).
+  if (result.ok && courtId) line.startNextGame(courtId);
   // A locked result can move an already-queued squad to first in line: tell its
   // players. A squad created by the lock (the winners, when nobody was waiting)
   // is not in the line before, so it gets no alert.

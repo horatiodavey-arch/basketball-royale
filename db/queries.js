@@ -842,6 +842,7 @@ function checkOut(playerId, parkId) {
     .get(playerId, parkId);
   if (inGame) return { ok: false, error: "You're in a game here. Finish it before you check out." };
 
+  require('./line').removeFromLines(playerId, parkId);
   const waitingSquads = `SELECT nl.id FROM next_line nl JOIN courts c ON c.id = nl.court_id
                          WHERE c.park_id = ? AND nl.status = 'waiting'`;
   db.prepare(`DELETE FROM next_line_members WHERE player_id = ? AND next_line_id IN (${waitingSquads})`).run(playerId, parkId);
@@ -981,6 +982,7 @@ function tickQueueForCourt(courtId) {
         db.prepare('UPDATE next_line SET captain_player_id = ?, confirmed = 0 WHERE id = ?').run(nextMember.player_id, squad.id);
         db.prepare('DELETE FROM next_line_members WHERE next_line_id = ? AND player_id = ?').run(squad.id, nextMember.player_id);
       } else {
+        db.prepare('DELETE FROM next_line_guests WHERE next_line_id = ?').run(squad.id);
         db.prepare('DELETE FROM next_line WHERE id = ?').run(squad.id);
         continue;
       }

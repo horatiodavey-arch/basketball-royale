@@ -18,10 +18,14 @@
     <div class="park-cover-empty">No photo yet. Be the first to add one.</div>
   <% } %>
 
-  <div class="park-title-row">
+  <div class="park-title-row cs-title-row">
     <div class="page-title heading"><%- include('partials/park-name', { name: park.name, city: park.city }) %><% if (parkIsNew) { %><span class="new-badge">New</span><% } %></div>
-    <%- include('partials/park-photo-button', { parkId: park.id, canAdd: canAddPhoto, isOrganizer: !!profile.is_organizer, statusId: 'parkPhotoStatus' }) %>
+    <div class="cs-title-tools">
+      <%- include('partials/park-photo-button', { parkId: park.id, canAdd: canAddPhoto, isOrganizer: !!profile.is_organizer, statusId: 'parkPhotoStatus' }) %>
+      <%- include('partials/court-sheet-top', { cs: cs }) %>
+    </div>
   </div>
+  <div class="cs-sub"><%= park.is_indoor ? 'Indoor' : 'Outdoor' %> &middot; <%= courts.length %> court<%= courts.length === 1 ? '' : 's' %></div>
   <div id="parkPhotoStatus" class="park-photo-status"></div>
   <div class="park-now">
     <% if (parkKing) { %>King of the Court: <span class="king-name-text"><%= parkKing.name %></span><% } else { %>No king yet. Be the first.<% } %>
@@ -35,50 +39,14 @@
     <div class="error-msg"><%= error %></div>
   <% } %>
 
+  <%- include('partials/court-line', { cs: cs, showGames: false, ids: { btn: 'checkInBtn', normal: 'checkInNormal', tooFar: 'checkInTooFar', tooFarMsg: 'tooFarMsg', status: 'checkInStatus' } }) %>
   <% const firstRun = parkGames[0] || null; %>
-  <% if (firstRun) { %>
-    <a href="/parks/<%= park.id %>/courts/<%= firstRun.courtId %>#live-<%= firstRun.id %>" class="run-cta run-cta-join">Join this run</a>
+  <% if (checkedIn) { %>
+    <div class="cs-secondary">
+      <% if (firstRun) { %><a href="/parks/<%= park.id %>/courts/<%= firstRun.courtId %>#live-<%= firstRun.id %>" class="run-cta-outline">Join this run</a><% } %>
+      <a href="/parks/<%= park.id %>/start-game?court=<%= court.id %>" class="run-cta-outline"><%= firstRun ? 'Start your own game' : 'Start a game now' %></a>
+    </div>
   <% } %>
-  <div class="checkin-row">
-    <% if (checkedIn) { %>
-      <form method="POST" action="/parks/<%= park.id %>/check-out" class="check-out-form" style="display: inline;" onsubmit="return confirm('Check out of this park? You'll leave the here-now list and any squad here.');">
-        <button type="submit" class="checkin-pill checkin-pill-in">Checked in &middot; tap to check out</button>
-      </form>
-    <% } else { %>
-      <div id="checkInNormal">
-        <button type="button" id="checkInBtn" class="checkin-pill checkin-pill-out" data-park-id="<%= park.id %>">Check in</button>
-        <span id="checkInStatus" class="checkin-status"></span>
-      </div>
-      <div id="checkInTooFar" class="too-far-box" style="display: none;">
-        <div class="too-far-msg" id="tooFarMsg"></div>
-        <% if (upcomingRuns.length > 0) { %>
-          <form method="POST" action="/runs/<%= upcomingRuns[0].id %>/coming" style="margin-top: 8px;">
-            <button type="submit" class="small-btn">I'm coming</button>
-          </form>
-        <% } %>
-        <% if (isFollowing) { %>
-          <div class="too-far-msg" style="margin-top: 8px;">Following this court.</div>
-        <% } else { %>
-          <form method="POST" action="/courts/<%= court.id %>/follow" style="margin-top: 8px;">
-            <button type="submit" class="small-btn">Follow park</button>
-          </form>
-        <% } %>
-      </div>
-    <% } %>
-  </div>
-
-  <% if (checkedIn && firstRun) { %>
-    <a href="/parks/<%= park.id %>/start-game?court=<%= court.id %>" class="run-cta-outline">Start your own game</a>
-  <% } else if (checkedIn) { %>
-    <a href="/parks/<%= park.id %>/start-game?court=<%= court.id %>" class="run-cta">Start the first run here</a>
-  <% } %>
-
-  <div class="court-actions-row">
-    <a href="/runs/new?courtId=<%= court.id %>" class="small-btn link-btn">Start run</a>
-    <form method="POST" action="/courts/<%= court.id %>/follow">
-      <button type="submit" class="small-btn <%= isFollowing ? 'small-btn-accent' : '' %>"><%= isFollowing ? 'Following ✓' : 'Follow' %></button>
-    </form>
-  </div>
 
   <% if (upcomingRuns.length > 0) { %>
     <div class="section">Upcoming runs</div>
@@ -135,7 +103,7 @@
   <% } %>
   <% if (liveGame) { %>
     <% const size = Number(String(liveGame.format || '0').charAt(0)); %>
-    <% const onCount = liveGame.teamA.length + liveGame.teamB.length; %>
+    <% const onCount = liveGame.teamA.length + liveGame.teamB.length + gameGuests.a.length + gameGuests.b.length; %>
     <% const slots = size * 2; %>
     <% const openSpots = Math.max(0, slots - onCount); %>
     <% const thisRun = parkGames.find((g) => g.id === liveGame.id); %>
@@ -151,7 +119,8 @@
           <% liveGame.teamA.forEach((p) => { %>
             <div class="live-player"><%= p.name %></div>
           <% }); %>
-          <% if (liveGame.teamA.length === 0) { %><div class="live-player live-player-empty">&mdash;</div><% } %>
+          <% gameGuests.a.forEach((g) => { %><div class="live-player live-player-guest">Guest: <%= g.first_name %></div><% }); %>
+          <% if (liveGame.teamA.length + gameGuests.a.length === 0) { %><div class="live-player live-player-empty">&mdash;</div><% } %>
         </div>
         <div class="live-vs">vs</div>
         <div class="live-team">
@@ -160,11 +129,12 @@
           <% liveGame.teamB.forEach((p) => { %>
             <div class="live-player"><%= p.name %></div>
           <% }); %>
-          <% if (liveGame.teamB.length === 0) { %><div class="live-player live-player-empty">&mdash;</div><% } %>
+          <% gameGuests.b.forEach((g) => { %><div class="live-player live-player-guest">Guest: <%= g.first_name %></div><% }); %>
+          <% if (liveGame.teamB.length + gameGuests.b.length === 0) { %><div class="live-player live-player-empty">&mdash;</div><% } %>
         </div>
       </div>
 
-      <% const roomA = liveGame.teamA.length < size; const roomB = liveGame.teamB.length < size; %>
+      <% const roomA = liveGame.teamA.length + gameGuests.a.length < size; const roomB = liveGame.teamB.length + gameGuests.b.length < size; %>
       <% const myTeam = liveGame.viewerTeam; %>
       <% const link = gn.joinLink && gn.joinLink.gameId === liveGame.id ? gn.joinLink : null; %>
       <% if (myTeam) { %>
@@ -263,68 +233,6 @@
     </a>
   <% }); %>
 
-  <div class="section">Next up on <%= court.nickname || ('Court ' + court.number) %></div>
-  <% if (queue.length === 0) { %>
-    <div class="empty-board">Nobody in line yet.</div>
-  <% } %>
-  <% queue.forEach((squad, i) => { %>
-    <div class="queue-row">
-      <div class="queue-rank"><%= i + 1 %></div>
-      <div class="queue-main">
-        <div class="queue-names"><%= squad.roster.map((p) => p.name).join(', ') %></div>
-        <div class="queue-count"><%= squad.count %> of <%= squad.size || 5 %> picked<% if (squad.ready) { %> &middot; <span class="queue-ready">Ready</span><% } %><% if (squad.size && squad.confirmed) { %> &middot; Roster confirmed<% } %></div>
-      </div>
-    </div>
-  <% }); %>
-
-  <% if (viewerPlaying) { %>
-    <div class="next-action-note">You're on the court.</div>
-  <% } else if (!checkedIn) { %>
-    <div class="next-action-note">Check in at this park to get in line.</div>
-  <% } else if (viewerSquad) { %>
-    <% const squadSize = viewerSquad.size || 5; %>
-    <% if (viewerIsCaptain) { %>
-      <div class="pick-form-title">Your squad &mdash; you're captain</div>
-      <% viewerSquad.roster.filter((p) => !p.isCaptain).forEach((p) => { %>
-        <div class="inline-form">
-          <span><%= p.name %></span>
-          <form method="POST" action="/next_line/<%= viewerSquad.id %>/captain">
-            <input type="hidden" name="playerId" value="<%= p.id %>">
-            <button type="submit" class="tiny-btn">Make captain</button>
-          </form>
-          <form method="POST" action="/next_line/<%= viewerSquad.id %>/remove">
-            <input type="hidden" name="playerId" value="<%= p.id %>">
-            <button type="submit" class="tiny-btn">Remove</button>
-          </form>
-        </div>
-      <% }); %>
-      <% if (viewerSquad.count < squadSize) { %>
-        <form method="POST" action="/next_line/<%= viewerSquad.id %>/members" class="pick-form">
-          <div class="pick-form-title">Pick from who's here</div>
-          <% availablePlayers.forEach((p) => { %>
-            <label class="player-check">
-              <input type="checkbox" name="playerIds" value="<%= p.id %>">
-              <%= p.name %>
-            </label>
-          <% }); %>
-          <% if (availablePlayers.length === 0) { %><div class="next-action-note">Nobody else checked in right now.</div><% } %>
-          <button type="submit" class="submit-btn">Add to squad</button>
-        </form>
-      <% } %>
-      <% if (viewerSquad.size && !viewerSquad.confirmed) { %>
-        <form method="POST" action="/next_line/<%= viewerSquad.id %>/confirm" style="margin-top: 10px;">
-          <button type="submit" class="submit-btn" <%= viewerSquad.count === squadSize ? '' : 'disabled' %>>Confirm roster (<%= viewerSquad.count %> of <%= squadSize %>)</button>
-        </form>
-      <% } %>
-    <% } else { %>
-      <div class="next-action-note">You're in line &mdash; <%= viewerSquad.count %> of <%= squadSize %> picked<% if (viewerSquad.locked) { %> &middot; Ready to play<% } else if (viewerSquad.size && !viewerSquad.confirmed) { %> &middot; waiting for your captain to confirm<% } %>.</div>
-    <% } %>
-  <% } else { %>
-    <form method="POST" action="/courts/<%= court.id %>/next">
-      <button type="submit" class="submit-btn">I got next</button>
-    </form>
-  <% } %>
-
   <details class="settings-details">
     <summary>Game settings</summary>
     <form method="POST" action="/parks/<%= park.id %>/settings" class="settings-form">
@@ -354,6 +262,7 @@
 
 <script src="/geo.js"></script>
 <script src="/park-photo.js"></script>
+<script src="/court-sheet.js"></script>
 <script>
   (function () {
     var parkId = <%= park.id %>;
