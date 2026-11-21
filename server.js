@@ -196,7 +196,9 @@ app.use((req, res, next) => {
   if (p.startsWith('/welcome') || p.startsWith('/api') || p.startsWith('/live') || p.startsWith('/admin') || p === '/signup' || p.includes('.')) {
     return next();
   }
-  if (!courts.homeCourtStepPending(req.session.userId)) return next();
+  if (!courts.homeCourtDue(req.session.userId)) return next();
+  // Back to the page they were opening, once the step is done.
+  req.session.afterHomeCourt = req.originalUrl;
   res.redirect('/welcome/home-court');
 });
 
@@ -448,6 +450,12 @@ app.get('/welcome/home-court', requireAuth, (req, res) => {
   });
 });
 
+// The map's court filter, saved on the player's account.
+app.post('/api/map-filter', requireAuth, (req, res) => {
+  const ok = courts.setMapFilter(req.session.userId, (req.body || {}).filter);
+  res.status(ok ? 200 : 400).json({ ok });
+});
+
 app.get('/api/home-court/candidates', requireAuth, (req, res) => {
   res.json({ ok: true, courts: courts.homeCourtCandidates() });
 });
@@ -469,7 +477,8 @@ app.post('/home-court', requireAuth, (req, res) => {
 
 app.post('/home-court/skip', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  courts.finishHomeCourtStep(req.session.userId);
+  // Opened from the profile ("Change home court"): Cancel doesn't count as a skip.
+  if ((req.body || {}).change !== '1') courts.skipHomeCourt(req.session.userId);
   logEvent(profile.player_id, 'home_court_skip', '/welcome/home-court');
   res.redirect((req.body || {}).change === '1' ? `/players/${profile.player_id}` : afterHomeCourt(req));
 });
@@ -477,7 +486,7 @@ app.post('/home-court/skip', requireAuth, (req, res) => {
 // "I don't hoop at any of these": opens Suggest a court on the map.
 app.post('/home-court/none', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  courts.finishHomeCourtStep(req.session.userId);
+  courts.skipHomeCourt(req.session.userId);
   logEvent(profile.player_id, 'home_court_none', '/welcome/home-court');
   delete req.session.afterHomeCourt;
   res.redirect('/?suggest=1');
@@ -575,6 +584,7 @@ app.get('/', allowGuest, (req, res) => {
   }
 
   res.render('home', {
+    mapFilter: profile.isGuest ? 'all' : courts.getMapFilter(req.session.userId),
     followedParks,
     active: 'map',
     profile,
@@ -1720,8 +1730,29 @@ app.post('/admin/parks/:id/update', requireAuth, requireOrganizer, async (req, r
 });
 
 const PORT = process.env.PORT || 3000;
+// The OpenStreetMap courts load themselves on the first start that has none
+// (on Railway: the first deploy after this change). Never blocks start-up; a
+// failure is logged and tried again on the next start. Re-running never
+// duplicates. Set AUTO_IMPORT_COURTS=off to turn it off.
+async function autoImportCourts() {
+  if (process.env.AUTO_IMPORT_COURTS === 'off') return;
+  const { importCourts } = require('./db/courts-import');
+  if (courts.adminCourtsSummary().importedCount > 0) return;
+  console.log('No OpenStreetMap courts yet: importing South Florida courts...');
+  try {
+    const { stats, saved, totals } = await importCourts();
+    console.log(
+      `Court import done: ${stats.found} courts found, ${stats.schools} school courts left out, ` +
+        `${saved.created} locations saved (${totals.courts} courts, ${totals.indoor || 0} indoor).`
+    );
+  } catch (err) {
+    console.error('Court import failed; the app runs as usual and will try again on the next start:', err.message);
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`Basketball Royale running at http://localhost:${PORT}`);
+  autoImportCourts();
   // After the port is open, never before: a slow or unreachable geocoder
   // must not hold up the app starting.
   startBackgroundGeocoding();

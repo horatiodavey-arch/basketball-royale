@@ -34,7 +34,7 @@
     <% }); %>
   <% } %>
 
-  <div class="section">Suggested parks</div>
+  <div class="section section-with-link">Suggested parks <% if (!profile.isGuest) { %><a href="/welcome/home-court?change=1" class="section-link">Pick your home court &rsaquo;</a><% } %></div>
   <% if (parks.length === 0) { %>
     <div class="empty-board">No parks yet.</div>
   <% } else { %>

@@ -70,6 +70,43 @@ function setHomeCourt(userId, parkId) {
   return { ok: true };
 }
 
+const SKIP_WAIT_DAYS = 7;
+
+// Should this player be shown "Pick your home court" now? Anyone without a
+// home court is asked. One skip waits 7 days; after a second skip, never again
+// (unless they open it themselves from their profile).
+function homeCourtDue(userId) {
+  const u = db
+    .prepare('SELECT home_court_id, home_court_step, home_court_skips, home_court_skipped_at FROM users WHERE id = ?')
+    .get(userId);
+  if (!u || u.home_court_id || u.home_court_step === 'never') return false;
+  if (!u.home_court_skips) return true;
+  if (u.home_court_skips === 1 && u.home_court_skipped_at) {
+    return db.prepare(`SELECT ? <= datetime('now', '-${SKIP_WAIT_DAYS} days') AS due`).get(u.home_court_skipped_at).due === 1;
+  }
+  return false;
+}
+
+// Skip (or "I don't hoop at any of these"): counts toward the two asks.
+function skipHomeCourt(userId) {
+  db.prepare(
+    `UPDATE users SET home_court_skips = home_court_skips + 1, home_court_skipped_at = datetime('now'),
+       home_court_step = CASE WHEN home_court_skips + 1 >= 2 THEN 'never' ELSE 'done' END
+     WHERE id = ?`
+  ).run(userId);
+}
+
+const MAP_FILTERS = ['all', 'outdoor', 'indoor'];
+function getMapFilter(userId) {
+  const row = db.prepare('SELECT map_filter FROM users WHERE id = ?').get(userId);
+  return row && MAP_FILTERS.includes(row.map_filter) ? row.map_filter : 'all';
+}
+function setMapFilter(userId, filter) {
+  if (!MAP_FILTERS.includes(filter)) return false;
+  db.prepare('UPDATE users SET map_filter = ? WHERE id = ?').run(filter, userId);
+  return true;
+}
+
 function markHomeCourtPending(userId) {
   db.prepare("UPDATE users SET home_court_step = 'pending' WHERE id = ?").run(userId);
 }
@@ -135,6 +172,10 @@ module.exports = {
   homeCourtCandidates,
   setHomeCourt,
   finishHomeCourtStep,
+  homeCourtDue,
+  skipHomeCourt,
+  getMapFilter,
+  setMapFilter,
   markHomeCourtPending,
   homeCourtStepPending,
   homeCourtFor,
