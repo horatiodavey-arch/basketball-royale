@@ -1378,6 +1378,58 @@ app.post('/courts/:courtId/leave-line', requireAuth, (req, res) => {
   redirectWithResult(req, res, result, '/runs');
 });
 
+// "+ Add someone to the line": a person without the app, by first name.
+app.post('/courts/:courtId/add-to-line', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.addGuestSpot(Number(req.params.courtId), (req.body || {}).firstName, profile.player_id), '/runs');
+});
+
+// "Let them go ahead": swap with the spot right behind you.
+app.post('/line/:spotId/let-ahead', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.letAhead(Number(req.params.spotId), profile.player_id), '/runs');
+});
+
+// The player who added a guest takes their spot out of the line.
+app.post('/line/:spotId/drop', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.dropSpot(Number(req.params.spotId), profile.player_id), '/runs');
+});
+
+// "Game on (not in app)" and "That game's done".
+app.post('/courts/:courtId/game-on-untracked', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.gameOnUntracked(Number(req.params.courtId), profile.player_id), '/runs');
+});
+app.post('/courts/:courtId/untracked-done', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.untrackedDone(Number(req.params.courtId), profile.player_id), '/runs');
+});
+
+// "Scan to claim this game": a guest's QR code opens this. Signed in, the
+// result moves onto their profile; otherwise they sign up first and land back here.
+app.get('/claim/:token', (req, res) => {
+  const status = line.claimStatus(req.params.token);
+  if (!status.ok) {
+    req.session.flash = status.error;
+    return res.redirect('/');
+  }
+  if (!req.session.userId) return res.redirect('/signup?returnTo=' + encodeURIComponent('/claim/' + req.params.token));
+  const profile = getPlayerProfile(req.session.userId);
+  const result = line.claimGame(req.params.token, profile.player_id);
+  req.session.flash = result.ok
+    ? `Game claimed: the ${result.result === 'win' ? 'win' : 'game'} and its points are on your profile now.`
+    : result.error;
+  res.redirect(`/players/${profile.player_id}`);
+});
+
+app.get('/claim/:token/qr.png', async (req, res) => {
+  if (!line.claimStatus(req.params.token).ok) return res.status(404).end();
+  const url = `${req.protocol}://${req.get('host')}/claim/${req.params.token}`;
+  const png = await QRCode.toBuffer(url, { type: 'png', width: 320, margin: 2 });
+  res.type('png').send(png);
+});
+
 app.post('/line/:spotId/add', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   redirectWithResult(req, res, line.addPlayer(Number(req.params.spotId), Number((req.body || {}).playerId), profile.player_id), '/runs');
@@ -1470,6 +1522,8 @@ function courtSheet(court, profile) {
     courtCount: getCourtsByPark(park.id).length,
     checkedIn: !!(pid && getCheckIn(pid, park.id)),
     line: line.lineView(court.id, pid),
+    // Guests from recent games here who can still claim them (24 hours).
+    claims: line.openClaims(court.id),
     games,
     viewerPlaying: !!(pid && isPlayerInActiveLiveGame(court.id, pid)),
     isFollowing: !!(pid && isFollowingCourt(pid, court.id)),
@@ -1557,7 +1611,14 @@ app.post('/live_games/:id/join', requireAuth, (req, res) => {
 // Game done: a player in the game picks the winning side. The result waits for the other team.
 app.post('/live_games/:id/declare', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  const result = gameNow.reportDone(Number(req.params.id), profile.player_id, req.body.side);
+  const liveGameId = Number(req.params.id);
+  const result = gameNow.reportDone(liveGameId, profile.player_id, req.body.side);
+  // Locked straight away (the other team was all guests): claims, then the line.
+  if (result.ok && result.locked) {
+    const courtId = courtIdForLiveGame(liveGameId);
+    line.prepareGuestClaims(liveGameId);
+    if (courtId) line.startNextGame(courtId);
+  }
   redirectWithResult(req, res, result, '/runs');
 });
 
@@ -1619,7 +1680,10 @@ app.post('/live_games/:id/confirm', requireAuth, (req, res) => {
   const queuedBefore = courtId ? waitingSquadIds(courtId) : [];
   const result = confirmResult(liveGameId, profile.player_id);
   // Result locked: the next game starts from the line (#1 plays the winners).
-  if (result.ok && courtId) line.startNextGame(courtId);
+  if (result.ok && courtId) {
+    line.prepareGuestClaims(liveGameId);
+    line.startNextGame(courtId);
+  }
   // A locked result can move an already-queued squad to first in line: tell its
   // players. A squad created by the lock (the winners, when nobody was waiting)
   // is not in the line before, so it gets no alert.

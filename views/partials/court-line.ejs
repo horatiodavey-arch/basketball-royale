@@ -36,46 +36,76 @@
   <% }); %>
 <% } %>
 
+<% if (L.untracked) { %>
+  <div class="cs-live cs-untracked">
+    <div class="cs-live-top"><span>Game on (not in app)</span><span><%= L.untracked.minutes %> min</span></div>
+    <div class="cs-live-teams">The line holds until it's done</div>
+    <% if (cs.checkedIn) { %>
+      <form method="POST" action="/courts/<%= cs.court.id %>/untracked-done">
+        <button type="submit" class="cs-done-btn">That game's done</button>
+      </form>
+    <% } %>
+  </div>
+<% } %>
+
 <% if (L.rows.length > 0) { %>
   <div class="cs-next">
     <div class="cs-next-title">WHO'S GOT NEXT<% if (cs.courtCount > 1) { %> · <%= cs.court.nickname || ('Court ' + cs.court.number) %><% } %></div>
     <% L.rows.forEach((r) => { %>
       <div class="cs-next-row">
-        <span><b><%= r.number %>.</b> <%= r.isYou ? 'You' : r.name %></span>
-        <% if (r.status === 'confirmed') { %><span class="cs-tag cs-tag-ok">Team confirmed</span>
-        <% } else if (r.status === 'picking') { %><span class="cs-tag cs-tag-picking">Picking <%= r.count %> of <%= r.size %></span>
-        <% } else { %><span class="cs-tag-wait">Waiting</span><% } %>
+        <span class="cs-next-who"><b><%= r.number %>.</b> <%= r.isYou ? 'You' : r.name %><% if (r.addedBy) { %><small> added by <%= r.addedBy.replace(/\s#\d{4}$/, '') %></small><% } %></span>
+        <span class="cs-next-right">
+          <% if (r.status === 'confirmed') { %><span class="cs-tag cs-tag-ok">Team confirmed</span>
+          <% } else if (r.status === 'picking') { %><span class="cs-tag cs-tag-picking">Picking <%= r.count %> of <%= r.size %></span>
+          <% } else { %><span class="cs-tag-wait">Waiting</span><% } %>
+          <% if (r.canLetAhead) { %>
+            <form method="POST" action="/line/<%= r.spotId %>/let-ahead" class="cs-inline-form" onsubmit="return confirm('Let the next spot go ahead of <%= r.isYou ? 'you' : r.name.replace(/'/g, '') %>?');">
+              <button type="submit" class="cs-link cs-let-ahead">Let them go ahead</button>
+            </form>
+          <% } %>
+        </span>
       </div>
     <% }); %>
   </div>
 <% } %>
 
-<% if (mine) { %>
+<% if (cs.checkedIn) { %>
+  <details class="cs-add-someone">
+    <summary class="cs-link">+ Add someone to the line</summary>
+    <form method="POST" action="/courts/<%= cs.court.id %>/add-to-line" class="cs-guest-form">
+      <input type="text" name="firstName" maxlength="20" placeholder="Their first name" aria-label="Their first name" required>
+      <button type="submit" class="cs-add-btn">Add</button>
+    </form>
+    <div class="cs-add-note">For someone without the app. Their spot is timed from now, and you look after it.</div>
+  </details>
+<% } %>
+
+<% [mine, ...(L.sponsored || [])].filter(Boolean).forEach((team) => { %>
   <div class="cs-team">
     <div class="cs-team-head">
-      <span><%= mine.isCaptain ? 'Your team' : mine.captainName.replace(/\s#\d{4}$/, '') + "'s team" %> (<%= mine.count %>/<%= mine.size %>)</span>
-      <% if (mine.confirmed) { %><span class="cs-tag cs-tag-ok">Team confirmed</span><% } %>
+      <span><%= team.guestSpot ? team.roster[0].firstName + "'s team (you added them)" : (team.isCaptain ? 'Your team' : team.captainName.replace(/\s#\d{4}$/, '') + "'s team") %> (<%= team.count %>/<%= team.size %>)</span>
+      <% if (team.confirmed) { %><span class="cs-tag cs-tag-ok">Team confirmed</span><% } %>
     </div>
     <div class="cs-chips">
-      <% mine.roster.forEach((p) => { %>
+      <% team.roster.forEach((p) => { %>
         <span class="cs-chip">
           <%= p.kind === 'player' && p.id === profile.player_id ? 'You' : p.name %>
-          <% if (mine.isCaptain && !(p.kind === 'player' && p.id === profile.player_id)) { %>
-            <form method="POST" action="/line/<%= mine.spotId %>/remove" class="cs-inline-form">
+          <% if (team.isCaptain && !p.lead && !(p.kind === 'player' && p.id === profile.player_id)) { %>
+            <form method="POST" action="/line/<%= team.spotId %>/remove" class="cs-inline-form">
               <input type="hidden" name="kind" value="<%= p.kind %>"><input type="hidden" name="id" value="<%= p.id %>">
               <button type="submit" class="cs-chip-x" aria-label="Remove <%= p.name %>">&times;</button>
             </form>
           <% } %>
         </span>
       <% }); %>
-      <% if (mine.isCaptain && mine.count < mine.size) { %>
+      <% if (team.isCaptain && team.count < team.size) { %>
         <details class="cs-add">
           <summary class="cs-chip cs-chip-add">+ Add player</summary>
           <div class="cs-add-panel">
-            <% if (mine.candidates.length > 0) { %>
+            <% if (team.candidates.length > 0) { %>
               <div class="cs-add-label">Checked in here</div>
-              <% mine.candidates.forEach((p) => { %>
-                <form method="POST" action="/line/<%= mine.spotId %>/add" class="cs-add-row">
+              <% team.candidates.forEach((p) => { %>
+                <form method="POST" action="/line/<%= team.spotId %>/add" class="cs-add-row">
                   <input type="hidden" name="playerId" value="<%= p.id %>">
                   <button type="submit" class="cs-add-btn"><%= p.name %></button>
                 </form>
@@ -83,7 +113,7 @@
             <% } else { %>
               <div class="cs-add-label">Nobody else checked in is free right now.</div>
             <% } %>
-            <form method="POST" action="/line/<%= mine.spotId %>/guest" class="cs-guest-form">
+            <form method="POST" action="/line/<%= team.spotId %>/guest" class="cs-guest-form">
               <input type="text" name="firstName" maxlength="20" placeholder="Guest's first name" aria-label="Guest's first name" required>
               <button type="submit" class="cs-add-btn">+ Guest</button>
             </form>
@@ -92,13 +122,33 @@
         </details>
       <% } %>
     </div>
-    <% if (mine.isCaptain) { %>
-      <form method="POST" action="/line/<%= mine.spotId %>/confirm">
-        <button type="submit" class="cs-confirm<%= mine.full && !mine.confirmed ? ' is-ready' : '' %>" <%= mine.full && !mine.confirmed ? '' : 'disabled' %>>
-          <%= mine.confirmed && mine.full ? 'Team confirmed' : (mine.full ? 'Confirm team' : 'Confirm team (need ' + mine.size + ')') %>
+    <% if (team.isCaptain) { %>
+      <form method="POST" action="/line/<%= team.spotId %>/confirm">
+        <button type="submit" class="cs-confirm<%= team.full && !team.confirmed ? ' is-ready' : '' %>" <%= team.full && !team.confirmed ? '' : 'disabled' %>>
+          <%= team.confirmed && team.full ? 'Team confirmed' : (team.full ? 'Confirm team' : 'Confirm team (need ' + team.size + ')') %>
         </button>
       </form>
     <% } %>
+    <% if (team.guestSpot) { %>
+      <form method="POST" action="/line/<%= team.spotId %>/drop" class="cs-drop-form" onsubmit="return confirm('Take <%= team.roster[0].firstName.replace(/'/g, '') %> out of the line?');">
+        <button type="submit" class="cs-link">Take <%= team.roster[0].firstName %> out of the line</button>
+      </form>
+    <% } %>
+  </div>
+<% }); %>
+
+<% if (cs.claims && cs.claims.length > 0) { %>
+  <div class="cs-claims">
+    <div class="cs-next-title">PLAYED AS A GUEST? SCAN TO CLAIM THIS GAME</div>
+    <% cs.claims.forEach((c) => { %>
+      <details class="cs-claim">
+        <summary><span><%= c.name %> &middot; <%= c.format || 'Game' %> &middot; game <%= c.liveGameId %></span><span class="cs-link">Show QR</span></summary>
+        <div class="cs-claim-body">
+          <img src="/claim/<%= c.token %>/qr.png" alt="QR code for <%= c.name %> to claim this game" width="160" height="160" loading="lazy">
+          <div class="cs-add-note">Scan to claim this game. Sign up within 24 hours and the result and points move to your new profile.</div>
+        </div>
+      </details>
+    <% }); %>
   </div>
 <% } %>
 
@@ -136,4 +186,9 @@
     </div>
   <% } %>
   <div id="<%= ids.status %>" class="checkin-status"></div>
+  <% if (cs.checkedIn && !L.untracked && cs.games.every((g) => g.courtId !== cs.court.id)) { %>
+    <form method="POST" action="/courts/<%= cs.court.id %>/game-on-untracked" class="cs-untracked-form">
+      <button type="submit" class="cs-link">Game on (not in app)</button>
+    </form>
+  <% } %>
 </div>

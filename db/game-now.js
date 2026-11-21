@@ -119,6 +119,19 @@ function reportDone(liveGameId, playerId, winningSide) {
      WHERE id = ?`
   ).run(winningSide === 'a' ? 1 : 0, team, playerId, team === 'a' ? 1 : 0, team === 'b' ? 1 : 0, liveGameId);
   q.logEvent(playerId, 'result_submitted', null, game.park_id);
+  // The other team is all guests (nobody with the app can confirm): the
+  // reported result locks now. Only app players' results are ever saved.
+  const otherTeam = team === 'a' ? 'b' : 'a';
+  const otherAppPlayers = db
+    .prepare('SELECT COUNT(*) AS n FROM live_game_players WHERE live_game_id = ? AND team = ?')
+    .get(liveGameId, otherTeam).n;
+  const otherGuests = db
+    .prepare('SELECT COUNT(*) AS n FROM live_game_guests WHERE live_game_id = ? AND team = ?')
+    .get(liveGameId, otherTeam).n;
+  if (otherAppPlayers === 0 && otherGuests > 0) {
+    q.lockResult(db.prepare('SELECT * FROM live_games WHERE id = ?').get(liveGameId));
+    return { ok: true, locked: true };
+  }
   return { ok: true };
 }
 

@@ -470,6 +470,20 @@ function migrateKingOfTheCourtColumns() {
   // the park's radius (NULL while inside), and how the check-in happened.
   addColumnIfMissing('check_ins', 'outside_since', 'TEXT');
   addColumnIfMissing('check_ins', 'source', "TEXT DEFAULT 'manual'");
+  // A spot in the line for someone without the app ("+ Add someone to the line"):
+  // guest_name is who it's for; captain_player_id is the player who added them
+  // and looks after the spot.
+  addColumnIfMissing('next_line', 'guest_name', 'TEXT');
+  // "Game on (not in app)": the court is busy with a game nobody's tracking.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS court_busy (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        court_id      INTEGER NOT NULL REFERENCES courts(id),
+        by_player_id  INTEGER REFERENCES players(id),
+        started_at    TEXT NOT NULL,
+        ended_at      TEXT
+    );
+  `);
   // "I'm coming" to a park when no run is scheduled there. Counts for 3 hours.
   db.exec(`
     CREATE TABLE IF NOT EXISTS park_coming (
@@ -682,6 +696,11 @@ function migrateKingOfTheCourtColumns() {
         first_name    TEXT NOT NULL
     );
   `);
+  // A guest who played a tracked game can claim it within 24 hours.
+  addColumnIfMissing('live_game_guests', 'claim_token', 'TEXT');
+  addColumnIfMissing('live_game_guests', 'claim_expires_at', 'TEXT');
+  addColumnIfMissing('live_game_guests', 'result_game_id', 'INTEGER');
+  addColumnIfMissing('live_game_guests', 'claimed_player_id', 'INTEGER');
   // One row per player per milestone, written the first time it happens.
   db.exec(`
     CREATE TABLE IF NOT EXISTS player_milestones (
