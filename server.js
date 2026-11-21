@@ -188,6 +188,18 @@ app.use((req, res, next) => {
   next();
 });
 
+// "⚡ N": a player's current play streak in weeks, for the leaderboard and
+// the who's-here lists (shown from 2 weeks). Looked up once per player per page.
+app.use((req, res, next) => {
+  const cache = new Map();
+  res.locals.playStreakWeeks = (playerId) => {
+    if (!playerId) return 0;
+    if (!cache.has(playerId)) cache.set(playerId, growth.playStreak(playerId).current);
+    return cache.get(playerId);
+  };
+  next();
+});
+
 // A new player who left before finishing the home-court step goes straight
 // back to it. Only page views; the step's own pages, APIs and sign-out pass.
 app.use((req, res, next) => {
