@@ -1,0 +1,37 @@
+<%# Court sheet top: small icons (Follow, Share, ··· menu) and, when checked in,
+    the status line "● You're checked in · Check out". Shared by the map's court
+    sheet and the court page. Needs: cs (from courtSheet in server.js). %>
+<div class="cs-icons">
+  <% if (cs.isGuest) { %>
+    <a href="/signup?returnTo=<%= encodeURIComponent('/parks/' + cs.park.id + '/courts/' + cs.court.id) %>" class="cs-icon" aria-label="Follow">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>
+    </a>
+  <% } else { %>
+    <form method="POST" action="/courts/<%= cs.court.id %>/follow" class="cs-icon-form">
+      <button type="submit" class="cs-icon<%= cs.isFollowing ? ' is-on' : '' %>" aria-label="<%= cs.isFollowing ? 'Following' : 'Follow' %>" aria-pressed="<%= cs.isFollowing %>" title="<%= cs.isFollowing ? 'Following' : 'Follow' %>">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="<%= cs.isFollowing ? 'currentColor' : 'none' %>" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>
+      </button>
+    </form>
+  <% } %>
+  <button type="button" class="cs-icon" data-cs-share data-url="<%= cs.shareUrl %>" data-text="<%= cs.shareText %>" aria-label="Share" title="Share">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 10.8l7.6-3.6M8.2 13.2l7.6 3.6"/></svg>
+  </button>
+  <details class="cs-menu">
+    <summary class="cs-icon" aria-label="More" title="More">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+    </summary>
+    <div class="cs-menu-list">
+      <a href="/runs/new?courtId=<%= cs.court.id %>" class="cs-menu-item">Start a run</a>
+      <details class="cs-menu-item cs-cant-play">
+        <summary>Can't play here?</summary>
+        <form method="POST" action="/parks/<%= cs.park.id %>/report" class="cant-play-form">
+          <div class="cant-play-note">Tell us why. After a few reports the court is hidden until it's checked.</div>
+          <button type="submit" name="reason" value="private" class="tiny-btn">Private</button>
+          <button type="submit" name="reason" value="locked" class="tiny-btn">Locked</button>
+          <button type="submit" name="reason" value="school" class="tiny-btn">School</button>
+        </form>
+      </details>
+      <a href="/how-it-works" class="cs-menu-item">How it works</a>
+    </div>
+  </details>
+</div>

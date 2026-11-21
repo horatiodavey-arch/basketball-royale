@@ -634,6 +634,22 @@ function migrateKingOfTheCourtColumns() {
   // and referred_by_player_id stays NULL for anyone who didn't use an invite.
   addColumnIfMissing('users', 'source', "TEXT DEFAULT 'direct'");
   addColumnIfMissing('users', 'referred_by_player_id', 'INTEGER');
+  // Guests: players without the app, added to a team by first name. They fill
+  // a roster spot; results and points are only ever saved for app players.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS next_line_guests (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        next_line_id  INTEGER NOT NULL REFERENCES next_line(id),
+        first_name    TEXT NOT NULL,
+        created_at    TEXT
+    );
+    CREATE TABLE IF NOT EXISTS live_game_guests (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        live_game_id  INTEGER NOT NULL REFERENCES live_games(id),
+        team          TEXT NOT NULL CHECK (team IN ('a', 'b')),
+        first_name    TEXT NOT NULL
+    );
+  `);
   // One row per player per milestone, written the first time it happens.
   db.exec(`
     CREATE TABLE IF NOT EXISTS player_milestones (
