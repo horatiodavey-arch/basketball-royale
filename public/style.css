@@ -1335,3 +1335,61 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .cs-secondary { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .cs-secondary .run-cta-outline { margin: 0; }
 .live-player-guest { color: #5F5E5A; font-style: italic; }
+
+/* Progress tracker: I'm coming → Checked in → Got next → On the court.
+   Reached steps orange, upcoming gray, the payoff in purple. */
+.cs-track { margin-top: 12px; }
+.cs-track-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); }
+.cs-step { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; }
+.cs-step-line { position: absolute; top: 15px; right: 50%; width: 100%; height: 3px; background: #E3E1D9; z-index: 0; }
+.cs-step-dot {
+  position: relative; z-index: 1; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: #F1EFE8; color: #B4B2A9; border: 2px solid #E3E1D9; box-sizing: border-box;
+}
+.cs-step-label { margin-top: 4px; font-size: 11px; line-height: 1.2; color: #888780; }
+.cs-step.is-done .cs-step-dot, .cs-step.is-current .cs-step-dot { background: #E8662A; border-color: #E8662A; color: #FFFFFF; }
+.cs-step.is-done .cs-step-line, .cs-step.is-current .cs-step-line { background: #E8662A; }
+.cs-step.is-current .cs-step-dot { box-shadow: 0 0 0 4px rgba(232, 102, 42, 0.2); }
+.cs-step.is-done .cs-step-label, .cs-step.is-current .cs-step-label { color: #2C2C2A; font-weight: 600; }
+.cs-step.is-skipped .cs-step-dot { border-style: dashed; }
+.cs-track-msg { margin-top: 8px; font-size: 13px; color: #5F5E5A; text-align: center; }
+.cs-track-msg a { color: var(--accent); font-weight: 600; }
+.cs-track-payoff { margin-top: 8px; text-align: center; font-size: 14px; font-weight: 700; color: var(--accent); }
+
+/* Map credit: a small faded (i) in the bottom-left that opens the full credit. */
+.map-credit { display: flex; align-items: flex-end; gap: 6px; margin: 0 0 6px 6px !important; }
+.map-credit-btn {
+  width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(60, 60, 60, 0.35);
+  background: rgba(255, 255, 255, 0.45); color: rgba(60, 60, 60, 0.55); padding: 0;
+  font: italic 700 11px/16px Georgia, 'Times New Roman', serif; text-align: center; cursor: pointer;
+}
+.map-credit.is-open .map-credit-btn { background: #FFFFFF; color: #2C2C2A; border-color: #888780; }
+.map-credit-text {
+  max-width: 230px; background: rgba(255, 255, 255, 0.95); border-radius: 8px; padding: 6px 8px;
+  font-size: 10px; line-height: 1.4; color: #5F5E5A; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+.map-credit-text[hidden] { display: none; }
+.map-credit-text a { color: #5F5E5A; }
+
+/* Crown progress bar on the map page (same style as the court progress tracker). */
+.crown-bar { margin-top: 8px; }
+.crown-bar-text { font-size: 13px; color: #5F5E5A; }
+.crown-bar-text strong { color: #2C2C2A; }
+.crown-bar-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.crown-bar-track { flex: 1; height: 6px; border-radius: 3px; background: #E3E1D9; overflow: hidden; }
+.crown-bar-fill { height: 100%; border-radius: 3px; background: #E8662A; }
+.crown-bar-icon { flex: 0 0 auto; display: inline-flex; }
+/* Auto check-in toast: "You're checked in at [Court] · Undo". */
+.auto-check-in-toast {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 3000;
+  bottom: calc(110px + env(safe-area-inset-bottom, 0px));
+  width: calc(100% - 32px); max-width: 420px; box-sizing: border-box; display: flex; align-items: center; gap: 6px;
+  background: #17131F; color: #FFFFFF; border-radius: 12px; padding: 10px 14px;
+  font-size: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.auto-check-in-text { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.auto-check-in-toast button {
+  border: 0; background: none; color: #F5B97A; font: inherit; font-weight: 700; padding: 0 2px; cursor: pointer;
+}
+
+.cs-here-link { display: block; margin: 8px auto 0; }

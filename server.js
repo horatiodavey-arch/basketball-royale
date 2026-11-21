@@ -5,6 +5,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const {
+  comingToPark,
   startOfAppDayUtcSql,
   isPlayerInActiveLiveGame,
   getUpcomingRunsForCourt,
@@ -136,6 +137,7 @@ backfillMilestones();
 const { db, DATA_DIR, writeBackup } = require('./db/index');
 const gameNow = require('./db/game-now');
 const line = require('./db/line');
+const progress = require('./db/progress');
 const heater = require('./db/heater');
 const courts = require('./db/courts');
 const growth = require('./db/growth');
@@ -206,6 +208,12 @@ app.use((req, res, next) => {
   // Back to the page they were opening, once the step is done.
   req.session.afterHomeCourt = req.originalUrl;
   res.redirect('/welcome/home-court');
+});
+
+// Signed-in players run the auto check-in watcher (public/auto-check-in.js).
+app.use((req, res, next) => {
+  res.locals.autoCheckIn = !!req.session.userId;
+  next();
 });
 
 // A one-time note shown under the header on the next page (for example after
@@ -572,6 +580,7 @@ app.get('/', allowGuest, (req, res) => {
   const sheet = getParkSheetDetail(selectedPark.id, season.startSql, profile.player_id);
   const sheetCourt = sheetCourtFor(selectedPark.id, profile.player_id);
   const cs = sheetCourt ? courtSheet(sheetCourt, profile) : null;
+  if (cs) cs.returnTo = `/?park=${selectedPark.id}`;
 
   // Parks this player follows, with who's here (green) and who's coming
   // (yellow), so they can see a run forming without opening Runs.
@@ -913,8 +922,20 @@ app.post('/runs/:id/coming', requireAuth, (req, res) => {
   const run = getRunById(Number(req.params.id), profile.player_id);
   logEvent(profile.player_id, 'im_coming', pagePathFromReferer(req, `/runs/${req.params.id}`), run ? run.parkId : null);
   const result = rsvpToRun(Number(req.params.id), profile.player_id);
-  if (!result.ok) return res.redirect(`/runs/${req.params.id}?error=${encodeURIComponent(result.error)}`);
-  res.redirect(`/runs/${req.params.id}`);
+  // From the court sheet, stay on the court sheet.
+  const back = safeReturnTo((req.body || {}).returnTo);
+  if (!result.ok) return res.redirect(`${back || '/runs/' + req.params.id}?error=${encodeURIComponent(result.error)}`);
+  res.redirect(back || `/runs/${req.params.id}`);
+});
+
+// "I'm coming" to a park with no run scheduled there.
+app.post('/parks/:parkId/coming', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parkId = Number(req.params.parkId);
+  if (!getParkById(parkId)) return res.redirect('/runs');
+  logEvent(profile.player_id, 'im_coming', pagePathFromReferer(req, `/parks/${parkId}`), parkId);
+  comingToPark(profile.player_id, parkId);
+  res.redirect(safeReturnTo((req.body || {}).returnTo) || `/parks/${parkId}`);
 });
 
 app.post('/courts/:courtId/follow', requireAuth, (req, res) => {
@@ -1178,8 +1199,61 @@ app.post('/parks/:parkId/check-out', requireAuth, (req, res) => {
 
 app.post('/parks/:parkId/heartbeat', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  const { lat, lng } = req.body;
-  res.json(heartbeat(profile.player_id, Number(req.params.parkId), lat, lng));
+  const { lat, lng, accuracy } = req.body || {};
+  res.json(heartbeat(profile.player_id, Number(req.params.parkId), lat, lng, accuracy));
+});
+
+// --- Auto check-in. The phone works out which court it's at from this list
+// (the location isn't sent anywhere until it's time to check in), and checks
+// in after 2 straight minutes inside a court's radius.
+const AUTO_SNOOZE_MINUTES = 30;
+function autoSnoozed(playerId, parkId) {
+  return !!db
+    .prepare("SELECT 1 FROM auto_check_in_snoozes WHERE player_id = ? AND park_id = ? AND until > datetime('now')")
+    .get(playerId, parkId);
+}
+
+app.get('/api/auto-check-in/parks', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parks = db
+    .prepare('SELECT id, name, lat, lng, check_in_radius_meters AS r FROM parks WHERE hidden = 0 AND lat IS NOT NULL AND lng IS NOT NULL')
+    .all();
+  const snoozed = db
+    .prepare("SELECT park_id FROM auto_check_in_snoozes WHERE player_id = ? AND until > datetime('now')")
+    .all(profile.player_id)
+    .map((r) => r.park_id);
+  res.json({ parks, checkedInParkId: currentCheckInParkId(profile.player_id) || null, snoozed });
+});
+
+app.post('/parks/:parkId/auto-check-in', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parkId = Number(req.params.parkId);
+  const { lat, lng, accuracy } = req.body || {};
+  if (typeof lat !== 'number' || typeof lng !== 'number') return res.status(400).json({ ok: false });
+  if (autoSnoozed(profile.player_id, parkId)) return res.json({ ok: false, snoozed: true });
+  if (getCheckIn(profile.player_id, parkId)) return res.json({ ok: true, already: true, parkId });
+  const result = checkIn(profile.player_id, parkId, lat, lng, accuracy, 'auto');
+  if (!result.ok) return res.json(result);
+  // One court at a time: leave any other park (never one where they're in a game).
+  for (const other of db.prepare('SELECT DISTINCT park_id FROM check_ins WHERE player_id = ? AND park_id != ?').all(profile.player_id, parkId)) {
+    if (getCheckIn(profile.player_id, other.park_id)) checkOut(profile.player_id, other.park_id);
+  }
+  logEvent(profile.player_id, 'auto_check_in', pagePathFromReferer(req, '/'), parkId);
+  const park = getParkById(parkId);
+  res.json({ ok: true, parkId, parkName: park.name });
+});
+
+// "Undo" on the toast: check out, and no auto check-in here for 30 minutes.
+app.post('/parks/:parkId/auto-check-in/undo', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parkId = Number(req.params.parkId);
+  const result = checkOut(profile.player_id, parkId);
+  db.prepare(
+    `INSERT INTO auto_check_in_snoozes (player_id, park_id, until) VALUES (?, ?, datetime('now', '+${AUTO_SNOOZE_MINUTES} minutes'))
+     ON CONFLICT (player_id, park_id) DO UPDATE SET until = excluded.until`
+  ).run(profile.player_id, parkId);
+  logEvent(profile.player_id, 'auto_check_in_undo', pagePathFromReferer(req, '/'), parkId);
+  res.json(result);
 });
 
 // OSM-sourced basketball courts near the player, not yet in our own
@@ -1387,9 +1461,12 @@ function courtSheet(court, profile) {
     names: teamName(g.id, 'a') + ' vs ' + teamName(g.id, 'b'),
   }));
   const tag = profile.tag ? '?ref=' + profile.tag : '';
+  const checkedIn = !!(pid && getCheckIn(pid, park.id));
   return {
     court,
     park,
+    // I'm coming → Checked in → Got next → On the court, from the real state.
+    progress: progress.progressFor({ playerId: pid, parkId: park.id, courtId: court.id, isGuest: !!profile.isGuest, checkedIn }),
     courtCount: getCourtsByPark(park.id).length,
     checkedIn: !!(pid && getCheckIn(pid, park.id)),
     line: line.lineView(court.id, pid),
@@ -1398,6 +1475,7 @@ function courtSheet(court, profile) {
     isFollowing: !!(pid && isFollowingCourt(pid, court.id)),
     upcomingRuns: getUpcomingRunsForCourt(court.id, 3),
     shareUrl: `/parks/${park.id}/courts/${court.id}${tag}`,
+    returnTo: `/parks/${park.id}/courts/${court.id}`,
     shareText: `Pull up to ${park.name}. Let's see who takes the crown.`,
     isGuest: !!profile.isGuest,
   };
