@@ -12,6 +12,7 @@
       <span class="tier-badge tier-badge-sm"><%= king.tier %></span>
       <% if (profile && king.playerId === profile.player_id) { %><span class="lb-you-tag">(You)</span><% } %>
       <% if (king.badge) { %><span class="crown-badge <%= king.badge === 'Triple Crown' ? 'triple' : 'double' %>"><%= king.badge %></span><% } %>
+      <% const boltking = locals.playStreakWeeks ? playStreakWeeks(king.playerId) : 0; %><% if (boltking >= 2) { %><span class="play-streak play-streak-tag" title="Play streak: <%= boltking %> weeks">⚡ <%= boltking %></span><% } %>
     </div>
     <div class="king-level"><%= king.crown ? king.crown.name : (king.pointsToCrown + ' pts to a crown') %></div>
     <div class="king-points heading"><%= king.points %> <span>pts</span></div>
@@ -29,6 +30,7 @@
           <span class="tier-badge tier-badge-sm"><%= row.tier %></span>
           <% if (profile && row.playerId === profile.player_id) { %><span class="lb-you-tag">(You)</span><% } %>
           <% if (row.badge) { %><span class="crown-badge <%= row.badge === 'Triple Crown' ? 'triple' : 'double' %>"><%= row.badge %></span><% } %>
+      <% const boltrow = locals.playStreakWeeks ? playStreakWeeks(row.playerId) : 0; %><% if (boltrow >= 2) { %><span class="play-streak play-streak-tag" title="Play streak: <%= boltrow %> weeks">⚡ <%= boltrow %></span><% } %>
         </div>
         <div class="lb-level"><%= row.crown ? row.crown.name : (row.pointsToCrown + ' pts to a crown') %></div>
       </div>

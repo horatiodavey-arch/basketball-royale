@@ -36,6 +36,7 @@
     <div class="here-now-player person-chip">
       <div class="here-now-avatar"><%= p.initials %><span class="status-dot status-dot-<%= status %>" title="<%= status === 'here' ? 'Checked in' : 'Coming' %>"></span></div>
       <div class="here-now-name"><%= p.name.replace(/\s#\d{4}$/, '') %></div>
+      <% const bolt = playStreakWeeks(p.id); %><% if (bolt >= 2) { %><div class="play-streak play-streak-chip">⚡ <%= bolt %></div><% } %>
       <%- include('partials/player-preview', { p: p }) %>
     </div>
   <% }; %>
@@ -163,7 +164,7 @@
     var courtName = <%- JSON.stringify(run.courtName).replace(/</g, '\\u003c') %>;
     var timeLabel = <%- JSON.stringify(formatRunTime(run.scheduledAt)).replace(/</g, '\\u003c') %>;
     document.getElementById('inviteBtn').addEventListener('click', function () {
-      var url = window.location.origin + '/runs/<%= run.id %>';
+      var url = window.location.origin + '/runs/<%= run.id %>'<% if (profile && profile.tag) { %> + '?ref=<%= profile.tag %>'<% } %>;
       var text = 'Pull up to ' + courtName + ' ' + timeLabel + ". Let's see who takes the crown.";
       <% if (profile) { %>RoyaleTrack.report('invite_friends');<% } %>
       if (navigator.share) {

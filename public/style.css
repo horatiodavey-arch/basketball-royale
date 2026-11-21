@@ -1293,3 +1293,9 @@ body:has(#guestStrip:not([style*="none"])) .map-page .leaflet-bottom.leaflet-rig
 }
 .hoop-dot { z-index: 2; }
 .hoop-selected .hoop-dot { right: -8px; bottom: 33px; }
+
+/* Play streak "⚡ N": weeks in a row with a confirmed game. The app's accent
+   color; its own tag, never combined with the heater flame. */
+.play-streak { color: var(--accent); font-weight: 700; white-space: nowrap; }
+.play-streak-tag { margin-left: 6px; font-size: 12px; vertical-align: middle; }
+.play-streak-chip { font-size: 11px; line-height: 1.2; }
