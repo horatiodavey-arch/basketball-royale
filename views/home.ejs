@@ -117,27 +117,29 @@
           </div>
         </div>
       <% } else { %>
-        <a href="/players/<%= sheet.king.playerId %>" class="king-card sheet-king-card">
+        <<%= sheet.king.private ? 'div' : 'a' %><% if (!sheet.king.private) { %> href="/players/<%= sheet.king.playerId %>"<% } %> class="king-card sheet-king-card">
           <div class="sheet-king-crown">
             <%- include('partials/crown-icon', { size: 26, fill: sheet.king.crown ? sheet.king.crown.fill : 'none', stroke: sheet.king.crown ? sheet.king.crown.stroke : 'var(--muted)' }) %>
           </div>
           <div class="sheet-king-body">
             <div class="king-label">KING OF THE COURT</div>
-            <div class="king-name heading"><%= sheet.king.name.replace(/\s#\d{4}$/, '') %></div>
+            <div class="king-name heading"><%= sheet.king.private ? 'Private player' : sheet.king.name.replace(/\s#\d{4}$/, '') %></div>
             <div class="king-level"><%= sheet.king.crown ? sheet.king.crown.name : 'No crown yet' %></div>
           </div>
           <div class="king-points heading"><%= sheet.king.points %> <span>pts</span></div>
-        </a>
+        </<%= sheet.king.private ? 'div' : 'a' %>>
       <% } %>
 
       <div class="here-now-head">
-        <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-here"></span>Here now</span>
+        <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-here"></span>Here now<% if (sheet.hereTotal > 0) { %> &middot; <%= sheet.hereTotal %><% } %></span>
         <% if (sheet.hereNow.length > 5) { %>
-          <a href="/parks/<%= sheet.park.id %>" class="see-all-link">See all <%= sheet.hereNow.length %></a>
+          <a href="/parks/<%= sheet.park.id %>" class="see-all-link">See all <%= sheet.hereTotal %></a>
         <% } %>
       </div>
-      <% if (sheet.hereNow.length === 0) { %>
+      <% if (sheet.hereTotal === 0) { %>
         <div class="next-action-note">Nobody checked in yet.</div>
+      <% } else if (sheet.hereNow.length === 0) { %>
+        <div class="next-action-note"><%= sheet.hereTotal %> here</div>
       <% } else { %>
         <div class="here-now-row">
           <% sheet.hereNow.slice(0, 5).forEach((p) => { %>
@@ -155,10 +157,11 @@
         </div>
       <% } %>
 
-      <% if (sheet.comingNow && sheet.comingNow.length > 0) { %>
+      <% if (sheet.comingNow && sheet.comingNow.total > 0) { %>
         <div class="here-now-head" style="margin-top: 14px;">
-          <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-coming"></span>Coming &middot; <%= sheet.comingNow.length %></span>
+          <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-coming"></span>Coming &middot; <%= sheet.comingNow.total %></span>
         </div>
+        <% if (sheet.comingNow.length === 0) { %><div class="next-action-note"><%= sheet.comingNow.total %> coming</div><% } %>
         <div class="here-now-row">
           <% sheet.comingNow.slice(0, 5).forEach((p) => { %>
             <div class="here-now-player person-chip">
@@ -315,7 +318,7 @@
       var dotClass = pin.activeCount > 0 ? 'pin-dot-active' : 'pin-dot-idle';
       // Nobody active: no crown, just "0" and a gray dot.
       var crownHtml = pin.activeCount > 0 ? crownSvg(fill, stroke, 16) : '';
-      var label = pin.king ? pin.king.name : pin.name;
+      var label = pin.king && !pin.king.private ? pin.king.name : pin.name;
       var distanceHtml = miles != null ? '<div class="pin-distance">' + RoyaleGeo.pinDistanceLabel(miles) + '</div>' : '';
       // Both counts, as the lists on the park show them: "4 here · 3 coming".
       var countsHtml = '<div class="pin-run">' + (pin.live ? '<span class="live-badge">Live</span> ' : '') +

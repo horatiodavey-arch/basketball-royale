@@ -28,7 +28,7 @@
       <% } %>
     </div>
     <% if (run.note) { %><div class="run-note"><%= run.note %></div><% } %>
-    <div class="run-organizer">Started by <%= run.organizerName %></div>
+    <div class="run-organizer">Started by <%= maskName(run.organizerName) %></div>
   </div>
 
   <%# Green dot: checked in at the park (live). Yellow dot: said I'm coming, not here yet. %>
@@ -41,10 +41,12 @@
   <% }; %>
 
   <div class="here-now-head">
-    <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-here"></span>Here now &middot; <%= run.hereNow.length %></span>
+    <span class="section" style="margin: 0;"><span class="status-dot-inline status-dot-here"></span>Here now &middot; <%= run.hereTotal %></span>
   </div>
-  <% if (run.hereNow.length === 0) { %>
+  <% if (run.hereTotal === 0) { %>
     <div class="next-action-note">Nobody checked in at this park yet.</div>
+  <% } else if (run.hereNow.length === 0) { %>
+    <div class="next-action-note"><%= run.hereTotal %> here</div>
   <% } else { %>
     <div class="here-now-row">
       <% run.hereNow.forEach((p) => { %><%- playerChip(p, 'here') %><% }); %>
@@ -56,6 +58,8 @@
   </div>
   <% if (run.cancelled || run.ended) { %>
     <div class="next-action-note"><%= run.cancelled ? 'This run was cancelled.' : 'This run has ended.' %></div>
+  <% } else if (run.rsvpCount > 0 && run.rsvps.length === 0) { %>
+    <div class="next-action-note"><%= run.rsvpCount %> coming</div>
   <% } else if (run.rsvps.length === 0) { %>
     <div class="next-action-note">Nobody's said they're coming yet &mdash; be the first.</div>
   <% } else { %>

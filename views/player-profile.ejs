@@ -27,7 +27,7 @@
   </div>
 
   <div class="pf-home-court">
-    <% if (homeCourt) { %>
+    <% if (homeCourt && (isSelf || !isTeen)) { %>
       Home court: <a href="/parks/<%= homeCourt.id %>" class="player-link"><%= homeCourt.name %></a>
       <% if (isSelf) { %> &middot; <a href="/welcome/home-court?change=1" class="player-link">Change home court</a><% } %>
     <% } else if (isSelf) { %>
@@ -39,6 +39,14 @@
       <input type="hidden" name="hide" value="<%= presenceHidden ? '0' : '1' %>">
       <button type="submit" class="small-btn"><%= presenceHidden ? 'Show me in the here-now list' : 'Hide me from the here-now list' %></button>
       <p class="invite-line">Hidden players still count at the park. They just aren't listed by name.</p>
+    </form>
+    <form method="POST" action="/profile/map-visibility" class="hide-form map-visibility-form">
+      <label for="mapVisibility" class="map-visibility-label">Show me on the map</label>
+      <select id="mapVisibility" name="visibility" class="map-visibility-select" onchange="this.form.submit()">
+        <% visibilityOptions.forEach((o) => { %><option value="<%= o.value %>" <%= o.value === mapVisibility ? 'selected' : '' %>><%= o.label %></option><% }); %>
+      </select>
+      <noscript><button type="submit" class="small-btn">Save</button></noscript>
+      <p class="invite-line"><%= mapVisibility === 'everyone' ? 'Your name shows at the court when you check in or say you\'re coming.' : 'Others just see a count, like "3 here", that includes you.' %></p>
     </form>
   <% } %>
   <% if (isSelf) { %>

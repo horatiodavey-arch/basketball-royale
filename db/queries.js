@@ -1,4 +1,5 @@
 const { db, formingGameFor, lastId, cityFromAddress, runOnce, newUniqueTag } = require('./index');
+const { PRIVATE_SQL, isTeenPlayer, teenDisplayNames } = require('./age');
 
 function getUserByPhone(phone) {
   return db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
@@ -611,16 +612,15 @@ function getLiveGameCountByPark(parkId) {
 // A park's king, with their city-wide crown (the color the pin and the
 // king card use) — not the park-scope crown, since crown LEVEL is
 // always based on total season points, same rule as everywhere else.
-function getParkKing(parkId, seasonStart) {
+function getParkKing(parkId, seasonStart, viewerPlayerId = null) {
   const standings = getParkStandings(parkId, seasonStart);
   const row = standings[0];
   if (!row) return null;
-  return {
-    playerId: row.playerId,
-    name: row.name,
-    points: row.points,
-    crown: getCrownLevel(getPlayerSeasonPoints(row.playerId, seasonStart)),
-  };
+  const crown = getCrownLevel(getPlayerSeasonPoints(row.playerId, seasonStart));
+  // A teen's name is never shown next to a court: the crown and points show,
+  // the name and profile link don't.
+  if (row.playerId !== viewerPlayerId && isTeenPlayer(row.playerId)) return { playerId: null, name: null, private: true, points: row.points, crown };
+  return { playerId: row.playerId, name: row.name, points: row.points, crown };
 }
 
 // One pin's worth of data per park, for the map.
@@ -639,21 +639,26 @@ function getParkNextRun(parkId) {
 }
 
 // Players checked in at a park, minus anyone who hides. Used by "Here now".
-function hereAtPark(parkId) {
-  return getCheckedInPlayers(parkId)
-    .filter((p) => !p.hidden)
+// Teens, and players who chose to show only to people they follow or nobody,
+// aren't named (except to themselves) but are in .total, the count others see.
+function hereAtPark(parkId, viewerPlayerId = null) {
+  const all = getCheckedInPlayers(parkId).filter((p) => !p.hidden);
+  const list = all
+    .filter((p) => !p.private || p.id === viewerPlayerId)
     .map((p) => ({ id: p.id, name: p.name, initials: nameInitials(p.name) }));
+  list.total = all.length;
+  return list;
 }
 
 // Players who tapped I'm coming on a run at this park that hasn't ended or been
 // cancelled, minus anyone already checked in there (they're in "Here now") and
 // anyone who hides. Distinct players.
-function comingAtPark(parkId) {
+function comingAtPark(parkId, viewerPlayerId = null) {
   const now = appNowSql();
   const here = new Set(getCheckedInPlayers(parkId).map((p) => p.id));
-  return db
+  const all = db
     .prepare(
-      `SELECT DISTINCT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden
+      `SELECT DISTINCT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden, ${PRIVATE_SQL} AS private
        FROM run_rsvps rr
        JOIN runs r ON r.id = rr.run_id
        JOIN courts c ON c.id = r.court_id
@@ -662,8 +667,12 @@ function comingAtPark(parkId) {
        WHERE c.park_id = ? AND r.cancelled_at IS NULL AND datetime(r.scheduled_at, '+${LIVE_AFTER_MINUTES} minutes') >= ?`
     )
     .all(parkId, now)
-    .filter((p) => !here.has(p.id) && !p.hidden)
+    .filter((p) => !here.has(p.id) && !p.hidden);
+  const list = all
+    .filter((p) => !p.private || p.id === viewerPlayerId)
     .map((p) => ({ id: p.id, name: p.name, initials: nameInitials(p.name) }));
+  list.total = all.length;
+  return list;
 }
 
 function getParkMapPins(seasonStart) {
@@ -706,8 +715,8 @@ function getParkMapPins(seasonStart) {
     isIndoor: !!park.is_indoor,
     source: park.source || 'preset',
     activeCount: getCheckedInPlayers(park.id).length,
-    hereCount: hereAtPark(park.id).length,
-    comingCount: comingAtPark(park.id).length,
+    hereCount: hereAtPark(park.id).total,
+    comingCount: comingAtPark(park.id).total,
     liveCount: getLiveGameCountByPark(park.id),
     king: getParkKing(park.id, seasonStart),
     nextRun: getParkNextRun(park.id),
@@ -718,12 +727,13 @@ function getParkMapPins(seasonStart) {
 // Everything the selected park's bottom sheet needs.
 function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
   const park = getParkById(parkId);
-  const king = getParkKing(parkId, seasonStart);
+  const king = getParkKing(parkId, seasonStart, viewerPlayerId);
   const pointsByPlayer = new Map(getParkStandings(parkId, seasonStart).map((r) => [r.playerId, r.points]));
 
   // The current player first, then everyone else by points at this park.
-  const hereNow = getCheckedInPlayers(parkId)
-    .filter((p) => !p.hidden)
+  const hereAll = getCheckedInPlayers(parkId).filter((p) => !p.hidden);
+  const hereNow = hereAll
+    .filter((p) => !p.private || p.id === viewerPlayerId)
     .map((p) => ({
       id: p.id,
       name: p.name,
@@ -736,7 +746,8 @@ function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
 
   // Shown under the avatars, only to a checked-in player.
   let viewerStatus = '';
-  if (king && king.playerId === viewerPlayerId) {
+  const topRow = getParkStandings(parkId, seasonStart)[0];
+  if (king && topRow && topRow.playerId === viewerPlayerId) {
     viewerStatus = "You're the King. Defend your crown.";
   } else if (king) {
     const behind = roundTenth(king.points - (pointsByPlayer.get(viewerPlayerId) || 0));
@@ -748,12 +759,14 @@ function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
 
   return {
     park,
-    activeCount: hereNow.length,
+    activeCount: hereAll.length,
     liveCount: getLiveGameCountByPark(parkId),
     king,
     hereNow,
+    // Everyone here, named or not: the count others see.
+    hereTotal: hereAll.length,
     // Said I'm coming to a run here but not checked in yet (yellow dot).
-    comingNow: comingAtPark(parkId),
+    comingNow: comingAtPark(parkId, viewerPlayerId),
     viewerStatus,
     checkedIn: !!getCheckIn(viewerPlayerId, parkId),
     firstCourtId: firstCourt ? firstCourt.id : null,
@@ -898,7 +911,7 @@ function setPresenceHidden(playerId, hidden) {
 function getCheckedInPlayers(parkId) {
   return db
     .prepare(
-      `SELECT p.id, ${DISPLAY_NAME} AS name, c.last_seen, p.hide_presence AS hidden
+      `SELECT p.id, ${DISPLAY_NAME} AS name, c.last_seen, p.hide_presence AS hidden, ${PRIVATE_SQL} AS private
        FROM check_ins c
        JOIN players p ON p.id = c.player_id
        JOIN users u ON u.id = p.user_id
@@ -1587,16 +1600,18 @@ function getTodaysRun(playerId) {
   const live = screen.liveGame;
   const gameNo = nextGameId();
   const people = (team) => team.map((p) => ({ id: p.playerId, name: p.name, initials: initialsOf(p.name) }));
+  // A teen's name isn't shown next to the court, except to themselves.
+  const teens = teenDisplayNames({ exceptPlayerId: playerId });
   const teamLabel = (team) => {
     const cap = team.find((p) => p.captain) || team[0];
-    return cap ? firstName(cap.name) : 'Team';
+    return cap && !teens.has(cap.name) ? firstName(cap.name) : 'Team';
   };
 
   const queue = screen.queue.map((squad, i) => {
     const cap = squad.roster.find((p) => p.isCaptain) || squad.roster[0];
     return {
       number: i + 1,
-      label: cap ? firstName(cap.name) : 'Team',
+      label: cap && !teens.has(cap.name) ? firstName(cap.name) : 'Team',
       members: squad.roster.map((p) => ({ id: p.id, name: p.name, initials: initialsOf(p.name) })),
       isMine: squad.roster.some((p) => p.id === playerId),
     };
@@ -1629,8 +1644,8 @@ function getTodaysRun(playerId) {
       return {
         gameId: g.gameId,
         format: g.format || null,
-        winner: winner ? firstName(winner.name) : 'Team',
-        loser: loser ? firstName(loser.name) : 'Team',
+        winner: winner && !teens.has(winner.name) ? firstName(winner.name) : 'Team',
+        loser: loser && !teens.has(loser.name) ? firstName(loser.name) : 'Team',
         mine: mine ? (mine.result === 'win' ? 'W' : 'L') : null,
       };
     });
@@ -2517,7 +2532,7 @@ function getRunById(runId, viewerPlayerId) {
 
   const rsvpsAll = db
     .prepare(
-      `SELECT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden, rr.created_at
+      `SELECT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden, ${PRIVATE_SQL} AS private, rr.created_at
        FROM run_rsvps rr
        JOIN players pl ON pl.id = rr.player_id
        JOIN users u ON u.id = pl.user_id
@@ -2528,12 +2543,11 @@ function getRunById(runId, viewerPlayerId) {
   // The run's park: who is here, and who is coming but not yet here. Coming is
   // cleared once the run has ended or been cancelled.
   const ended = addMinutesSql(run.scheduled_at, LIVE_AFTER_MINUTES) < appNowSql();
-  const hereNow = hereAtPark(run.park_id);
-  const hereIds = new Set(hereNow.map((p) => p.id));
-  const rsvps = run.cancelled_at || ended
-    ? []
-    : rsvpsAll
-        .filter((r) => !r.hidden && !hereIds.has(r.id))
+  const hereNow = hereAtPark(run.park_id, viewerPlayerId);
+  const hereIds = new Set(getCheckedInPlayers(run.park_id).map((p) => p.id));
+  const comingAll = run.cancelled_at || ended ? [] : rsvpsAll.filter((r) => !r.hidden && !hereIds.has(r.id));
+  const rsvps = comingAll
+        .filter((r) => !r.private || r.id === viewerPlayerId)
         .map((r) => ({ id: r.id, name: r.name, initials: nameInitials(r.name), ...previewFields(r.id) }));
   const viewerComingRow = viewerPlayerId ? rsvpsAll.some((r) => r.id === viewerPlayerId) : false;
 
@@ -2553,8 +2567,9 @@ function getRunById(runId, viewerPlayerId) {
     live: !state.cancelled && parksWithCheckIns().has(run.park_id),
     organizerName: run.organizer_name,
     rsvps,
-    rsvpCount: rsvps.length,
+    rsvpCount: comingAll.length,
     hereNow,
+    hereTotal: hereNow.total,
     ended,
     viewerComing: viewerComingRow && !(run.cancelled_at || ended),
     organizerPlayerId: run.organizer_player_id,

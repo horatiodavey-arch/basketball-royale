@@ -24,7 +24,7 @@
   </div>
   <div id="parkPhotoStatus" class="park-photo-status"></div>
   <div class="park-now">
-    <% if (parkKing) { %>King of the Court: <span class="king-name-text"><%= parkKing.name %></span><% } else { %>No king yet. Be the first.<% } %>
+    <% if (parkKing) { %>King of the Court: <span class="king-name-text"><%= parkKing.private ? 'Private player' : parkKing.name %></span><% } else { %>No king yet. Be the first.<% } %>
     <% if (parkLive) { %><span class="live-badge">Live</span><% } %>
   </div>
   <% if (park.added_by_name) { %>
@@ -136,7 +136,7 @@
         <div class="live-team">
           <div class="live-team-label">Team A</div>
           <% liveGame.teamA.forEach((p) => { %>
-            <div class="live-player"><%= p.name %></div>
+            <div class="live-player"><%= maskName(p.name) %></div>
           <% }); %>
           <% if (liveGame.teamA.length === 0) { %><div class="live-player live-player-empty">&mdash;</div><% } %>
         </div>
@@ -144,7 +144,7 @@
         <div class="live-team">
           <div class="live-team-label">Team B</div>
           <% liveGame.teamB.forEach((p) => { %>
-            <div class="live-player"><%= p.name %></div>
+            <div class="live-player"><%= maskName(p.name) %></div>
           <% }); %>
           <% if (liveGame.teamB.length === 0) { %><div class="live-player live-player-empty">&mdash;</div><% } %>
         </div>
@@ -211,7 +211,7 @@
           <% [...liveGame.teamA, ...liveGame.teamB].filter((p) => p.team === liveGame.viewerCaptainTeam).forEach((p) => { %>
             <form method="POST" action="/live_games/<%= liveGame.id %>/left" class="inline-form">
               <input type="hidden" name="playerId" value="<%= p.playerId %>">
-              <span><%= p.name %></span>
+              <span><%= maskName(p.name) %></span>
               <button type="submit" class="tiny-btn">Mark left</button>
             </form>
           <% }); %>
@@ -219,7 +219,7 @@
             <form method="POST" action="/live_games/<%= liveGame.id %>/sub" class="inline-form">
               <input type="hidden" name="team" value="<%= liveGame.viewerCaptainTeam %>">
               <select name="playerId">
-                <% availablePlayers.forEach((p) => { %><option value="<%= p.id %>"><%= p.name %></option><% }); %>
+                <% availablePlayers.forEach((p) => { %><option value="<%= p.id %>"><%= maskName(p.name) %></option><% }); %>
               </select>
               <button type="submit" class="tiny-btn">Add sub</button>
             </form>
@@ -254,7 +254,7 @@
     <div class="queue-row">
       <div class="queue-rank"><%= i + 1 %></div>
       <div class="queue-main">
-        <div class="queue-names"><%= squad.roster.map((p) => p.name).join(', ') %></div>
+        <div class="queue-names"><%= squad.roster.map((p) => maskName(p.name)).join(', ') %></div>
         <div class="queue-count"><%= squad.count %> of <%= squad.size || 5 %> picked<% if (squad.ready) { %> &middot; <span class="queue-ready">Ready</span><% } %><% if (squad.size && squad.confirmed) { %> &middot; Roster confirmed<% } %></div>
       </div>
     </div>
@@ -270,7 +270,7 @@
       <div class="pick-form-title">Your squad &mdash; you're captain</div>
       <% viewerSquad.roster.filter((p) => !p.isCaptain).forEach((p) => { %>
         <div class="inline-form">
-          <span><%= p.name %></span>
+          <span><%= maskName(p.name) %></span>
           <form method="POST" action="/next_line/<%= viewerSquad.id %>/captain">
             <input type="hidden" name="playerId" value="<%= p.id %>">
             <button type="submit" class="tiny-btn">Make captain</button>
@@ -287,7 +287,7 @@
           <% availablePlayers.forEach((p) => { %>
             <label class="player-check">
               <input type="checkbox" name="playerIds" value="<%= p.id %>">
-              <%= p.name %>
+              <%= maskName(p.name) %>
             </label>
           <% }); %>
           <% if (availablePlayers.length === 0) { %><div class="next-action-note">Nobody else checked in right now.</div><% } %>

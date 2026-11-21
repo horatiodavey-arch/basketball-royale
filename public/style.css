@@ -93,11 +93,11 @@ body.kotc { background: #FFFFFF; padding: 0; }
 .auth-sub { font-size: 13px; color: var(--text2); margin-bottom: 20px; }
 .field { margin-bottom: 14px; }
 .field label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 6px; }
-.field input {
+.field input, .field select {
   width: 100%; padding: 10px 12px; border: 1px solid var(--border);
   border-radius: 8px; font-size: 15px; font-family: inherit; background: var(--card);
 }
-.field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .error-msg {
   background: var(--red-bg); color: var(--red); font-size: 13px;
   padding: 8px 12px; border-radius: 8px; margin-bottom: 14px;
@@ -1209,3 +1209,11 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .rp-streak { font-size: 14px; font-weight: 600; color: #6D28D9; margin-top: 4px; }
 .section-with-link { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .section-link { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; color: #6D28D9; text-decoration: none; text-transform: none; letter-spacing: 0; }
+
+/* Profile: "Show me on the map" (Everyone / People I follow / Nobody). */
+.map-visibility-form { margin-top: 14px; }
+.map-visibility-label { display: block; font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+.map-visibility-select {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 15px; font-family: inherit; background: var(--card); color: inherit;
+}
