@@ -1064,7 +1064,7 @@ function iGotNext(courtId, playerId) {
     .prepare(
       `SELECT 1 FROM next_line nl
        WHERE nl.court_id = ? AND nl.status = 'waiting'
-         AND (nl.captain_player_id = ? OR EXISTS (SELECT 1 FROM next_line_members WHERE next_line_id = nl.id AND player_id = ?))`
+         AND ((nl.captain_player_id = ? AND nl.guest_name IS NULL) OR EXISTS (SELECT 1 FROM next_line_members WHERE next_line_id = nl.id AND player_id = ?))`
     )
     .get(courtId, playerId, playerId);
   if (alreadyQueued) return { ok: false, error: "You're already in line on this court." };
@@ -2862,6 +2862,8 @@ module.exports = {
   haversineMeters,
   checkOut,
   presentSql,
+  applyGameResult,
+  recordMilestone,
   comingToPark,
   getUnseenResultNotices,
   markResultNoticesSeen,
