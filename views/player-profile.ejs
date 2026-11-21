@@ -27,7 +27,7 @@
   </div>
 
   <div class="pf-home-court">
-    <% if (homeCourt) { %>
+    <% if (homeCourt && (isSelf || !isTeen)) { %>
       Home court: <a href="/parks/<%= homeCourt.id %>" class="player-link"><%= homeCourt.name %></a>
       <% if (isSelf) { %> &middot; <a href="/welcome/home-court?change=1" class="player-link">Change home court</a><% } %>
     <% } else if (isSelf) { %>

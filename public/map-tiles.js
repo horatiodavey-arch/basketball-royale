@@ -8,6 +8,11 @@
 // and pan/zoom; this is only the streets underneath.
 // Needs leaflet.js, maplibre-gl.js and leaflet-maplibre-gl.js loaded first.
 (function () {
+  var CREDIT_HTML =
+    '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">&copy; OpenStreetMap contributors</a>' +
+    ' &middot; <a href="https://openmaptiles.org/" target="_blank" rel="noopener">&copy; OpenMapTiles</a>' +
+    ' &middot; Map by <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a>';
+
   // window.ROYALE_STYLE_URL lets a local test point at a stand-in style.
   var STYLE_URL = window.ROYALE_STYLE_URL || 'https://tiles.openfreemap.org/styles/bright';
   var COLORS = {
@@ -121,11 +126,34 @@
     hoopSvg: hoopSvg,
     crownSvg: crownSvg,
     COLORS: COLORS,
+    addCredits: function (map) {
+      var Credits = L.Control.extend({
+        options: { position: 'bottomleft' },
+        onAdd: function () {
+          var box = L.DomUtil.create('div', 'map-credit');
+          var btn = L.DomUtil.create('button', 'map-credit-btn', box);
+          btn.type = 'button';
+          btn.setAttribute('aria-label', 'Map credits');
+          btn.setAttribute('aria-expanded', 'false');
+          btn.textContent = 'i';
+          var text = L.DomUtil.create('div', 'map-credit-text', box);
+          text.innerHTML = CREDIT_HTML;
+          text.hidden = true;
+          L.DomEvent.disableClickPropagation(box);
+          L.DomEvent.on(btn, 'click', function () {
+            text.hidden = !text.hidden;
+            btn.setAttribute('aria-expanded', text.hidden ? 'false' : 'true');
+            box.classList.toggle('is-open', !text.hidden);
+          });
+          return box;
+        },
+      });
+      return new Credits().addTo(map);
+    },
     addBaseLayer: function (map) {
-      var attribution = { customAttribution: 'OpenFreeMap &copy; OpenMapTiles Data from OpenStreetMap' };
       // Added straight away with the plain style so the map is never empty;
       // swapped to BR's style as soon as it's ready.
-      var layer = L.maplibreGL({ style: { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': COLORS.background } }] }, attributionControl: attribution }).addTo(map);
+      var layer = L.maplibreGL({ style: { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': COLORS.background } }] }, attributionControl: false }).addTo(map);
       brStyle().then(function (style) {
         var gl = layer.getMaplibreMap && layer.getMaplibreMap();
         if (gl) gl.setStyle(style);

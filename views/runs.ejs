@@ -27,7 +27,7 @@
       <a href="/parks/<%= fc.parkId %>" class="park-link">
         <div class="park-link-name"><%- include('partials/park-name', { name: fc.parkName, city: fc.parkCity }) %> &middot; <%= fc.courtName %></div>
         <div class="park-link-location">
-          <%= fc.king ? ('King: ' + fc.king.name) : 'No king yet' %>
+          <%= fc.king ? ('King: ' + (fc.king.private ? 'Private player' : fc.king.name)) : 'No king yet' %>
           <% if (fc.nextRun) { %> &middot; Next run <%= formatRunTime(fc.nextRun.scheduledAt) %><% } %>
         </div>
       </a>
@@ -51,7 +51,7 @@
               <div class="stats-label" style="margin-bottom: 2px;"><%- include('partials/park-name', { name: park.name, city: park.city }) %><% if (park.live) { %><span class="live-badge">Live</span><% } %><% if (park.isNew) { %><span class="new-badge">New</span><% } %></div>
               <div class="suggestion-meta">
                 <span class="suggested-distance"></span>
-                <%= sp.king ? ('King: ' + sp.king.name) : 'No king yet' %>
+                <%= sp.king ? ('King: ' + (sp.king.private ? 'Private player' : sp.king.name)) : 'No king yet' %>
                 <% if (sp.upcomingRuns.length > 0) { %> &middot; Next run <%= formatRunTime(sp.upcomingRuns[0].scheduledAt) %><% } %>
               </div>
             </div>

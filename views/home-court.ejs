@@ -114,7 +114,8 @@
         }).join('');
       }
 
-      var map = L.map('hcMap', { zoomControl: false, attributionControl: true, maxZoom: 19 });
+      var map = L.map('hcMap', { zoomControl: false, attributionControl: false, maxZoom: 19 });
+      RoyaleMap.addCredits(map);
       RoyaleMap.addBaseLayer(map);
       var bounds = [[me.lat, me.lng]];
       L.marker([me.lat, me.lng], {

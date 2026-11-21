@@ -1,6 +1,6 @@
 // Courts players can't use, and each player's home court.
 const { db } = require('./index');
-const { getCheckedInPlayers, notTestSql } = require('./queries');
+const { getCheckedInPlayers, notTestSql, presentSql } = require('./queries');
 
 const REASONS = ['private', 'locked', 'school'];
 const HIDE_AT_REPORTS = 3;
@@ -42,7 +42,7 @@ function setCourtHidden(parkId, hidden) {
 // school. The phone works out which are nearest, so no location is sent here.
 function homeCourtCandidates() {
   const presentParks = new Set(
-    db.prepare("SELECT DISTINCT park_id AS id FROM check_ins WHERE last_inside >= datetime('now', '-5 minutes')").all().map((r) => r.id)
+    db.prepare(`SELECT DISTINCT ci.park_id AS id FROM check_ins ci WHERE ${presentSql('ci')}`).all().map((r) => r.id)
   );
   const liveParks = new Set(
     db

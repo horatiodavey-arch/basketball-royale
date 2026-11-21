@@ -5,6 +5,11 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const {
+  comingToPark,
+  startOfAppDayUtcSql,
+  isPlayerInActiveLiveGame,
+  getUpcomingRunsForCourt,
+  getActiveLiveGame,
   getUserByPhone,
   getPlayerByUserId,
   createUserAndPlayer,
@@ -129,9 +134,13 @@ const {
 } = require('./db/milestones');
 const { notifyPlayers, organizerPlayerIds } = require('./db/push');
 backfillMilestones();
-const { DATA_DIR, writeBackup } = require('./db/index');
+const { db, DATA_DIR, writeBackup } = require('./db/index');
 const gameNow = require('./db/game-now');
+const line = require('./db/line');
+const progress = require('./db/progress');
+const heater = require('./db/heater');
 const courts = require('./db/courts');
+const age = require('./db/age');
 const growth = require('./db/growth');
 const { buildToday } = require('./db/admin-today');
 // Games nobody has touched for 30 minutes close with no result.
@@ -200,6 +209,31 @@ app.use((req, res, next) => {
   next();
 });
 
+// Names of teens are masked next to a court for everyone but the teen. Views
+// call maskName(displayName); the list of teen names is only looked up once a
+// page actually uses it.
+app.use((req, res, next) => {
+  // No "Add a photo" button for teens.
+  res.locals.viewerIsTeen = !!req.session.userId && age.isTeenUser(req.session.userId);
+  let teens = null;
+  res.locals.maskName = (name) => {
+    if (!teens) teens = age.teenDisplayNames({ exceptUserId: req.session.userId || null });
+    return teens.has(name) ? 'Private player' : name;
+  };
+  next();
+});
+
+// Players from before the age question are asked their birth year once, the
+// next time they open the app, before anything else.
+app.use((req, res, next) => {
+  if (!req.session.userId) return next();
+  const p = req.path;
+  if (p === '/age' || p === '/logout' || p.includes('.') || p.startsWith('/admin')) return next();
+  if (!age.needsBirthYear(req.session.userId)) return next();
+  if (p.startsWith('/api') || p.startsWith('/live')) return res.status(403).json({ ok: false, error: 'birth_year_needed' });
+  res.redirect('/age');
+});
+
 // A new player who left before finishing the home-court step goes straight
 // back to it. Only page views; the step's own pages, APIs and sign-out pass.
 app.use((req, res, next) => {
@@ -212,6 +246,12 @@ app.use((req, res, next) => {
   // Back to the page they were opening, once the step is done.
   req.session.afterHomeCourt = req.originalUrl;
   res.redirect('/welcome/home-court');
+});
+
+// Signed-in players run the auto check-in watcher (public/auto-check-in.js).
+app.use((req, res, next) => {
+  res.locals.autoCheckIn = !!req.session.userId;
+  next();
 });
 
 // A one-time note shown under the header on the next page (for example after
@@ -433,11 +473,39 @@ app.post('/signup', (req, res) => {
   if (nameProblem) {
     return res.render('signup', { error: nameProblem, name, phone, returnTo });
   }
+  // Next: "What year were you born?" Nothing is saved until it's answered.
+  req.session.pendingSignup = { name, phone, returnTo };
+  res.redirect('/signup/age');
+});
+
+app.get('/signup/age', (req, res) => {
+  if (req.session.userId) return res.redirect('/');
+  if (!req.session.pendingSignup) return res.redirect('/signup');
+  res.render('age', { action: '/signup/age', years: age.yearOptions(), error: null });
+});
+
+app.post('/signup/age', (req, res) => {
+  const pending = req.session.pendingSignup;
+  if (!pending) return res.redirect('/signup');
+  const birthYear = age.parseBirthYear((req.body || {}).birthYear);
+  if (!birthYear) {
+    return res.render('age', { action: '/signup/age', years: age.yearOptions(), error: 'Pick the year you were born.' });
+  }
+  if (age.isUnder13(birthYear)) {
+    // No account, and nothing about them is kept: only the blocked count goes up.
+    delete req.session.pendingSignup;
+    delete req.session.afterSignup;
+    age.countBlockedSignup();
+    return res.render('age-blocked');
+  }
+  delete req.session.pendingSignup;
+  const { name, phone, returnTo } = pending;
   const referrerPlayerId = req.session.ref ? getPlayerIdByTag(req.session.ref) : null;
   const { userId } = createUserAndPlayer(name, phone, {
     source: req.session.src || 'direct',
     referrerPlayerId,
   });
+  age.setBirthYear(userId, birthYear);
   req.session.userId = userId;
   syncOrganizerFlag(phone);
   // Finish what the guest had tapped (if anything), and count the sign-up.
@@ -449,6 +517,41 @@ app.post('/signup', (req, res) => {
   courts.markHomeCourtPending(userId);
   req.session.afterHomeCourt = (done && done.url) || returnTo || '/';
   res.redirect('/welcome/home-court');
+});
+
+// The one-time birth year question for players from before it existed.
+app.get('/age', requireAuth, (req, res) => {
+  if (!age.needsBirthYear(req.session.userId)) return res.redirect('/');
+  res.render('age', { action: '/age', years: age.yearOptions(), error: null });
+});
+
+app.post('/age', requireAuth, (req, res) => {
+  if (!age.needsBirthYear(req.session.userId)) return res.redirect('/');
+  const birthYear = age.parseBirthYear((req.body || {}).birthYear);
+  if (!birthYear) return res.render('age', { action: '/age', years: age.yearOptions(), error: 'Pick the year you were born.' });
+  if (age.isUnder13(birthYear)) {
+    age.blockExistingUnder13(req.session.userId);
+    return req.session.destroy(() => res.render('age-blocked'));
+  }
+  age.setBirthYear(req.session.userId, birthYear);
+  res.redirect('/');
+});
+
+function visibilityChoices(userId) {
+  const teen = age.isTeenUser(userId);
+  return [
+    { value: 'everyone', label: 'Everyone' },
+    { value: 'followers', label: 'People I follow' },
+    { value: 'nobody', label: 'Nobody' },
+  ].filter((o) => !(teen && o.value === 'everyone'));
+}
+
+// "Show me on the map": everyone / people I follow / nobody. Set from the
+// button on the map, which sends JSON.
+app.post('/profile/map-visibility', requireAuth, (req, res) => {
+  const ok = age.setMapVisibility(req.session.userId, (req.body || {}).visibility);
+  if (req.is('json')) return res.status(ok ? 200 : 400).json({ ok, visibility: age.mapVisibility(req.session.userId) });
+  res.redirect('/');
 });
 
 // "Where do you hoop?" then "Pick your home court". The phone works out the
@@ -576,6 +679,9 @@ app.get('/', allowGuest, (req, res) => {
     selectedPark = parks.find((p) => p.id === mostActive.id) || parks[0];
   }
   const sheet = getParkSheetDetail(selectedPark.id, season.startSql, profile.player_id);
+  const sheetCourt = sheetCourtFor(selectedPark.id, profile.player_id);
+  const cs = sheetCourt ? courtSheet(sheetCourt, profile) : null;
+  if (cs) cs.returnTo = `/?park=${selectedPark.id}`;
 
   // Parks this player follows, with who's here (green) and who's coming
   // (yellow), so they can see a run forming without opening Runs.
@@ -597,6 +703,9 @@ app.get('/', allowGuest, (req, res) => {
 
   res.render('home', {
     mapFilter: profile.isGuest ? 'all' : courts.getMapFilter(req.session.userId),
+    // "Show me on the map", a button on the map (signed-in players only).
+    mapVisibility: profile.isGuest ? null : age.mapVisibility(req.session.userId),
+    visibilityChoices: profile.isGuest ? [] : visibilityChoices(req.session.userId),
     followedParks,
     active: 'map',
     profile,
@@ -607,6 +716,7 @@ app.get('/', allowGuest, (req, res) => {
     pins,
     selectedPark,
     sheet,
+    cs,
     formatRunTime,
     canAddPhoto: canAddParkPhoto(profile, selectedPark.id),
     showIntro: !profile.how_it_works_dismissed_at,
@@ -617,6 +727,8 @@ app.get('/', allowGuest, (req, res) => {
 // Only someone who's actually at the park can add a photo of it; an
 // organizer can from anywhere.
 function canAddParkPhoto(profile, parkId) {
+  // No park photos from under-18s.
+  if (age.isTeenUser(profile.user_id)) return false;
   return !!profile.is_organizer || !!getCheckIn(profile.player_id, parkId);
 }
 
@@ -715,7 +827,18 @@ function boardContext(query, profile) {
   const scope = query.scope === 'city' ? 'city' : 'court';
   const selectedPark = parks.find((p) => p.id === Number(query.park)) || parks[0];
   const format = FORMATS.includes(query.format) ? query.format : null;
-  const rows = getLeaderboard({ scope, parkId: selectedPark.id, seasonStart: season.startSql, format });
+  let rows = getLeaderboard({ scope, parkId: selectedPark.id, seasonStart: season.startSql, format }).map((r) => ({
+    ...r,
+    // Confirmed wins in a row this season, shown only while the streak is on.
+    heater: heater.playerLabel(heater.playerStreak(r.playerId, season.startSql)),
+  }));
+  // A court's board puts a name next to that court, so teens there show as
+  // "Private player" (same rank and points) to everyone but themselves. On the
+  // city board they're listed by display name and tag as usual.
+  if (scope === 'court') {
+    const teens = age.teenDisplayNames({ exceptPlayerId: profile.player_id || null });
+    rows = rows.map((r) => (teens.has(r.name) ? { ...r, name: 'Private player', private: true } : r));
+  }
   const liveUrl = `/live/board?scope=${scope}&park=${selectedPark.id}${format ? '&format=' + format : ''}`;
   const onBoard = rows.some((r) => r.playerId === profile.player_id);
   return { parks, rows, scope, format, formats: FORMATS, selectedPark, season, crownLevels: CROWN_LEVELS, profile, liveUrl, onBoard };
@@ -912,8 +1035,20 @@ app.post('/runs/:id/coming', requireAuth, (req, res) => {
   const run = getRunById(Number(req.params.id), profile.player_id);
   logEvent(profile.player_id, 'im_coming', pagePathFromReferer(req, `/runs/${req.params.id}`), run ? run.parkId : null);
   const result = rsvpToRun(Number(req.params.id), profile.player_id);
-  if (!result.ok) return res.redirect(`/runs/${req.params.id}?error=${encodeURIComponent(result.error)}`);
-  res.redirect(`/runs/${req.params.id}`);
+  // From the court sheet, stay on the court sheet.
+  const back = safeReturnTo((req.body || {}).returnTo);
+  if (!result.ok) return res.redirect(`${back || '/runs/' + req.params.id}?error=${encodeURIComponent(result.error)}`);
+  res.redirect(back || `/runs/${req.params.id}`);
+});
+
+// "I'm coming" to a park with no run scheduled there.
+app.post('/parks/:parkId/coming', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parkId = Number(req.params.parkId);
+  if (!getParkById(parkId)) return res.redirect('/runs');
+  logEvent(profile.player_id, 'im_coming', pagePathFromReferer(req, `/parks/${parkId}`), parkId);
+  comingToPark(profile.player_id, parkId);
+  res.redirect(safeReturnTo((req.body || {}).returnTo) || `/parks/${parkId}`);
 });
 
 app.post('/courts/:courtId/follow', requireAuth, (req, res) => {
@@ -1082,15 +1217,23 @@ app.get('/parks/:parkId/courts/:courtId', allowGuest, (req, res) => {
     profile,
     formatLabel: courtFormatLabel(court),
     active: 'runs',
-    parkKing: getParkKing(court.park_id, getSeasonWindow().startSql),
+    parkKing: getParkKing(court.park_id, getSeasonWindow().startSql, profile.player_id),
     parkIsNew: isNewPark(court.park_id),
     isFollowing: isFollowingCourt(profile.player_id, court.id),
     courtLive: getLiveCourtIds().has(court.id),
     parkLive: getLiveParkIds().has(court.park_id),
+    // The shared court sheet: status line, line, your team, the orange button.
+    cs: courtSheet(court, profile),
+    // Guests (players without the app) on the live game's teams.
+    gameGuests: screen.liveGame ? line.liveGuests(screen.liveGame.id) : { a: [], b: [] },
+    // Every game on at this park, each its own card, with its "On a Heater" tag.
+    parkGames: gameNow.liveGamesAtPark(court.park_id).map((g) => ({ ...g, heater: heaterForGame(g.courtId, g.id) })),
+    // This court's streak: on its live game's team, or (court open) the last winners.
+    courtHeater: screen.liveGame ? heaterForGame(court.id, screen.liveGame.id) : heater.courtHeater(court.id, startOfAppDayUtcSql()),
     countdownEndsAtIso,
     error: req.query.error || null,
     formatRunTime,
-    canAddPhoto: !!profile.is_organizer || screen.checkedIn,
+    canAddPhoto: age.isTeenUser(profile.user_id) ? false : !!profile.is_organizer || screen.checkedIn,
   });
 });
 
@@ -1135,6 +1278,9 @@ app.post(
     if (!park) return res.status(404).json({ ok: false, error: 'Park not found.' });
 
     logEvent(profile.player_id, 'add_park_photo', pagePathFromReferer(req, `/parks/${park.id}`));
+    if (age.isTeenUser(profile.user_id)) {
+      return res.status(403).json({ ok: false, error: 'Park photos are for players 18 and up.' });
+    }
     if (!canAddParkPhoto(profile, park.id)) {
       return res.status(403).json({ ok: false, error: 'Check in at this park to add a photo.' });
     }
@@ -1169,8 +1315,61 @@ app.post('/parks/:parkId/check-out', requireAuth, (req, res) => {
 
 app.post('/parks/:parkId/heartbeat', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  const { lat, lng } = req.body;
-  res.json(heartbeat(profile.player_id, Number(req.params.parkId), lat, lng));
+  const { lat, lng, accuracy } = req.body || {};
+  res.json(heartbeat(profile.player_id, Number(req.params.parkId), lat, lng, accuracy));
+});
+
+// --- Auto check-in. The phone works out which court it's at from this list
+// (the location isn't sent anywhere until it's time to check in), and checks
+// in after 2 straight minutes inside a court's radius.
+const AUTO_SNOOZE_MINUTES = 30;
+function autoSnoozed(playerId, parkId) {
+  return !!db
+    .prepare("SELECT 1 FROM auto_check_in_snoozes WHERE player_id = ? AND park_id = ? AND until > datetime('now')")
+    .get(playerId, parkId);
+}
+
+app.get('/api/auto-check-in/parks', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parks = db
+    .prepare('SELECT id, name, lat, lng, check_in_radius_meters AS r FROM parks WHERE hidden = 0 AND lat IS NOT NULL AND lng IS NOT NULL')
+    .all();
+  const snoozed = db
+    .prepare("SELECT park_id FROM auto_check_in_snoozes WHERE player_id = ? AND until > datetime('now')")
+    .all(profile.player_id)
+    .map((r) => r.park_id);
+  res.json({ parks, checkedInParkId: currentCheckInParkId(profile.player_id) || null, snoozed });
+});
+
+app.post('/parks/:parkId/auto-check-in', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parkId = Number(req.params.parkId);
+  const { lat, lng, accuracy } = req.body || {};
+  if (typeof lat !== 'number' || typeof lng !== 'number') return res.status(400).json({ ok: false });
+  if (autoSnoozed(profile.player_id, parkId)) return res.json({ ok: false, snoozed: true });
+  if (getCheckIn(profile.player_id, parkId)) return res.json({ ok: true, already: true, parkId });
+  const result = checkIn(profile.player_id, parkId, lat, lng, accuracy, 'auto');
+  if (!result.ok) return res.json(result);
+  // One court at a time: leave any other park (never one where they're in a game).
+  for (const other of db.prepare('SELECT DISTINCT park_id FROM check_ins WHERE player_id = ? AND park_id != ?').all(profile.player_id, parkId)) {
+    if (getCheckIn(profile.player_id, other.park_id)) checkOut(profile.player_id, other.park_id);
+  }
+  logEvent(profile.player_id, 'auto_check_in', pagePathFromReferer(req, '/'), parkId);
+  const park = getParkById(parkId);
+  res.json({ ok: true, parkId, parkName: park.name });
+});
+
+// "Undo" on the toast: check out, and no auto check-in here for 30 minutes.
+app.post('/parks/:parkId/auto-check-in/undo', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parkId = Number(req.params.parkId);
+  const result = checkOut(profile.player_id, parkId);
+  db.prepare(
+    `INSERT INTO auto_check_in_snoozes (player_id, park_id, until) VALUES (?, ?, datetime('now', '+${AUTO_SNOOZE_MINUTES} minutes'))
+     ON CONFLICT (player_id, park_id) DO UPDATE SET until = excluded.until`
+  ).run(profile.player_id, parkId);
+  logEvent(profile.player_id, 'auto_check_in_undo', pagePathFromReferer(req, '/'), parkId);
+  res.json(result);
 });
 
 // OSM-sourced basketball courts near the player, not yet in our own
@@ -1282,11 +1481,91 @@ app.post('/courts/:courtId/next', requireAuth, (req, res) => {
   const court = getCourtById(req.params.courtId);
   logEvent(profile.player_id, 'i_got_next', pagePathFromReferer(req, '/runs'), court.park_id);
   const result = iGotNext(Number(req.params.courtId), profile.player_id);
-  // Always lands on the court screen (not back to wherever the button was
-  // tapped from, e.g. home) — that's where squad-building continues.
-  const courtUrl = `/parks/${court.park_id}/courts/${court.id}`;
-  if (result.ok) return res.redirect(courtUrl);
-  res.redirect(`${courtUrl}?error=${encodeURIComponent(result.error || 'That action failed.')}`);
+  // Back to where it was tapped: the map's court sheet or the court page.
+  redirectWithResult(req, res, result, `/parks/${court.park_id}/courts/${court.id}`);
+});
+
+// --- The "I got next" line: leave it, pick a team, add guests, confirm.
+app.post('/courts/:courtId/leave-line', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const court = getCourtById(req.params.courtId);
+  const result = court ? line.leaveLine(court.id, profile.player_id) : { ok: false, error: 'Court not found.' };
+  if (result.ok) logEvent(profile.player_id, 'leave_line', pagePathFromReferer(req, '/'), court.park_id);
+  redirectWithResult(req, res, result, '/runs');
+});
+
+// "+ Add someone to the line": a person without the app, by first name.
+app.post('/courts/:courtId/add-to-line', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.addGuestSpot(Number(req.params.courtId), (req.body || {}).firstName, profile.player_id), '/runs');
+});
+
+// "Let them go ahead": swap with the spot right behind you.
+app.post('/line/:spotId/let-ahead', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.letAhead(Number(req.params.spotId), profile.player_id), '/runs');
+});
+
+// The player who added a guest takes their spot out of the line.
+app.post('/line/:spotId/drop', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.dropSpot(Number(req.params.spotId), profile.player_id), '/runs');
+});
+
+// "Game on (not in app)" and "That game's done".
+app.post('/courts/:courtId/game-on-untracked', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.gameOnUntracked(Number(req.params.courtId), profile.player_id), '/runs');
+});
+app.post('/courts/:courtId/untracked-done', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.untrackedDone(Number(req.params.courtId), profile.player_id), '/runs');
+});
+
+// "Scan to claim this game": a guest's QR code opens this. Signed in, the
+// result moves onto their profile; otherwise they sign up first and land back here.
+app.get('/claim/:token', (req, res) => {
+  const status = line.claimStatus(req.params.token);
+  if (!status.ok) {
+    req.session.flash = status.error;
+    return res.redirect('/');
+  }
+  if (!req.session.userId) return res.redirect('/signup?returnTo=' + encodeURIComponent('/claim/' + req.params.token));
+  const profile = getPlayerProfile(req.session.userId);
+  const result = line.claimGame(req.params.token, profile.player_id);
+  req.session.flash = result.ok
+    ? `Game claimed: the ${result.result === 'win' ? 'win' : 'game'} and its points are on your profile now.`
+    : result.error;
+  res.redirect(`/players/${profile.player_id}`);
+});
+
+app.get('/claim/:token/qr.png', async (req, res) => {
+  if (!line.claimStatus(req.params.token).ok) return res.status(404).end();
+  const url = `${req.protocol}://${req.get('host')}/claim/${req.params.token}`;
+  const png = await QRCode.toBuffer(url, { type: 'png', width: 320, margin: 2 });
+  res.type('png').send(png);
+});
+
+app.post('/line/:spotId/add', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.addPlayer(Number(req.params.spotId), Number((req.body || {}).playerId), profile.player_id), '/runs');
+});
+
+app.post('/line/:spotId/guest', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.addGuest(Number(req.params.spotId), (req.body || {}).firstName, profile.player_id), '/runs');
+});
+
+app.post('/line/:spotId/remove', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const body = req.body || {};
+  const kind = body.kind === 'guest' ? 'guest' : 'player';
+  redirectWithResult(req, res, line.removeFromTeam(Number(req.params.spotId), kind, Number(body.id), profile.player_id), '/runs');
+});
+
+app.post('/line/:spotId/confirm', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  redirectWithResult(req, res, line.confirmTeam(Number(req.params.spotId), profile.player_id), '/runs');
 });
 
 app.post('/next_line/:id/members', requireAuth, (req, res) => {
@@ -1327,6 +1606,110 @@ app.post('/live_games/:id/sub', requireAuth, (req, res) => {
 });
 
 // Game now: start a game on a free court (format and side picked by the player).
+// The court sheet (map) and court page share one layout: status line, the
+// live game card(s), "Who's got next", your team, and one orange button.
+function teamName(liveGameId, team) {
+  const cap = db
+    .prepare(
+      `SELECT u.name FROM live_game_players lgp JOIN players p ON p.id = lgp.player_id JOIN users u ON u.id = p.user_id
+       WHERE lgp.live_game_id = ? AND lgp.team = ? AND lgp.time_off IS NULL ORDER BY lgp.captain DESC, lgp.id LIMIT 1`
+    )
+    .get(liveGameId, team);
+  if (cap) return 'Team ' + String(cap.name).trim().split(/\s+/)[0];
+  const guest = db.prepare('SELECT first_name FROM live_game_guests WHERE live_game_id = ? AND team = ? LIMIT 1').get(liveGameId, team);
+  return guest ? 'Team ' + guest.first_name : 'Team ' + team.toUpperCase();
+}
+
+function courtSheet(court, profile) {
+  const park = getParkById(court.park_id);
+  const pid = profile.player_id || null;
+  const games = gameNow.liveGamesAtPark(park.id).map((g) => ({
+    ...g,
+    heater: heaterForGame(g.courtId, g.id),
+    names: teamName(g.id, 'a') + ' vs ' + teamName(g.id, 'b'),
+  }));
+  const tag = profile.tag ? '?ref=' + profile.tag : '';
+  const checkedIn = !!(pid && getCheckIn(pid, park.id));
+  return {
+    court,
+    park,
+    // I'm coming → Checked in → Got next → On the court, from the real state.
+    progress: progress.progressFor({ playerId: pid, parkId: park.id, courtId: court.id, isGuest: !!profile.isGuest, checkedIn }),
+    courtCount: getCourtsByPark(park.id).length,
+    checkedIn: !!(pid && getCheckIn(pid, park.id)),
+    line: line.lineView(court.id, pid),
+    // Guests from recent games here who can still claim them (24 hours).
+    claims: line.openClaims(court.id),
+    games,
+    viewerPlaying: !!(pid && isPlayerInActiveLiveGame(court.id, pid)),
+    isFollowing: !!(pid && isFollowingCourt(pid, court.id)),
+    upcomingRuns: getUpcomingRunsForCourt(court.id, 3),
+    shareUrl: `/parks/${park.id}/courts/${court.id}${tag}`,
+    returnTo: `/parks/${park.id}/courts/${court.id}`,
+    shareText: `Pull up to ${park.name}. Let's see who takes the crown.`,
+    isGuest: !!profile.isGuest,
+  };
+}
+
+// The map sheet's court: the one the viewer is in line for, else the one with
+// a game on, else the park's first court.
+function sheetCourtFor(parkId, playerId) {
+  const courtsHere = getCourtsByPark(parkId);
+  if (courtsHere.length === 0) return null;
+  const inLine = playerId
+    ? courtsHere.find((c) => line.lineView(c.id, playerId).mine)
+    : null;
+  const live = courtsHere.find((c) => getActiveLiveGame(c.id));
+  return inLine || live || courtsHere[0];
+}
+
+// "On a Heater" for a live game: the team (a/b) keeping the court's winning core.
+function heaterForGame(courtId, liveGameId) {
+  const teams = { a: [], b: [] };
+  for (const r of db.prepare('SELECT player_id, team FROM live_game_players WHERE live_game_id = ? AND time_off IS NULL').all(liveGameId)) {
+    teams[r.team].push(r.player_id);
+  }
+  return heater.courtHeater(courtId, startOfAppDayUtcSql(), teams);
+}
+
+// "Start your own game" / "Start the first run here": a confirm screen. Nothing
+// is created until "Start game" is tapped. Checked-in players only.
+app.get('/parks/:parkId/start-game', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const park = getParkById(Number(req.params.parkId));
+  if (!park) return res.redirect('/runs');
+  const firstCourt = getCourtsByPark(park.id)[0];
+  const back = `/parks/${park.id}/courts/${(firstCourt || {}).id || ''}`;
+  if (!getCheckIn(profile.player_id, park.id)) return res.redirect(back + '?error=' + encodeURIComponent('Check in at the park first.'));
+  const live = gameNow.liveGamesAtPark(park.id);
+  const choices = gameNow.courtChoices(park.id);
+  const wanted = Number(req.query.court);
+  const preselect = (choices.find((c) => c.id === wanted && !c.busy) || choices.find((c) => !c.busy) || {}).id || null;
+  res.render('start-game', {
+    park,
+    running: live[0] || null,
+    formats: gameNow.FORMATS.slice().reverse(),
+    choices,
+    preselect,
+    back: req.query.from && safeReturnTo(req.query.from) ? req.query.from : back,
+    error: req.query.error || null,
+    active: 'runs',
+  });
+});
+
+app.post('/parks/:parkId/start-game', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parkId = Number(req.params.parkId);
+  const body = req.body || {};
+  const court = getCourtById(Number(body.courtId));
+  if (!court || court.park_id !== parkId) {
+    return res.redirect(`/parks/${parkId}/start-game?error=` + encodeURIComponent('Pick a court or hoop.'));
+  }
+  const result = gameNow.startGame(court.id, profile.player_id, body.format);
+  if (!result.ok) return res.redirect(`/parks/${parkId}/start-game?court=${court.id}&error=` + encodeURIComponent(result.error));
+  res.redirect(`/parks/${parkId}/courts/${court.id}#live-${result.liveGameId}`);
+});
+
 app.post('/courts/:courtId/game-now', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
   const court = getCourtById(req.params.courtId);
@@ -1344,7 +1727,14 @@ app.post('/live_games/:id/join', requireAuth, (req, res) => {
 // Game done: a player in the game picks the winning side. The result waits for the other team.
 app.post('/live_games/:id/declare', requireAuth, (req, res) => {
   const profile = getPlayerProfile(req.session.userId);
-  const result = gameNow.reportDone(Number(req.params.id), profile.player_id, req.body.side);
+  const liveGameId = Number(req.params.id);
+  const result = gameNow.reportDone(liveGameId, profile.player_id, req.body.side);
+  // Locked straight away (the other team was all guests): claims, then the line.
+  if (result.ok && result.locked) {
+    const courtId = courtIdForLiveGame(liveGameId);
+    line.prepareGuestClaims(liveGameId);
+    if (courtId) line.startNextGame(courtId);
+  }
   redirectWithResult(req, res, result, '/runs');
 });
 
@@ -1405,6 +1795,11 @@ app.post('/live_games/:id/confirm', requireAuth, (req, res) => {
   const headBefore = courtId ? firstWaitingSquadId(courtId) : null;
   const queuedBefore = courtId ? waitingSquadIds(courtId) : [];
   const result = confirmResult(liveGameId, profile.player_id);
+  // Result locked: the next game starts from the line (#1 plays the winners).
+  if (result.ok && courtId) {
+    line.prepareGuestClaims(liveGameId);
+    line.startNextGame(courtId);
+  }
   // A locked result can move an already-queued squad to first in line: tell its
   // players. A squad created by the lock (the winners, when nobody was waiting)
   // is not in the line before, so it gets no alert.
@@ -1490,6 +1885,8 @@ function profileContext(playerId, viewer, query) {
     recruiterAt: growth.RECRUITER_AT,
     pendingGames: isSelf ? gameNow.pendingGamesFor(player.player_id) : [],
     presenceHidden: isSelf ? isPresenceHidden(player.player_id) : false,
+    // Teens: home court is shown only to themselves.
+    isTeen: age.isTeenUser(player.user_id),
     nameError: query.nameError || null,
     player,
     points,
@@ -1592,6 +1989,13 @@ app.get('/admin', requireAdmin, (req, res) => {
     today: buildToday(req.query.day),
     courtsAdmin: courts.adminCourtsSummary(),
     growthAdmin: growth.adminGrowthSummary(),
+    ageAdmin: age.adminAgeCounts(),
+    // Games started while another game was already on at the same park.
+    gamesAlongside: db.prepare(
+      `SELECT COUNT(*) AS n, COUNT(DISTINCT park_id) AS parks FROM events
+       WHERE event_name = 'game_started_alongside' AND player_id NOT IN
+         (SELECT p.id FROM players p JOIN users u ON u.id = p.user_id WHERE u.name GLOB 'TEST*')`
+    ).get(),
     query: { range: req.query.range || '', event: req.query.event || '' },
     active: '',
   });

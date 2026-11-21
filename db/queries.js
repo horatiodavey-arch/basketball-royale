@@ -1,4 +1,5 @@
 const { db, formingGameFor, lastId, cityFromAddress, runOnce, newUniqueTag } = require('./index');
+const { PRIVATE_SQL, isTeenPlayer, teenDisplayNames } = require('./age');
 
 function getUserByPhone(phone) {
   return db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
@@ -581,7 +582,14 @@ function getNextCrownProgress(totalPoints) {
     .reverse()
     .find((level) => level.min > totalPoints);
   if (!next) return null;
-  return { name: next.name, pointsNeeded: roundTenth(next.min - totalPoints) };
+  return {
+    name: next.name,
+    pointsNeeded: roundTenth(next.min - totalPoints),
+    points: roundTenth(totalPoints),
+    min: next.min,
+    fill: next.fill,
+    stroke: next.stroke,
+  };
 }
 
 function nameInitials(name) {
@@ -611,16 +619,15 @@ function getLiveGameCountByPark(parkId) {
 // A park's king, with their city-wide crown (the color the pin and the
 // king card use) — not the park-scope crown, since crown LEVEL is
 // always based on total season points, same rule as everywhere else.
-function getParkKing(parkId, seasonStart) {
+function getParkKing(parkId, seasonStart, viewerPlayerId = null) {
   const standings = getParkStandings(parkId, seasonStart);
   const row = standings[0];
   if (!row) return null;
-  return {
-    playerId: row.playerId,
-    name: row.name,
-    points: row.points,
-    crown: getCrownLevel(getPlayerSeasonPoints(row.playerId, seasonStart)),
-  };
+  const crown = getCrownLevel(getPlayerSeasonPoints(row.playerId, seasonStart));
+  // A teen's name is never shown next to a court: the crown and points show,
+  // the name and profile link don't.
+  if (row.playerId !== viewerPlayerId && isTeenPlayer(row.playerId)) return { playerId: null, name: null, private: true, points: row.points, crown };
+  return { playerId: row.playerId, name: row.name, points: row.points, crown };
 }
 
 // One pin's worth of data per park, for the map.
@@ -639,31 +646,56 @@ function getParkNextRun(parkId) {
 }
 
 // Players checked in at a park, minus anyone who hides. Used by "Here now".
-function hereAtPark(parkId) {
-  return getCheckedInPlayers(parkId)
-    .filter((p) => !p.hidden)
+// Teens, and players who chose to show only to people they follow or nobody,
+// aren't named (except to themselves) but are in .total, the count others see.
+function hereAtPark(parkId, viewerPlayerId = null) {
+  const all = getCheckedInPlayers(parkId).filter((p) => !p.hidden);
+  const list = all
+    .filter((p) => !p.private || p.id === viewerPlayerId)
     .map((p) => ({ id: p.id, name: p.name, initials: nameInitials(p.name) }));
+  list.total = all.length;
+  return list;
 }
 
 // Players who tapped I'm coming on a run at this park that hasn't ended or been
 // cancelled, minus anyone already checked in there (they're in "Here now") and
 // anyone who hides. Distinct players.
-function comingAtPark(parkId) {
+// "I'm coming" to a park with no run scheduled lasts this long.
+const PARK_COMING_HOURS = 3;
+function comingToPark(playerId, parkId) {
+  db.prepare(
+    `INSERT INTO park_coming (player_id, park_id, created_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT (player_id, park_id) DO UPDATE SET created_at = excluded.created_at`
+  ).run(playerId, parkId);
+  return { ok: true };
+}
+
+function comingAtPark(parkId, viewerPlayerId = null) {
   const now = appNowSql();
   const here = new Set(getCheckedInPlayers(parkId).map((p) => p.id));
-  return db
+  const all = db
     .prepare(
-      `SELECT DISTINCT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden
+      `SELECT DISTINCT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden, ${PRIVATE_SQL} AS private
        FROM run_rsvps rr
        JOIN runs r ON r.id = rr.run_id
        JOIN courts c ON c.id = r.court_id
        JOIN players pl ON pl.id = rr.player_id
        JOIN users u ON u.id = pl.user_id
-       WHERE c.park_id = ? AND r.cancelled_at IS NULL AND datetime(r.scheduled_at, '+${LIVE_AFTER_MINUTES} minutes') >= ?`
+       WHERE c.park_id = ? AND r.cancelled_at IS NULL AND datetime(r.scheduled_at, '+${LIVE_AFTER_MINUTES} minutes') >= ?
+       UNION
+       SELECT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden, ${PRIVATE_SQL} AS private
+       FROM park_coming pc
+       JOIN players pl ON pl.id = pc.player_id
+       JOIN users u ON u.id = pl.user_id
+       WHERE pc.park_id = ? AND pc.created_at >= datetime('now', '-${PARK_COMING_HOURS} hours')`
     )
-    .all(parkId, now)
-    .filter((p) => !here.has(p.id) && !p.hidden)
+    .all(parkId, now, parkId)
+    .filter((p) => !here.has(p.id) && !p.hidden);
+  const list = all
+    .filter((p) => !p.private || p.id === viewerPlayerId)
     .map((p) => ({ id: p.id, name: p.name, initials: nameInitials(p.name) }));
+  list.total = all.length;
+  return list;
 }
 
 function getParkMapPins(seasonStart) {
@@ -706,8 +738,8 @@ function getParkMapPins(seasonStart) {
     isIndoor: !!park.is_indoor,
     source: park.source || 'preset',
     activeCount: getCheckedInPlayers(park.id).length,
-    hereCount: hereAtPark(park.id).length,
-    comingCount: comingAtPark(park.id).length,
+    hereCount: hereAtPark(park.id).total,
+    comingCount: comingAtPark(park.id).total,
     liveCount: getLiveGameCountByPark(park.id),
     king: getParkKing(park.id, seasonStart),
     nextRun: getParkNextRun(park.id),
@@ -718,12 +750,13 @@ function getParkMapPins(seasonStart) {
 // Everything the selected park's bottom sheet needs.
 function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
   const park = getParkById(parkId);
-  const king = getParkKing(parkId, seasonStart);
+  const king = getParkKing(parkId, seasonStart, viewerPlayerId);
   const pointsByPlayer = new Map(getParkStandings(parkId, seasonStart).map((r) => [r.playerId, r.points]));
 
   // The current player first, then everyone else by points at this park.
-  const hereNow = getCheckedInPlayers(parkId)
-    .filter((p) => !p.hidden)
+  const hereAll = getCheckedInPlayers(parkId).filter((p) => !p.hidden);
+  const hereNow = hereAll
+    .filter((p) => !p.private || p.id === viewerPlayerId)
     .map((p) => ({
       id: p.id,
       name: p.name,
@@ -736,7 +769,8 @@ function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
 
   // Shown under the avatars, only to a checked-in player.
   let viewerStatus = '';
-  if (king && king.playerId === viewerPlayerId) {
+  const topRow = getParkStandings(parkId, seasonStart)[0];
+  if (king && topRow && topRow.playerId === viewerPlayerId) {
     viewerStatus = "You're the King. Defend your crown.";
   } else if (king) {
     const behind = roundTenth(king.points - (pointsByPlayer.get(viewerPlayerId) || 0));
@@ -748,12 +782,14 @@ function getParkSheetDetail(parkId, seasonStart, viewerPlayerId) {
 
   return {
     park,
-    activeCount: hereNow.length,
+    activeCount: hereAll.length,
     liveCount: getLiveGameCountByPark(parkId),
     king,
     hereNow,
+    // Everyone here, named or not: the count others see.
+    hereTotal: hereAll.length,
     // Said I'm coming to a run here but not checked in yet (yellow dot).
-    comingNow: comingAtPark(parkId),
+    comingNow: comingAtPark(parkId, viewerPlayerId),
     viewerStatus,
     checkedIn: !!getCheckIn(viewerPlayerId, parkId),
     firstCourtId: firstCourt ? firstCourt.id : null,
@@ -773,6 +809,24 @@ const CHECK_IN_FRESH_MINUTES = 5;
 // player pinging from outside that radius doesn't count as fresh, even
 // if their heartbeat itself is recent.
 const FRESH_SINCE_SQL = `datetime('now', '-${CHECK_IN_FRESH_MINUTES} minutes')`;
+
+// Who counts as checked in. Only a real location reading outside the park's
+// radius counts as leaving: a closed app or a locked phone sends nothing and
+// changes nothing. After 5 minutes of being outside, the player is out, except
+// while they're on a roster in a game at that park, and for 5 minutes after
+// that game's result is in. A check-in with no reading at all for
+// NO_SIGNAL_HOURS also ends, so nobody stays "here" after going home.
+const NO_SIGNAL_HOURS = 4;
+function presentSql(a) {
+  return `(${a}.last_seen >= datetime('now', '-${NO_SIGNAL_HOURS} hours') AND (
+    ${a}.outside_since IS NULL
+    OR ${a}.outside_since >= ${FRESH_SINCE_SQL}
+    OR EXISTS (
+      SELECT 1 FROM live_game_players lgp_p JOIN live_games lg_p ON lg_p.id = lgp_p.live_game_id
+      WHERE lgp_p.player_id = ${a}.player_id AND lg_p.park_id = ${a}.park_id AND lgp_p.time_off IS NULL
+        AND (lg_p.status IN ('countdown', 'in_progress', 'awaiting_confirmation')
+             OR (lg_p.status = 'done' AND lg_p.locked_at >= ${FRESH_SINCE_SQL})))))`;
+}
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -794,7 +848,7 @@ const POOR_GPS_ACCURACY_METERS = 100;
 // upserts check_ins (no DB-level UNIQUE on player+park, so check first).
 // `accuracy` is the phone's own estimate of how far off that position
 // could be, in meters — optional, and only used to explain a rejection.
-function checkIn(playerId, parkId, lat, lng, accuracy) {
+function checkIn(playerId, parkId, lat, lng, accuracy, source = 'manual') {
   const park = getParkById(parkId);
   if (!park) return { ok: false, error: 'Park not found.' };
   if (park.lat === null || park.lng === null) {
@@ -818,12 +872,12 @@ function checkIn(playerId, parkId, lat, lng, accuracy) {
     .get(playerId, parkId);
   if (existing) {
     db.prepare(
-      "UPDATE check_ins SET time_in = datetime('now'), last_seen = datetime('now'), last_inside = datetime('now') WHERE id = ?"
-    ).run(existing.id);
+      "UPDATE check_ins SET time_in = datetime('now'), last_seen = datetime('now'), last_inside = datetime('now'), outside_since = NULL, source = ? WHERE id = ?"
+    ).run(source, existing.id);
   } else {
     db.prepare(
-      "INSERT INTO check_ins (player_id, park_id, last_inside) VALUES (?, ?, datetime('now'))"
-    ).run(playerId, parkId);
+      "INSERT INTO check_ins (player_id, park_id, last_inside, source) VALUES (?, ?, datetime('now'), ?)"
+    ).run(playerId, parkId, source);
   }
   return { ok: true };
 }
@@ -842,6 +896,7 @@ function checkOut(playerId, parkId) {
     .get(playerId, parkId);
   if (inGame) return { ok: false, error: "You're in a game here. Finish it before you check out." };
 
+  require('./line').removeFromLines(playerId, parkId);
   const waitingSquads = `SELECT nl.id FROM next_line nl JOIN courts c ON c.id = nl.court_id
                          WHERE c.park_id = ? AND nl.status = 'waiting'`;
   db.prepare(`DELETE FROM next_line_members WHERE player_id = ? AND next_line_id IN (${waitingSquads})`).run(playerId, parkId);
@@ -857,20 +912,25 @@ function checkOut(playerId, parkId) {
 // leave_radius_meters — that's the clock that actually gates presence.
 // No position reported (geolocation failed client-side) counts the same
 // as being outside: the "inside" clock just doesn't get extended.
-function heartbeat(playerId, parkId, lat, lng) {
+function heartbeat(playerId, parkId, lat, lng, accuracy) {
   const park = getParkById(parkId);
   if (!park) return { ok: false };
 
   const hasPosition = typeof lat === 'number' && typeof lng === 'number' && park.lat !== null;
+  // A rough fix can't say the player left: only a good reading outside counts.
+  const trusted = hasPosition && !(typeof accuracy === 'number' && accuracy > POOR_GPS_ACCURACY_METERS);
   const inside = hasPosition && haversineMeters(lat, lng, park.lat, park.lng) <= park.leave_radius_meters;
+  const outside = trusted && !inside;
 
+  const set = inside
+    ? ", last_inside = datetime('now'), outside_since = NULL"
+    : outside
+      ? ", outside_since = COALESCE(outside_since, datetime('now'))"
+      : '';
   const result = db
-    .prepare(
-      `UPDATE check_ins SET last_seen = datetime('now')${inside ? ", last_inside = datetime('now')" : ''}
-       WHERE player_id = ? AND park_id = ?`
-    )
+    .prepare(`UPDATE check_ins SET last_seen = datetime('now')${set} WHERE player_id = ? AND park_id = ?`)
     .run(playerId, parkId);
-  return { ok: result.changes > 0, inside };
+  return { ok: result.changes > 0, inside, checkedIn: !!getCheckIn(playerId, parkId) };
 }
 
 // Fresh (within 5 min, and within the leave radius) check-in for this
@@ -878,7 +938,7 @@ function heartbeat(playerId, parkId, lat, lng) {
 function getCheckIn(playerId, parkId) {
   return db
     .prepare(
-      `SELECT * FROM check_ins WHERE player_id = ? AND park_id = ? AND last_inside >= ${FRESH_SINCE_SQL}`
+      `SELECT * FROM check_ins ci WHERE ci.player_id = ? AND ci.park_id = ? AND ${presentSql('ci')}`
     )
     .get(playerId, parkId);
 }
@@ -898,11 +958,11 @@ function setPresenceHidden(playerId, hidden) {
 function getCheckedInPlayers(parkId) {
   return db
     .prepare(
-      `SELECT p.id, ${DISPLAY_NAME} AS name, c.last_seen, p.hide_presence AS hidden
+      `SELECT p.id, ${DISPLAY_NAME} AS name, c.last_seen, p.hide_presence AS hidden, ${PRIVATE_SQL} AS private
        FROM check_ins c
        JOIN players p ON p.id = c.player_id
        JOIN users u ON u.id = p.user_id
-       WHERE c.park_id = ? AND c.last_inside >= ${FRESH_SINCE_SQL}
+       WHERE c.park_id = ? AND ${presentSql('c')}
        ORDER BY u.name ASC`
     )
     .all(parkId);
@@ -969,7 +1029,7 @@ function tickQueueForCourt(courtId) {
         `SELECT 1 FROM check_ins ci
          JOIN next_line nl ON nl.id = ?
          WHERE ci.player_id = nl.captain_player_id AND ci.park_id = (SELECT park_id FROM courts WHERE id = nl.court_id)
-           AND ci.last_inside >= ${FRESH_SINCE_SQL}`
+           AND ${presentSql('ci')}`
       )
       .get(squad.id);
 
@@ -981,6 +1041,7 @@ function tickQueueForCourt(courtId) {
         db.prepare('UPDATE next_line SET captain_player_id = ?, confirmed = 0 WHERE id = ?').run(nextMember.player_id, squad.id);
         db.prepare('DELETE FROM next_line_members WHERE next_line_id = ? AND player_id = ?').run(squad.id, nextMember.player_id);
       } else {
+        db.prepare('DELETE FROM next_line_guests WHERE next_line_id = ?').run(squad.id);
         db.prepare('DELETE FROM next_line WHERE id = ?').run(squad.id);
         continue;
       }
@@ -990,7 +1051,7 @@ function tickQueueForCourt(courtId) {
     const staleMembers = db
       .prepare(
         `SELECT nlm.player_id FROM next_line_members nlm
-         LEFT JOIN check_ins ci ON ci.player_id = nlm.player_id AND ci.park_id = ? AND ci.last_inside >= ${FRESH_SINCE_SQL}
+         LEFT JOIN check_ins ci ON ci.player_id = nlm.player_id AND ci.park_id = ? AND ${presentSql('ci')}
          WHERE nlm.next_line_id = ? AND ci.id IS NULL`
       )
       .all(parkId, squad.id);
@@ -1016,7 +1077,7 @@ function iGotNext(courtId, playerId) {
     .prepare(
       `SELECT 1 FROM next_line nl
        WHERE nl.court_id = ? AND nl.status = 'waiting'
-         AND (nl.captain_player_id = ? OR EXISTS (SELECT 1 FROM next_line_members WHERE next_line_id = nl.id AND player_id = ?))`
+         AND ((nl.captain_player_id = ? AND nl.guest_name IS NULL) OR EXISTS (SELECT 1 FROM next_line_members WHERE next_line_id = nl.id AND player_id = ?))`
     )
     .get(courtId, playerId, playerId);
   if (alreadyQueued) return { ok: false, error: "You're already in line on this court." };
@@ -1529,7 +1590,7 @@ function recordResultNotices(game, byPlayer, winningTeam, trophiesBefore, gameId
 // court in use, the queue, the game on it, and today's results there.
 function currentCheckInParkId(playerId) {
   const row = db
-    .prepare(`SELECT park_id FROM check_ins WHERE player_id = ? AND last_inside >= ${FRESH_SINCE_SQL} ORDER BY last_inside DESC LIMIT 1`)
+    .prepare(`SELECT ci.park_id FROM check_ins ci WHERE ci.player_id = ? AND ${presentSql('ci')} ORDER BY ci.last_inside DESC LIMIT 1`)
     .get(playerId);
   return row ? row.park_id : null;
 }
@@ -1587,16 +1648,18 @@ function getTodaysRun(playerId) {
   const live = screen.liveGame;
   const gameNo = nextGameId();
   const people = (team) => team.map((p) => ({ id: p.playerId, name: p.name, initials: initialsOf(p.name) }));
+  // A teen's name isn't shown next to the court, except to themselves.
+  const teens = teenDisplayNames({ exceptPlayerId: playerId });
   const teamLabel = (team) => {
     const cap = team.find((p) => p.captain) || team[0];
-    return cap ? firstName(cap.name) : 'Team';
+    return cap && !teens.has(cap.name) ? firstName(cap.name) : 'Team';
   };
 
   const queue = screen.queue.map((squad, i) => {
     const cap = squad.roster.find((p) => p.isCaptain) || squad.roster[0];
     return {
       number: i + 1,
-      label: cap ? firstName(cap.name) : 'Team',
+      label: cap && !teens.has(cap.name) ? firstName(cap.name) : 'Team',
       members: squad.roster.map((p) => ({ id: p.id, name: p.name, initials: initialsOf(p.name) })),
       isMine: squad.roster.some((p) => p.id === playerId),
     };
@@ -1629,8 +1692,8 @@ function getTodaysRun(playerId) {
       return {
         gameId: g.gameId,
         format: g.format || null,
-        winner: winner ? firstName(winner.name) : 'Team',
-        loser: loser ? firstName(loser.name) : 'Team',
+        winner: winner && !teens.has(winner.name) ? firstName(winner.name) : 'Team',
+        loser: loser && !teens.has(loser.name) ? firstName(loser.name) : 'Team',
         mine: mine ? (mine.result === 'win' ? 'W' : 'L') : null,
       };
     });
@@ -2517,7 +2580,7 @@ function getRunById(runId, viewerPlayerId) {
 
   const rsvpsAll = db
     .prepare(
-      `SELECT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden, rr.created_at
+      `SELECT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden, ${PRIVATE_SQL} AS private, rr.created_at
        FROM run_rsvps rr
        JOIN players pl ON pl.id = rr.player_id
        JOIN users u ON u.id = pl.user_id
@@ -2528,12 +2591,11 @@ function getRunById(runId, viewerPlayerId) {
   // The run's park: who is here, and who is coming but not yet here. Coming is
   // cleared once the run has ended or been cancelled.
   const ended = addMinutesSql(run.scheduled_at, LIVE_AFTER_MINUTES) < appNowSql();
-  const hereNow = hereAtPark(run.park_id);
-  const hereIds = new Set(hereNow.map((p) => p.id));
-  const rsvps = run.cancelled_at || ended
-    ? []
-    : rsvpsAll
-        .filter((r) => !r.hidden && !hereIds.has(r.id))
+  const hereNow = hereAtPark(run.park_id, viewerPlayerId);
+  const hereIds = new Set(getCheckedInPlayers(run.park_id).map((p) => p.id));
+  const comingAll = run.cancelled_at || ended ? [] : rsvpsAll.filter((r) => !r.hidden && !hereIds.has(r.id));
+  const rsvps = comingAll
+        .filter((r) => !r.private || r.id === viewerPlayerId)
         .map((r) => ({ id: r.id, name: r.name, initials: nameInitials(r.name), ...previewFields(r.id) }));
   const viewerComingRow = viewerPlayerId ? rsvpsAll.some((r) => r.id === viewerPlayerId) : false;
 
@@ -2553,8 +2615,9 @@ function getRunById(runId, viewerPlayerId) {
     live: !state.cancelled && parksWithCheckIns().has(run.park_id),
     organizerName: run.organizer_name,
     rsvps,
-    rsvpCount: rsvps.length,
+    rsvpCount: comingAll.length,
     hereNow,
+    hereTotal: hereNow.total,
     ended,
     viewerComing: viewerComingRow && !(run.cancelled_at || ended),
     organizerPlayerId: run.organizer_player_id,
@@ -2705,7 +2768,7 @@ function getLiveCourtIds() {
   // Live needs at least one player checked in at the park. A run's time window,
   // or a game in progress, does not make it live on its own.
   const present = new Set(
-    db.prepare(`SELECT DISTINCT park_id FROM check_ins WHERE last_inside >= ${FRESH_SINCE_SQL}`).all().map((r) => r.park_id)
+    db.prepare(`SELECT DISTINCT ci.park_id FROM check_ins ci WHERE ${presentSql('ci')}`).all().map((r) => r.park_id)
   );
   if (present.size === 0) return new Set();
   const now = appNowSql();
@@ -2738,7 +2801,7 @@ function getLiveParkIds() {
 // be the first King of X" empty state) regardless of whether it has a run.
 // Parks with at least one player checked in right now.
 function parksWithCheckIns() {
-  return new Set(db.prepare(`SELECT DISTINCT park_id FROM check_ins WHERE last_inside >= ${FRESH_SINCE_SQL}`).all().map((r) => r.park_id));
+  return new Set(db.prepare(`SELECT DISTINCT ci.park_id FROM check_ins ci WHERE ${presentSql('ci')}`).all().map((r) => r.park_id));
 }
 
 function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
@@ -2813,6 +2876,10 @@ module.exports = {
   createParkFromSpot,
   haversineMeters,
   checkOut,
+  presentSql,
+  applyGameResult,
+  recordMilestone,
+  comingToPark,
   getUnseenResultNotices,
   markResultNoticesSeen,
   getResultNoticeForGame,
@@ -2846,6 +2913,7 @@ module.exports = {
   getParks,
   getParkById,
   getCourtsByPark,
+  startOfAppDayUtcSql,
   getCourtById,
   getSeasonWindow,
   CROWN_LEVELS,
