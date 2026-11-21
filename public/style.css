@@ -1347,9 +1347,9 @@ a.here-now-player { text-decoration: none; color: inherit; }
   background: #F1EFE8; color: #B4B2A9; border: 2px solid #E3E1D9; box-sizing: border-box;
 }
 .cs-step-label { margin-top: 4px; font-size: 11px; line-height: 1.2; color: #888780; }
-.cs-step.is-done .cs-step-dot, .cs-step.is-current .cs-step-dot { background: #E8662A; border-color: #E8662A; color: #FFFFFF; }
-.cs-step.is-done .cs-step-line, .cs-step.is-current .cs-step-line { background: #E8662A; }
-.cs-step.is-current .cs-step-dot { box-shadow: 0 0 0 4px rgba(232, 102, 42, 0.2); }
+
+
+
 .cs-step.is-done .cs-step-label, .cs-step.is-current .cs-step-label { color: #2C2C2A; font-weight: 600; }
 .cs-step.is-skipped .cs-step-dot { border-style: dashed; }
 .cs-track-msg { margin-top: 8px; font-size: 13px; color: #5F5E5A; text-align: center; }
@@ -1410,3 +1410,25 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .cs-claim > summary { list-style: none; display: flex; justify-content: space-between; cursor: pointer; font-size: 14px; }
 .cs-claim > summary::-webkit-details-marker { display: none; }
 .cs-claim-body { text-align: center; padding: 8px 0; }
+
+/* Each step a brighter orange as the player gets closer to playing:
+   I'm coming = light peach, Checked in = soft orange, Got next = orange,
+   On the court = bright BR orange with a soft glow ring while it's on. */
+.cs-track-steps { --peach: #F9C9A8; --soft: #F3A46E; --mid: #EE8540; --bright: #E8662A; }
+.cs-step:nth-child(1) { --tone: var(--peach); --ink: #7A3A10; }
+.cs-step:nth-child(2) { --tone: var(--soft); --ink: #5C2A08; }
+.cs-step:nth-child(3) { --tone: var(--mid); --ink: #FFFFFF; }
+.cs-step:nth-child(4) { --tone: var(--bright); --ink: #FFFFFF; }
+.cs-step.is-done .cs-step-dot, .cs-step.is-current .cs-step-dot { background: var(--tone); border-color: var(--tone); color: var(--ink); }
+.cs-step.is-done .cs-step-line, .cs-step.is-current .cs-step-line { background: var(--tone); }
+.cs-step.is-current:nth-child(4) .cs-step-dot { box-shadow: 0 0 0 5px rgba(232, 102, 42, 0.22), 0 0 14px rgba(232, 102, 42, 0.45); }
+
+/* The main button takes the color of the current step. */
+.cs-tone-coming .cs-cta { background: #F9C9A8; color: #5C2A08; }
+.cs-tone-here .cs-cta { background: #F3A46E; color: #3E1C05; }
+.cs-tone-next .cs-cta { background: #EE8540; color: #FFFFFF; }
+.cs-tone-court .cs-cta { background: #E8662A; color: #FFFFFF; }
+.cs-tone-coming .cs-cta:disabled, .cs-tone-here .cs-cta:disabled { opacity: 0.75; }
+.cs-cta.is-leave { background: #2C2C2A !important; color: #FFFFFF !important; }
+/* "Game now" (starting a game) is the brightest. */
+.start-game-form .run-cta, .run-cta { background: #E8662A; }
