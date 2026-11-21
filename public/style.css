@@ -1355,3 +1355,15 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .cs-track-msg { margin-top: 8px; font-size: 13px; color: #5F5E5A; text-align: center; }
 .cs-track-msg a { color: var(--accent); font-weight: 600; }
 .cs-track-payoff { margin-top: 8px; text-align: center; font-size: 14px; font-weight: 700; color: var(--accent); }
+/* Auto check-in toast: "You're checked in at [Court] · Undo". */
+.auto-check-in-toast {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 3000;
+  bottom: calc(110px + env(safe-area-inset-bottom, 0px));
+  width: calc(100% - 32px); max-width: 420px; box-sizing: border-box; display: flex; align-items: center; gap: 6px;
+  background: #17131F; color: #FFFFFF; border-radius: 12px; padding: 10px 14px;
+  font-size: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.auto-check-in-text { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.auto-check-in-toast button {
+  border: 0; background: none; color: #F5B97A; font: inherit; font-weight: 700; padding: 0 2px; cursor: pointer;
+}
