@@ -511,11 +511,21 @@ app.post('/age', requireAuth, (req, res) => {
   res.redirect('/');
 });
 
-// "Show me on the map": everyone / people I follow / nobody.
+function visibilityChoices(userId) {
+  const teen = age.isTeenUser(userId);
+  return [
+    { value: 'everyone', label: 'Everyone' },
+    { value: 'followers', label: 'People I follow' },
+    { value: 'nobody', label: 'Nobody' },
+  ].filter((o) => !(teen && o.value === 'everyone'));
+}
+
+// "Show me on the map": everyone / people I follow / nobody. Set from the
+// button on the map, which sends JSON.
 app.post('/profile/map-visibility', requireAuth, (req, res) => {
-  const profile = getPlayerProfile(req.session.userId);
-  age.setMapVisibility(req.session.userId, (req.body || {}).visibility);
-  res.redirect(`/players/${profile.player_id}`);
+  const ok = age.setMapVisibility(req.session.userId, (req.body || {}).visibility);
+  if (req.is('json')) return res.status(ok ? 200 : 400).json({ ok, visibility: age.mapVisibility(req.session.userId) });
+  res.redirect('/');
 });
 
 // "Where do you hoop?" then "Pick your home court". The phone works out the
@@ -664,6 +674,9 @@ app.get('/', allowGuest, (req, res) => {
 
   res.render('home', {
     mapFilter: profile.isGuest ? 'all' : courts.getMapFilter(req.session.userId),
+    // "Show me on the map", a button on the map (signed-in players only).
+    mapVisibility: profile.isGuest ? null : age.mapVisibility(req.session.userId),
+    visibilityChoices: profile.isGuest ? [] : visibilityChoices(req.session.userId),
     followedParks,
     active: 'map',
     profile,
@@ -1571,14 +1584,6 @@ function profileContext(playerId, viewer, query) {
     presenceHidden: isSelf ? isPresenceHidden(player.player_id) : false,
     // Teens: home court is shown only to themselves.
     isTeen: age.isTeenUser(player.user_id),
-    mapVisibility: isSelf ? age.mapVisibility(player.user_id) : null,
-    visibilityOptions: isSelf
-      ? [
-          { value: 'everyone', label: 'Everyone' },
-          { value: 'followers', label: 'People I follow' },
-          { value: 'nobody', label: 'Nobody' },
-        ].filter((o) => (age.isTeenUser(player.user_id) ? o.value !== 'everyone' : true))
-      : [],
     nameError: query.nameError || null,
     player,
     points,

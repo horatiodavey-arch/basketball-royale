@@ -66,6 +66,20 @@
           <button type="button" role="menuitemradio" class="map-layers-item" data-filter="indoor"><span class="map-layers-check">&#10003;</span>Indoor</button>
         </div>
       </div>
+      <% if (locals.mapVisibility) { %>
+      <div class="map-layers map-visibility">
+        <button type="button" id="mapVisBtn" class="map-layers-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Show me on the map">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><% if (mapVisibility !== 'everyone') { %><path d="M4 4l16 16"/><% } %></svg>
+        </button>
+        <div id="mapVisMenu" class="map-layers-menu" role="menu" hidden>
+          <div class="map-vis-title">Show me on the map</div>
+          <% visibilityChoices.forEach((o) => { %>
+            <button type="button" role="menuitemradio" class="map-layers-item map-vis-item<%= o.value === mapVisibility ? ' active' : '' %>" aria-checked="<%= o.value === mapVisibility %>" data-visibility="<%= o.value %>"><span class="map-layers-check">&#10003;</span><%= o.label %></button>
+          <% }); %>
+          <div class="map-vis-note"><%= mapVisibility === 'everyone' ? "Your name shows at a court when you're there or coming." : 'Others just see a count, like "3 here", that includes you.' %></div>
+        </div>
+      </div>
+      <% } %>
       <button type="button" id="suggestCourtBtn" class="suggest-court-btn">+ Suggest a court</button>
       <div id="suggestCourtPanel" class="suggest-court-panel" style="display: none;">
         <p>Tap the map to drop a pin, then name the court.</p>
@@ -410,7 +424,7 @@
         if (m.inCluster) quiet.push(m); else standalone.addLayer(m);
       });
       clusters.addLayers(quiet);
-      document.querySelectorAll('.map-layers-item').forEach(function (b) {
+      document.querySelectorAll('.map-layers-item[data-filter]').forEach(function (b) {
         var on = b.getAttribute('data-filter') === courtFilter;
         b.classList.toggle('active', on);
         b.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -429,7 +443,7 @@
       e.stopPropagation();
       setLayersOpen(layersMenu.hidden);
     });
-    document.querySelectorAll('.map-layers-item').forEach(function (b) {
+    document.querySelectorAll('.map-layers-item[data-filter]').forEach(function (b) {
       b.addEventListener('click', function (e) {
         e.stopPropagation();
         courtFilter = b.getAttribute('data-filter');
@@ -449,6 +463,32 @@
     document.addEventListener('click', function (e) {
       if (!layersMenu.hidden && !e.target.closest('.map-layers')) setLayersOpen(false);
     });
+
+    // "Show me on the map": Everyone / People I follow / Nobody.
+    var visBtn = document.getElementById('mapVisBtn');
+    var visMenu = document.getElementById('mapVisMenu');
+    if (visBtn) {
+      var setVisOpen = function (open) {
+        visMenu.hidden = !open;
+        visBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) setLayersOpen(false);
+      };
+      visBtn.addEventListener('click', function (e) { e.stopPropagation(); setVisOpen(visMenu.hidden); });
+      layersBtn.addEventListener('click', function () { setVisOpen(false); });
+      document.querySelectorAll('.map-vis-item').forEach(function (b) {
+        b.addEventListener('click', function (e) {
+          e.stopPropagation();
+          fetch('/profile/map-visibility', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ visibility: b.getAttribute('data-visibility') }),
+          }).then(function () { location.reload(); }).catch(function () { setVisOpen(false); });
+        });
+      });
+      document.addEventListener('click', function (e) {
+        if (!visMenu.hidden && !e.target.closest('.map-visibility')) setVisOpen(false);
+      });
+    }
     applyCourtFilter();
 
     if (selectedParkData.lat != null) {

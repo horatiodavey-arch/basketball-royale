@@ -1210,10 +1210,7 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .section-with-link { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .section-link { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; color: #6D28D9; text-decoration: none; text-transform: none; letter-spacing: 0; }
 
-/* Profile: "Show me on the map" (Everyone / People I follow / Nobody). */
-.map-visibility-form { margin-top: 14px; }
-.map-visibility-label { display: block; font-size: 14px; font-weight: 700; margin-bottom: 6px; }
-.map-visibility-select {
-  width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
-  font-size: 15px; font-family: inherit; background: var(--card); color: inherit;
-}
+/* Map: "Show me on the map" button, stacked above the layers button. */
+.map-layers.map-visibility { bottom: 140px; }
+.map-vis-title { font-size: 12px; font-weight: 700; color: #6B6B76; padding: 6px 10px 4px; }
+.map-vis-note { font-size: 12px; color: #6B6B76; padding: 6px 10px 4px; max-width: 200px; }
