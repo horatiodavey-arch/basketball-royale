@@ -13,6 +13,12 @@ const path = require('path');
   const { fetchFromOverpass, buildLocations, toCourtsFile, COURTS_FILE } = require('../db/courts-import');
   console.log('Asking Overpass for basketball courts in Broward, Miami-Dade and Palm Beach...');
   const raw = await fetchFromOverpass();
+  console.log(`Courts: ${raw.courts.length}. Schools, parks and buildings around them: ${raw.context.length}.`);
+  // Without the second answer no school can be left out and no court gets its
+  // park's name. Never write a file like that.
+  if (raw.courts.length > 0 && raw.context.length === 0) {
+    throw new Error('Overpass sent no schools, parks or buildings around the courts. The file was not written; run it again in a few minutes.');
+  }
   const { locations, stats } = buildLocations(raw);
   const file = toCourtsFile(locations, stats);
   fs.mkdirSync(path.dirname(COURTS_FILE), { recursive: true });

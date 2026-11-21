@@ -63,7 +63,11 @@ async function overpass(query) {
         signal: AbortSignal.timeout(240 * 1000),
       });
       if (!res.ok) throw new Error(`answered ${res.status}`);
-      return (await res.json()).elements || [];
+      const json = await res.json();
+      // Overpass can answer 200 with a "remark" and no data when the query
+      // runs out of time or memory. That's a failure, not an empty answer.
+      if (json.remark && /error|timed out|out of memory/i.test(json.remark)) throw new Error(json.remark.trim());
+      return json.elements || [];
     } catch (err) {
       errors.push(`${new URL(url).host}: ${err.message}`);
     }
