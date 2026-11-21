@@ -7,7 +7,16 @@ const { db, lastId } = require('./index');
 
 // Broward, Miami-Dade and Palm Beach counties (south, west, north, east).
 const BBOX = '25.13,-80.88,26.98,-80.03';
-const OVERPASS_URL = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter';
+// The main Overpass server first, then public mirrors if it fails.
+const OVERPASS_URLS = [
+  ...(process.env.OVERPASS_URL ? [process.env.OVERPASS_URL] : []),
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
+const USER_AGENT = 'BasketballRoyale-court-import/1.1 (+https://github.com/horatiodavey-arch/basketball-royale)';
+// The courts file committed to the repo: the server seeds from it, no network needed.
+const COURTS_FILE = require('path').join(__dirname, '..', 'data', 'courts-south-florida.json');
 const MERGE_METERS = 100; // courts this close become one location
 const PRESET_METERS = 150; // an OSM location this close to a preset is the preset
 const PARK_NEAR_METERS = 100; // ...or this close to a park a player added
@@ -40,17 +49,26 @@ function haversineMeters(lat1, lng1, lat2, lng2) {
 }
 
 async function overpass(query) {
-  const res = await fetch(OVERPASS_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/x-www-form-urlencoded',
-      'user-agent': 'BasketballRoyale-court-import/1.0 (+https://github.com/horatiodavey-arch/basketball-royale)',
-    },
-    body: 'data=' + encodeURIComponent(query),
-    signal: AbortSignal.timeout(240 * 1000),
-  });
-  if (!res.ok) throw new Error(`Overpass answered ${res.status}`);
-  return (await res.json()).elements || [];
+  const errors = [];
+  for (const url of OVERPASS_URLS) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          'user-agent': USER_AGENT,
+          accept: 'application/json',
+        },
+        body: 'data=' + encodeURIComponent(query),
+        signal: AbortSignal.timeout(240 * 1000),
+      });
+      if (!res.ok) throw new Error(`answered ${res.status}`);
+      return (await res.json()).elements || [];
+    } catch (err) {
+      errors.push(`${new URL(url).host}: ${err.message}`);
+    }
+  }
+  throw new Error('Every Overpass server failed (' + errors.join('; ') + ')');
 }
 
 // Both queries, a short pause apart (Overpass asks clients not to hammer it).
@@ -245,4 +263,52 @@ async function importCourts({ data = null, dryRun = false, saveTo = null } = {})
   return { stats, saved, totals };
 }
 
-module.exports = { importCourts, buildLocations, saveLocations, COURTS_QUERY, CONTEXT_QUERY, SCHOOL_WORDS };
+// What goes in data/courts-south-florida.json: the merged locations, ready to save.
+function toCourtsFile(locations, stats) {
+  return {
+    generatedAt: new Date().toISOString(),
+    source: 'OpenStreetMap contributors, via the Overpass API (ODbL)',
+    area: 'Broward, Miami-Dade and Palm Beach counties, Florida (bbox ' + BBOX + ')',
+    rules: 'Basketball pitches and sports centres; schools left out; courts within 100 m merged; indoor = indoor=yes, inside a building, or a sports centre.',
+    stats,
+    locations: locations.map((l) => ({
+      name: l.name,
+      city: l.city,
+      address: l.address,
+      lat: Number(l.lat.toFixed(6)),
+      lng: Number(l.lng.toFixed(6)),
+      indoor: !!l.indoor,
+      courtCount: l.courtCount,
+      osmIds: l.keys,
+    })),
+  };
+}
+
+function locationsFromFile(file) {
+  return (file.locations || []).map((l) => ({
+    name: l.name,
+    city: l.city || null,
+    address: l.address || null,
+    lat: l.lat,
+    lng: l.lng,
+    indoor: !!l.indoor,
+    courtCount: l.courtCount || 1,
+    keys: [...(l.osmIds || [])].sort(),
+  }));
+}
+
+// On start: if there are no OpenStreetMap courts yet, save them from the
+// committed file. No network. Returns null when there's nothing to do.
+function seedFromFile(filePath = COURTS_FILE) {
+  const fs = require('fs');
+  const existing = db.prepare("SELECT COUNT(*) AS n FROM parks WHERE source = 'osm'").get().n;
+  if (existing > 0 || !fs.existsSync(filePath)) return null;
+  const file = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  const saved = saveLocations(locationsFromFile(file));
+  const totals = db
+    .prepare("SELECT COUNT(*) AS locations, COALESCE(SUM(court_count), 0) AS courts, SUM(is_indoor) AS indoor FROM parks WHERE source = 'osm'")
+    .get();
+  return { saved, totals, generatedAt: file.generatedAt };
+}
+
+module.exports = { importCourts, toCourtsFile, locationsFromFile, seedFromFile, fetchFromOverpass, COURTS_FILE, buildLocations, saveLocations, COURTS_QUERY, CONTEXT_QUERY, SCHOOL_WORDS };
