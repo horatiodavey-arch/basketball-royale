@@ -464,6 +464,27 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('next_line', 'status', "TEXT NOT NULL DEFAULT 'waiting'");
   addColumnIfMissing('next_line', 'created_at', 'TEXT');
   addColumnIfMissing('check_ins', 'last_inside', 'TEXT');
+  // Auto check-in: when a real location reading first put the player outside
+  // the park's radius (NULL while inside), and how the check-in happened.
+  addColumnIfMissing('check_ins', 'outside_since', 'TEXT');
+  addColumnIfMissing('check_ins', 'source', "TEXT DEFAULT 'manual'");
+  // "Undo" on an auto check-in: no auto check-in at that park until this time.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS auto_check_in_snoozes (
+        player_id  INTEGER NOT NULL REFERENCES players(id),
+        park_id    INTEGER NOT NULL REFERENCES parks(id),
+        until      TEXT NOT NULL,
+        PRIMARY KEY (player_id, park_id)
+    );
+  `);
+  // Check-ins that had already lapsed under the old 5-minute rule stay lapsed:
+  // they're marked as outside since their last reading inside.
+  runOnce('check_ins_outside_since_v1', () => {
+    db.prepare(
+      `UPDATE check_ins SET outside_since = COALESCE(last_inside, last_seen)
+       WHERE outside_since IS NULL AND (last_inside IS NULL OR last_inside < datetime('now', '-5 minutes'))`
+    ).run();
+  });
   addColumnIfMissing('players', 'is_organizer', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing('parks', 'osm_id', 'TEXT');
   addColumnIfMissing('parks', 'added_by_player_id', 'INTEGER REFERENCES players(id)');
