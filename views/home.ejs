@@ -64,6 +64,7 @@
       <div class="map-layers">
         <button type="button" id="mapLayersBtn" class="map-layers-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Show courts">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>
+          <span class="map-layers-label">All courts</span>
           <span class="map-layers-dot" hidden></span>
         </button>
         <div id="mapLayersMenu" class="map-layers-menu" role="menu" hidden>
@@ -421,6 +422,8 @@
       // A dot on the button when the map isn't showing all courts.
       var dot = document.querySelector('.map-layers-dot');
       if (dot) dot.hidden = courtFilter === 'all';
+      var lbl = document.querySelector('.map-layers-label');
+      if (lbl) lbl.textContent = { all: 'All courts', outdoor: 'Outdoor', indoor: 'Indoor' }[courtFilter] || 'All courts';
     }
     var layersBtn = document.getElementById('mapLayersBtn');
     var layersMenu = document.getElementById('mapLayersMenu');
