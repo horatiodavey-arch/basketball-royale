@@ -154,7 +154,7 @@
                 <span class="here-now-crown"><%- include('partials/crown-icon', { size: 13, fill: p.crown ? p.crown.fill : 'none', stroke: p.crown ? p.crown.stroke : 'var(--muted)' }) %></span>
                 <span class="status-dot status-dot-here" title="Checked in"></span>
               </div>
-              <div class="here-now-name"><%= p.id === profile.player_id ? 'You' : p.name.replace(/\s#\d{4}$/, '') %></div>
+              <div class="here-now-name"><%= p.id === profile.player_id ? 'You' : p.name.replace(/\s#\d{4}$/, '') %></div><% const bolt = playStreakWeeks(p.id); %><% if (bolt >= 2) { %><div class="play-streak play-streak-chip">⚡ <%= bolt %></div><% } %>
               <div class="here-now-pts"><%= p.points %> pts</div>
               <%- include('partials/player-preview', { p: p }) %>
             </div>
@@ -173,7 +173,7 @@
                 <%= p.initials %>
                 <span class="status-dot status-dot-coming" title="Coming"></span>
               </div>
-              <div class="here-now-name"><%= p.id === profile.player_id ? 'You' : p.name.replace(/\s#\d{4}$/, '') %></div>
+              <div class="here-now-name"><%= p.id === profile.player_id ? 'You' : p.name.replace(/\s#\d{4}$/, '') %></div><% const bolt = playStreakWeeks(p.id); %><% if (bolt >= 2) { %><div class="play-streak play-streak-chip">⚡ <%= bolt %></div><% } %>
             </div>
           <% }); %>
         </div>
@@ -682,7 +682,7 @@
     if (inviteBtn) {
       inviteBtn.addEventListener('click', function () {
         var parkName = <%- JSON.stringify(sheet.park.name).replace(/</g, '\\u003c') %>;
-        var url = window.location.origin + '/parks/' + selectedParkData.id;
+        var url = window.location.origin + '/parks/' + selectedParkData.id<% if (profile && profile.tag) { %> + '?ref=<%= profile.tag %>'<% } %>;
         var text = 'Pull up to ' + parkName + ". Let's see who takes the crown.";
         RoyaleTrack.report('invite_friends');
         if (navigator.share) {

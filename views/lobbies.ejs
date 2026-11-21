@@ -135,7 +135,7 @@
 <script src="/track.js"></script>
 <script>
   function inviteToLobby(joinCode) {
-    const url = window.location.origin + '/signup?code=' + encodeURIComponent(joinCode);
+    const url = window.location.origin + '/signup?code=' + encodeURIComponent(joinCode)<% if (profile && profile.tag) { %> + '&ref=<%= profile.tag %>'<% } %>;
     const text = "Join my run on Basketball Royale — code " + joinCode;
     RoyaleTrack.report('invite_friends');
     if (navigator.share) {
