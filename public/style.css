@@ -1252,3 +1252,9 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .heater-tag.hot { background: #E8702A; color: #FFFFFF; }
 .heater-tag-sm { margin: 0 0 0 6px; padding: 2px 7px; font-size: 11px; vertical-align: middle; }
 .heater-line { font-size: 13px; color: var(--text2); margin-top: 6px; }
+
+/* "I got next": yellow everywhere, so it stands apart from Check in. */
+.got-next-btn, .got-next-btn.small-btn-accent, .got-next-btn.rp-btn-solid, .got-next-btn.tr-spot-btn {
+  background: #F5C518; color: #17131F; border-color: #F5C518;
+}
+.got-next-btn:disabled { opacity: 0.5; }

@@ -85,7 +85,7 @@
     } else {
       park = '<div class="rp-park">Run it back: get in line and earn your +3 next game.</div>';
       actions = '<form method="POST" action="/courts/' + esc(d.courtId) + '/next" class="rp-form" data-rp-submit>' +
-        '<button type="submit" class="rp-btn rp-btn-solid">I got next</button></form>' +
+        '<button type="submit" class="rp-btn rp-btn-solid got-next-btn">I got next</button></form>' +
         '<a class="rp-btn rp-btn-outline" href="/runs" data-rp-close>Back to the run</a>';
     }
 
