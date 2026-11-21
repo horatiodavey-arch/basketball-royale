@@ -38,8 +38,35 @@
       return;
     }
 
+    // "At the court? Check in": show Check in and start it.
+    var here = e.target.closest && e.target.closest('[data-cs-here]');
+    if (here) {
+      showNear();
+      var btn = document.querySelector('[data-cs-near] button');
+      if (btn) btn.click();
+      return;
+    }
+
     document.querySelectorAll('details.cs-menu[open], details.cs-add[open]').forEach(function (d) {
       if (!d.contains(e.target)) d.removeAttribute('open');
     });
   });
+
+  // I'm coming first; Check in once the phone is inside the court's radius.
+  function showNear() {
+    document.querySelectorAll('[data-cs-near]').forEach(function (el) { el.style.display = ''; });
+    document.querySelectorAll('[data-cs-far]').forEach(function (el) { el.style.display = 'none'; });
+    var msg = document.querySelector('[data-cs-msg][data-near]');
+    if (msg) msg.textContent = msg.getAttribute('data-near');
+  }
+  var main = document.querySelector('.cs-main[data-lat]');
+  if (main && document.querySelector('[data-cs-near]') && window.RoyaleGeo && navigator.geolocation) {
+    RoyaleGeo.getPosition(function (pos) {
+      if (RoyaleGeo.isRoughFix(pos)) return;
+      var meters = RoyaleGeo.haversineMiles(pos.coords.latitude, pos.coords.longitude,
+        Number(main.getAttribute('data-lat')), Number(main.getAttribute('data-lng'))) * 1609.34;
+      if (meters <= Number(main.getAttribute('data-radius'))) showNear();
+      else document.querySelectorAll('[data-cs-here]').forEach(function (el) { el.style.display = 'none'; });
+    });
+  }
 })();

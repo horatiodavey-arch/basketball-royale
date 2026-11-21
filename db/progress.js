@@ -12,6 +12,10 @@ const LIVE_AFTER_MINUTES = 180; // a run counts as on until 3 hours after its st
 
 // Said "I'm coming" to a run at this park that hasn't ended or been cancelled.
 function isComing(playerId, parkId) {
+  const parkLevel = db
+    .prepare("SELECT 1 FROM park_coming WHERE player_id = ? AND park_id = ? AND created_at >= datetime('now', '-3 hours')")
+    .get(playerId, parkId);
+  if (parkLevel) return true;
   return !!db
     .prepare(
       `SELECT 1 FROM run_rsvps rr JOIN runs r ON r.id = rr.run_id JOIN courts c ON c.id = r.court_id
@@ -81,12 +85,19 @@ function progressFor({ playerId, parkId, courtId, isGuest, checkedIn }) {
       payoff,
     };
   }
+  const nearMsg = (lead) => `${lead} Tap Check in, or you'll be checked in after 2 minutes here.`;
   if (coming) {
-    return { steps: build({ index: 0 }), message: "You're coming. Check in when you get to the court.", payoff: null };
+    return {
+      steps: build({ index: 0 }),
+      message: "You're coming. Check in when you get to the court.",
+      nearMessage: nearMsg('You made it.'),
+      payoff: null,
+    };
   }
   return {
     steps: STEPS.map((key) => ({ key, label: labels[key], state: 'todo' })),
-    message: "Say I'm coming, or check in when you get here.",
+    message: "On your way? Tap I'm coming so the court knows.",
+    nearMessage: nearMsg("You're here."),
     payoff: null,
   };
 }

@@ -1367,3 +1367,5 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .auto-check-in-toast button {
   border: 0; background: none; color: #F5B97A; font: inherit; font-weight: 700; padding: 0 2px; cursor: pointer;
 }
+
+.cs-here-link { display: block; margin: 8px auto 0; }

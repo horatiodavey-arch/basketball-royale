@@ -16,7 +16,7 @@
     <% }); %>
   </ol>
   <% if (P.payoff) { %><div class="cs-track-payoff"><%= P.payoff %></div><% } %>
-  <div class="cs-track-msg"><% if (P.guest) { %><a href="/signup?returnTo=<%= encodeURIComponent('/parks/' + cs.park.id + '/courts/' + cs.court.id) %>">Sign up to get on the court.</a><% } else { %><%= P.message %><% } %></div>
+  <div class="cs-track-msg"><% if (P.guest) { %><a href="/signup?returnTo=<%= encodeURIComponent('/parks/' + cs.park.id + '/courts/' + cs.court.id) %>">Sign up to get on the court.</a><% } else { %><span data-cs-msg<% if (P.nearMessage) { %> data-near="<%= P.nearMessage %>"<% } %>><%= P.message %></span><% } %></div>
 </div>
 <% if (cs.checkedIn) { %>
   <div class="cs-status">
@@ -102,7 +102,7 @@
   </div>
 <% } %>
 
-<div class="cs-main">
+<div class="cs-main"<% if (cs.park.lat != null) { %> data-lat="<%= cs.park.lat %>" data-lng="<%= cs.park.lng %>" data-radius="<%= cs.park.check_in_radius_meters %>"<% } %>>
   <% if (cs.isGuest) { %>
     <a href="/signup?checkin=<%= cs.park.id %>&returnTo=<%= encodeURIComponent('/parks/' + cs.park.id + '/courts/' + cs.court.id) %>" class="cs-cta">Check in</a>
   <% } else if (cs.viewerPlaying) { %>
@@ -116,17 +116,22 @@
       <button type="submit" class="cs-cta">I got next</button>
     </form>
   <% } else { %>
-    <div id="<%= ids.normal %>">
+    <%# I'm coming first. Once the phone is inside the court's radius the
+        button becomes Check in (and auto check-in takes over after 2 minutes);
+        "At the court? Check in" is there if the location is slow or off. %>
+    <div id="<%= ids.normal %>" data-cs-near style="display: none;">
       <button type="button" id="<%= ids.btn %>" class="cs-cta" data-park-id="<%= cs.park.id %>">Check in</button>
     </div>
-    <div id="<%= ids.tooFar %>" style="display: none;">
+    <div id="<%= ids.tooFar %>" data-cs-far>
       <% if (P.steps[0].state === 'current') { %>
         <button type="button" class="cs-cta" disabled>Check in when you get here</button>
-      <% } else if (cs.upcomingRuns.length > 0) { %>
-        <form method="POST" action="/runs/<%= cs.upcomingRuns[0].id %>/coming">
+      <% } else { %>
+        <form method="POST" action="<%= cs.upcomingRuns.length > 0 ? '/runs/' + cs.upcomingRuns[0].id + '/coming' : '/parks/' + cs.park.id + '/coming' %>">
+          <input type="hidden" name="returnTo" value="<%= cs.returnTo %>">
           <button type="submit" class="cs-cta">I'm coming</button>
         </form>
       <% } %>
+      <button type="button" class="cs-link cs-here-link" data-cs-here>At the court? Check in</button>
       <div class="cs-far-msg" id="<%= ids.tooFarMsg %>"></div>
     </div>
   <% } %>

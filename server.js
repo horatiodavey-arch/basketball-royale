@@ -5,6 +5,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const {
+  comingToPark,
   startOfAppDayUtcSql,
   isPlayerInActiveLiveGame,
   getUpcomingRunsForCourt,
@@ -579,6 +580,7 @@ app.get('/', allowGuest, (req, res) => {
   const sheet = getParkSheetDetail(selectedPark.id, season.startSql, profile.player_id);
   const sheetCourt = sheetCourtFor(selectedPark.id, profile.player_id);
   const cs = sheetCourt ? courtSheet(sheetCourt, profile) : null;
+  if (cs) cs.returnTo = `/?park=${selectedPark.id}`;
 
   // Parks this player follows, with who's here (green) and who's coming
   // (yellow), so they can see a run forming without opening Runs.
@@ -920,8 +922,20 @@ app.post('/runs/:id/coming', requireAuth, (req, res) => {
   const run = getRunById(Number(req.params.id), profile.player_id);
   logEvent(profile.player_id, 'im_coming', pagePathFromReferer(req, `/runs/${req.params.id}`), run ? run.parkId : null);
   const result = rsvpToRun(Number(req.params.id), profile.player_id);
-  if (!result.ok) return res.redirect(`/runs/${req.params.id}?error=${encodeURIComponent(result.error)}`);
-  res.redirect(`/runs/${req.params.id}`);
+  // From the court sheet, stay on the court sheet.
+  const back = safeReturnTo((req.body || {}).returnTo);
+  if (!result.ok) return res.redirect(`${back || '/runs/' + req.params.id}?error=${encodeURIComponent(result.error)}`);
+  res.redirect(back || `/runs/${req.params.id}`);
+});
+
+// "I'm coming" to a park with no run scheduled there.
+app.post('/parks/:parkId/coming', requireAuth, (req, res) => {
+  const profile = getPlayerProfile(req.session.userId);
+  const parkId = Number(req.params.parkId);
+  if (!getParkById(parkId)) return res.redirect('/runs');
+  logEvent(profile.player_id, 'im_coming', pagePathFromReferer(req, `/parks/${parkId}`), parkId);
+  comingToPark(profile.player_id, parkId);
+  res.redirect(safeReturnTo((req.body || {}).returnTo) || `/parks/${parkId}`);
 });
 
 app.post('/courts/:courtId/follow', requireAuth, (req, res) => {
@@ -1461,6 +1475,7 @@ function courtSheet(court, profile) {
     isFollowing: !!(pid && isFollowingCourt(pid, court.id)),
     upcomingRuns: getUpcomingRunsForCourt(court.id, 3),
     shareUrl: `/parks/${park.id}/courts/${court.id}${tag}`,
+    returnTo: `/parks/${park.id}/courts/${court.id}`,
     shareText: `Pull up to ${park.name}. Let's see who takes the crown.`,
     isGuest: !!profile.isGuest,
   };

@@ -648,6 +648,16 @@ function hereAtPark(parkId) {
 // Players who tapped I'm coming on a run at this park that hasn't ended or been
 // cancelled, minus anyone already checked in there (they're in "Here now") and
 // anyone who hides. Distinct players.
+// "I'm coming" to a park with no run scheduled lasts this long.
+const PARK_COMING_HOURS = 3;
+function comingToPark(playerId, parkId) {
+  db.prepare(
+    `INSERT INTO park_coming (player_id, park_id, created_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT (player_id, park_id) DO UPDATE SET created_at = excluded.created_at`
+  ).run(playerId, parkId);
+  return { ok: true };
+}
+
 function comingAtPark(parkId) {
   const now = appNowSql();
   const here = new Set(getCheckedInPlayers(parkId).map((p) => p.id));
@@ -659,9 +669,15 @@ function comingAtPark(parkId) {
        JOIN courts c ON c.id = r.court_id
        JOIN players pl ON pl.id = rr.player_id
        JOIN users u ON u.id = pl.user_id
-       WHERE c.park_id = ? AND r.cancelled_at IS NULL AND datetime(r.scheduled_at, '+${LIVE_AFTER_MINUTES} minutes') >= ?`
+       WHERE c.park_id = ? AND r.cancelled_at IS NULL AND datetime(r.scheduled_at, '+${LIVE_AFTER_MINUTES} minutes') >= ?
+       UNION
+       SELECT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden
+       FROM park_coming pc
+       JOIN players pl ON pl.id = pc.player_id
+       JOIN users u ON u.id = pl.user_id
+       WHERE pc.park_id = ? AND pc.created_at >= datetime('now', '-${PARK_COMING_HOURS} hours')`
     )
-    .all(parkId, now)
+    .all(parkId, now, parkId)
     .filter((p) => !here.has(p.id) && !p.hidden)
     .map((p) => ({ id: p.id, name: p.name, initials: nameInitials(p.name) }));
 }
@@ -2839,6 +2855,7 @@ module.exports = {
   haversineMeters,
   checkOut,
   presentSql,
+  comingToPark,
   getUnseenResultNotices,
   markResultNoticesSeen,
   getResultNoticeForGame,

@@ -13,6 +13,8 @@ const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
 const isNewDb = !fs.existsSync(DB_PATH);
 const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA foreign_keys = ON;');
+// Wait up to 5 seconds for a busy database (e.g. a backup) instead of failing a request.
+db.exec('PRAGMA busy_timeout = 5000;');
 
 // The only parks this app ships with. `replaces` lists earlier preset
 // parks whose courts, games, and everything else fold into this one on
@@ -468,6 +470,15 @@ function migrateKingOfTheCourtColumns() {
   // the park's radius (NULL while inside), and how the check-in happened.
   addColumnIfMissing('check_ins', 'outside_since', 'TEXT');
   addColumnIfMissing('check_ins', 'source', "TEXT DEFAULT 'manual'");
+  // "I'm coming" to a park when no run is scheduled there. Counts for 3 hours.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS park_coming (
+        player_id   INTEGER NOT NULL REFERENCES players(id),
+        park_id     INTEGER NOT NULL REFERENCES parks(id),
+        created_at  TEXT NOT NULL,
+        PRIMARY KEY (player_id, park_id)
+    );
+  `);
   // "Undo" on an auto check-in: no auto check-in at that park until this time.
   db.exec(`
     CREATE TABLE IF NOT EXISTS auto_check_in_snoozes (
