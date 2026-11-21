@@ -1243,3 +1243,12 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .start-game-form .run-cta { margin-top: 18px; }
 .start-game-cancel { display: block; text-align: center; margin-top: 10px; color: var(--text2); font-size: 14px; }
 .start-game-form .winners-note { margin-top: 14px; }
+
+/* "On a Heater": a live streak tag, not a badge. */
+.heater-tag {
+  display: inline-block; margin: 4px 0; padding: 3px 9px; border-radius: 999px;
+  background: #FFF4EC; color: #B4501A; font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.heater-tag.hot { background: #E8702A; color: #FFFFFF; }
+.heater-tag-sm { margin: 0 0 0 6px; padding: 2px 7px; font-size: 11px; vertical-align: middle; }
+.heater-line { font-size: 13px; color: var(--text2); margin-top: 6px; }
