@@ -21,15 +21,26 @@
 
   <div class="hero-standing">
     <div class="hero-crown-level heading"><%= crown ? crown.name : 'No crown yet' %></div>
-    <div class="hero-points"><%= totalPoints %> pts this season</div>
-    <div class="hero-subline">
-      <% if (nextCrown) { %>
-        <%= nextCrown.pointsNeeded %> pts to <%= nextCrown.name %>
-      <% } else { %>
-        You've got the top crown &mdash; Best Record in the League.
-      <% } %>
-    </div>
-    <a href="/how-it-works" class="how-it-works-link">How it works &rsaquo;</a>
+    <%# Crown progress: a thin bar, "12 / 20 pts → In the Mix", ending in the
+        next crown's icon in its own color. %>
+    <% if (nextCrown) { %>
+      <% const pct = Math.max(0, Math.min(100, (nextCrown.points / nextCrown.min) * 100)); %>
+      <div class="crown-bar" aria-label="<%= nextCrown.points %> of <%= nextCrown.min %> points toward <%= nextCrown.name %>">
+        <div class="crown-bar-text"><strong><%= nextCrown.points %> / <%= nextCrown.min %> pts</strong> &rarr; <%= nextCrown.name %></div>
+        <div class="crown-bar-row">
+          <div class="crown-bar-track"><div class="crown-bar-fill" style="width: <%= pct.toFixed(1) %>%"></div></div>
+          <span class="crown-bar-icon"><%- include('partials/crown-icon', { size: 20, fill: nextCrown.fill, stroke: nextCrown.stroke }) %></span>
+        </div>
+      </div>
+    <% } else { %>
+      <div class="crown-bar" aria-label="You've got the top crown">
+        <div class="crown-bar-text"><strong>You've got the top crown</strong></div>
+        <div class="crown-bar-row">
+          <div class="crown-bar-track"><div class="crown-bar-fill" style="width: 100%"></div></div>
+          <span class="crown-bar-icon"><%- include('partials/crown-icon', { size: 20, fill: crown ? crown.fill : '#7A45C2', stroke: crown ? crown.stroke : '#4A2580' }) %></span>
+        </div>
+      </div>
+    <% } %>
   </div>
 
   <% if (locals.followedParks && followedParks.length > 0) { %>
@@ -311,7 +322,8 @@
     }
 
     // maxZoom is needed by the court clusters before the first view is set.
-    var map = L.map('map', { zoomControl: true, maxZoom: 19 });
+    var map = L.map('map', { zoomControl: true, maxZoom: 19, attributionControl: false });
+    RoyaleMap.addCredits(map);
 
     // If the container's layout isn't fully settled yet when Leaflet
     // measures it (e.g. web fonts still loading and about to reflow the

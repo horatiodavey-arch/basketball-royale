@@ -177,9 +177,10 @@
       var lng = parseFloat(lngInput.value);
       var hasPin = !isNaN(lat) && !isNaN(lng);
 
-      var map = L.map(card.querySelector('.admin-pin-map'), { zoomControl: true })
+      var map = L.map(card.querySelector('.admin-pin-map'), { zoomControl: true, attributionControl: false })
         .setView(hasPin ? [lat, lng] : FORT_LAUDERDALE, hasPin ? 17 : 11);
       RoyaleMap.addBaseLayer(map);
+      RoyaleMap.addCredits(map);
 
       var marker = null;
       function placePin(latlng, message) {
