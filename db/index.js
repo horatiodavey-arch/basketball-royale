@@ -13,6 +13,8 @@ const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
 const isNewDb = !fs.existsSync(DB_PATH);
 const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA foreign_keys = ON;');
+// Wait up to 5 seconds for a busy database (e.g. a backup) instead of failing a request.
+db.exec('PRAGMA busy_timeout = 5000;');
 
 // The only parks this app ships with. `replaces` lists earlier preset
 // parks whose courts, games, and everything else fold into this one on
@@ -464,6 +466,50 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('next_line', 'status', "TEXT NOT NULL DEFAULT 'waiting'");
   addColumnIfMissing('next_line', 'created_at', 'TEXT');
   addColumnIfMissing('check_ins', 'last_inside', 'TEXT');
+  // Auto check-in: when a real location reading first put the player outside
+  // the park's radius (NULL while inside), and how the check-in happened.
+  addColumnIfMissing('check_ins', 'outside_since', 'TEXT');
+  addColumnIfMissing('check_ins', 'source', "TEXT DEFAULT 'manual'");
+  // A spot in the line for someone without the app ("+ Add someone to the line"):
+  // guest_name is who it's for; captain_player_id is the player who added them
+  // and looks after the spot.
+  addColumnIfMissing('next_line', 'guest_name', 'TEXT');
+  // "Game on (not in app)": the court is busy with a game nobody's tracking.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS court_busy (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        court_id      INTEGER NOT NULL REFERENCES courts(id),
+        by_player_id  INTEGER REFERENCES players(id),
+        started_at    TEXT NOT NULL,
+        ended_at      TEXT
+    );
+  `);
+  // "I'm coming" to a park when no run is scheduled there. Counts for 3 hours.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS park_coming (
+        player_id   INTEGER NOT NULL REFERENCES players(id),
+        park_id     INTEGER NOT NULL REFERENCES parks(id),
+        created_at  TEXT NOT NULL,
+        PRIMARY KEY (player_id, park_id)
+    );
+  `);
+  // "Undo" on an auto check-in: no auto check-in at that park until this time.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS auto_check_in_snoozes (
+        player_id  INTEGER NOT NULL REFERENCES players(id),
+        park_id    INTEGER NOT NULL REFERENCES parks(id),
+        until      TEXT NOT NULL,
+        PRIMARY KEY (player_id, park_id)
+    );
+  `);
+  // Check-ins that had already lapsed under the old 5-minute rule stay lapsed:
+  // they're marked as outside since their last reading inside.
+  runOnce('check_ins_outside_since_v1', () => {
+    db.prepare(
+      `UPDATE check_ins SET outside_since = COALESCE(last_inside, last_seen)
+       WHERE outside_since IS NULL AND (last_inside IS NULL OR last_inside < datetime('now', '-5 minutes'))`
+    ).run();
+  });
   addColumnIfMissing('players', 'is_organizer', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing('parks', 'osm_id', 'TEXT');
   addColumnIfMissing('parks', 'added_by_player_id', 'INTEGER REFERENCES players(id)');
@@ -641,6 +687,27 @@ function migrateKingOfTheCourtColumns() {
   addColumnIfMissing('users', 'birth_year', 'INTEGER');
   addColumnIfMissing('users', 'map_visibility', 'TEXT');
   addColumnIfMissing('users', 'blocked_under13', 'INTEGER NOT NULL DEFAULT 0');
+  // Guests: players without the app, added to a team by first name. They fill
+  // a roster spot; results and points are only ever saved for app players.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS next_line_guests (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        next_line_id  INTEGER NOT NULL REFERENCES next_line(id),
+        first_name    TEXT NOT NULL,
+        created_at    TEXT
+    );
+    CREATE TABLE IF NOT EXISTS live_game_guests (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        live_game_id  INTEGER NOT NULL REFERENCES live_games(id),
+        team          TEXT NOT NULL CHECK (team IN ('a', 'b')),
+        first_name    TEXT NOT NULL
+    );
+  `);
+  // A guest who played a tracked game can claim it within 24 hours.
+  addColumnIfMissing('live_game_guests', 'claim_token', 'TEXT');
+  addColumnIfMissing('live_game_guests', 'claim_expires_at', 'TEXT');
+  addColumnIfMissing('live_game_guests', 'result_game_id', 'INTEGER');
+  addColumnIfMissing('live_game_guests', 'claimed_player_id', 'INTEGER');
   // One row per player per milestone, written the first time it happens.
   db.exec(`
     CREATE TABLE IF NOT EXISTS player_milestones (

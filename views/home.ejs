@@ -21,15 +21,26 @@
 
   <div class="hero-standing">
     <div class="hero-crown-level heading"><%= crown ? crown.name : 'No crown yet' %></div>
-    <div class="hero-points"><%= totalPoints %> pts this season</div>
-    <div class="hero-subline">
-      <% if (nextCrown) { %>
-        <%= nextCrown.pointsNeeded %> pts to <%= nextCrown.name %>
-      <% } else { %>
-        You've got the top crown &mdash; Best Record in the League.
-      <% } %>
-    </div>
-    <a href="/how-it-works" class="how-it-works-link">How it works &rsaquo;</a>
+    <%# Crown progress: a thin bar, "12 / 20 pts → In the Mix", ending in the
+        next crown's icon in its own color. %>
+    <% if (nextCrown) { %>
+      <% const pct = Math.max(0, Math.min(100, (nextCrown.points / nextCrown.min) * 100)); %>
+      <div class="crown-bar" aria-label="<%= nextCrown.points %> of <%= nextCrown.min %> points toward <%= nextCrown.name %>">
+        <div class="crown-bar-text"><strong><%= nextCrown.points %> / <%= nextCrown.min %> pts</strong> &rarr; <%= nextCrown.name %></div>
+        <div class="crown-bar-row">
+          <div class="crown-bar-track"><div class="crown-bar-fill" style="width: <%= pct.toFixed(1) %>%"></div></div>
+          <span class="crown-bar-icon"><%- include('partials/crown-icon', { size: 20, fill: nextCrown.fill, stroke: nextCrown.stroke }) %></span>
+        </div>
+      </div>
+    <% } else { %>
+      <div class="crown-bar" aria-label="You've got the top crown">
+        <div class="crown-bar-text"><strong>You've got the top crown</strong></div>
+        <div class="crown-bar-row">
+          <div class="crown-bar-track"><div class="crown-bar-fill" style="width: 100%"></div></div>
+          <span class="crown-bar-icon"><%- include('partials/crown-icon', { size: 20, fill: crown ? crown.fill : '#7A45C2', stroke: crown ? crown.stroke : '#4A2580' }) %></span>
+        </div>
+      </div>
+    <% } %>
   </div>
 
   <% if (locals.followedParks && followedParks.length > 0) { %>
@@ -112,9 +123,12 @@
 
     <div class="bottom-sheet">
       <div class="sheet-handle"></div>
-      <div class="park-title-row">
+      <div class="park-title-row cs-title-row">
         <div class="sheet-park-name heading"><%- include('partials/park-name', { name: sheet.park.name, city: sheet.park.city }) %></div>
-        <%- include('partials/park-photo-button', { parkId: sheet.park.id, canAdd: canAddPhoto, isOrganizer: !!profile.is_organizer, statusId: 'sheetPhotoStatus' }) %>
+        <div class="cs-title-tools">
+          <%- include('partials/park-photo-button', { parkId: sheet.park.id, canAdd: canAddPhoto, isOrganizer: !!profile.is_organizer, statusId: 'sheetPhotoStatus' }) %>
+          <% if (cs) { %><%- include('partials/court-sheet-top', { cs: cs }) %><% } %>
+        </div>
       </div>
       <div class="sheet-meta">
         <span class="sheet-dot <%= sheet.activeCount > 0 ? 'sheet-dot-active' : 'sheet-dot-idle' %>"></span>
@@ -122,6 +136,10 @@
       </div>
       <div id="sheetDistance" class="sheet-distance"></div>
       <div id="sheetPhotoStatus" class="park-photo-status"></div>
+
+      <% if (cs) { %>
+        <%- include('partials/court-line', { cs: cs, ids: { btn: 'homeCheckInBtn', normal: 'sheetCheckInNormal', tooFar: 'sheetTooFar', tooFarMsg: 'sheetTooFarMsg', status: 'homeCheckInStatus' } }) %>
+      <% } %>
 
       <% if (!sheet.king) { %>
         <div class="king-card sheet-king-card sheet-king-empty">
@@ -201,50 +219,6 @@
 
       <% if (sheet.checkedIn && sheet.viewerStatus) { %><div class="sheet-status"><%= sheet.viewerStatus %></div><% } %>
 
-      <% if (sheet.checkedIn) { %>
-        <div class="sheet-actions">
-          <form method="POST" action="/parks/<%= sheet.park.id %>/check-out" class="check-out-form" onsubmit="return confirm('Check out of <%= sheet.park.name.replace(/'/g, '') %>? You'll leave the here-now list and any squad here.');">
-            <button type="submit" class="check-in-btn check-in-btn-in">Checked in &middot; tap to check out</button>
-          </form>
-          <form method="POST" action="/courts/<%= sheet.firstCourtId %>/next">
-            <button type="submit" class="submit-btn" <%= sheet.firstCourtId ? '' : 'disabled' %>>I got next</button>
-          </form>
-        </div>
-      <% } else { %>
-        <div id="sheetCheckInNormal" class="sheet-actions">
-          <button type="button" id="homeCheckInBtn" class="check-in-btn" data-park-id="<%= sheet.park.id %>">Check in</button>
-          <form method="POST" action="/courts/<%= sheet.firstCourtId %>/next">
-            <button type="submit" class="submit-btn" <%= sheet.firstCourtId ? '' : 'disabled' %>>I got next</button>
-          </form>
-        </div>
-        <div id="sheetTooFar" class="too-far-box" style="display: none;">
-          <div class="too-far-msg" id="sheetTooFarMsg"></div>
-          <% if (sheet.upcomingRuns.length > 0) { %>
-            <form method="POST" action="/runs/<%= sheet.upcomingRuns[0].id %>/coming" style="margin-top: 8px;">
-              <button type="submit" class="small-btn">I'm coming</button>
-            </form>
-          <% } %>
-        </div>
-      <% } %>
-      <div id="homeCheckInStatus" class="checkin-status"></div>
-
-      <div class="court-actions-row" style="margin-top: 12px;">
-        <a href="/runs/new?courtId=<%= sheet.firstCourtId %>" class="small-btn link-btn">Start run</a>
-        <form method="POST" action="/courts/<%= sheet.firstCourtId %>/follow">
-          <button type="submit" class="small-btn <%= sheet.isFollowing ? 'small-btn-accent' : '' %>"><%= sheet.isFollowing ? 'Following ✓' : 'Follow' %></button>
-        </form>
-        <button type="button" id="inviteBtn" class="small-btn">Invite</button>
-      </div>
-
-      <details class="cant-play">
-        <summary>Can't play here?</summary>
-        <form method="POST" action="/parks/<%= sheet.park.id %>/report" class="cant-play-form">
-          <div class="cant-play-note">Tell us why. After a few reports the court is hidden until it's checked.</div>
-          <button type="submit" name="reason" value="private" class="tiny-btn">Private</button>
-          <button type="submit" name="reason" value="locked" class="tiny-btn">Locked</button>
-          <button type="submit" name="reason" value="school" class="tiny-btn">School</button>
-        </form>
-      </details>
     </div>
   <% } %>
 </div>
@@ -252,6 +226,7 @@
 <script src="/player-preview.js"></script>
 
 <script src="/geo.js"></script>
+<script src="/court-sheet.js"></script>
 <script src="/track.js"></script>
 <% if (pins.length > 0) { %>
 <script src="/vendor/leaflet/leaflet.js"></script>
@@ -364,7 +339,8 @@
     }
 
     // maxZoom is needed by the court clusters before the first view is set.
-    var map = L.map('map', { zoomControl: true, maxZoom: 19 });
+    var map = L.map('map', { zoomControl: true, maxZoom: 19, attributionControl: false });
+    RoyaleMap.addCredits(map);
 
     // If the container's layout isn't fully settled yet when Leaflet
     // measures it (e.g. web fonts still loading and about to reflow the

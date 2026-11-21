@@ -28,6 +28,8 @@ function startGame(courtId, playerId, format) {
   if (q.isPlayerInActiveLiveGame(courtId, playerId)) return fail("You're already in the game on this court.");
 
   const park = q.getParkById(court.park_id);
+  // Started while another game was already on at this park: counted on /admin.
+  const alongside = liveGamesAtPark(park.id).length > 0;
   db.prepare(
     "INSERT INTO live_games (court_id, park_id, target, status, started_at, format) VALUES (?, ?, ?, 'in_progress', datetime('now'), ?)"
   ).run(courtId, park.id, park.game_target, format);
@@ -37,7 +39,35 @@ function startGame(courtId, playerId, format) {
   ).run(liveGameId, playerId, 'a');
   db.prepare('UPDATE courts SET format = ? WHERE id = ?').run(format, courtId);
   q.logEvent(playerId, 'game_started', null, park.id);
+  require('./line').removeFromLines(playerId, park.id);
+  if (alongside) q.logEvent(playerId, 'game_started_alongside', null, park.id);
   return { ok: true, liveGameId };
+}
+
+const courtLabel = (c) => c.nickname || `Court ${c.number}`;
+
+// Every game on at a park, one entry per game, so two games never read as
+// one run: format, court label, players on, and teams waiting next.
+function liveGamesAtPark(parkId) {
+  return db
+    .prepare(
+      `SELECT lg.id, lg.court_id AS courtId, lg.format, c.number, c.nickname,
+              (SELECT COUNT(*) FROM live_game_players p WHERE p.live_game_id = lg.id AND p.time_off IS NULL)
+                + (SELECT COUNT(*) FROM live_game_guests g WHERE g.live_game_id = lg.id) AS onCount,
+              (SELECT COUNT(*) FROM next_line nl WHERE nl.court_id = lg.court_id AND nl.status = 'waiting') AS nextCount
+       FROM live_games lg JOIN courts c ON c.id = lg.court_id
+       WHERE lg.park_id = ? AND lg.status IN ('countdown', 'in_progress')
+       ORDER BY lg.started_at ASC, lg.id ASC`
+    )
+    .all(parkId)
+    .map((g) => ({ id: g.id, courtId: g.courtId, format: g.format, courtLabel: courtLabel(g), onCount: g.onCount, nextCount: g.nextCount }));
+}
+
+// The confirm screen's court/hoop choices: every court at the park, with the
+// ones that already have a game on marked busy.
+function courtChoices(parkId) {
+  const busy = new Set(liveGamesAtPark(parkId).map((g) => g.courtId));
+  return q.getCourtsByPark(parkId).map((c) => ({ id: c.id, label: courtLabel(c), busy: busy.has(c.id) }));
 }
 
 // A player joins by tapping the team his teammate is on. While the game is on he
@@ -49,21 +79,25 @@ function joinGame(liveGameId, playerId, side) {
   if (!SIDES.includes(side)) return fail('Tap the team your teammate is on.');
   const rows = activeRows(liveGameId);
   const size = q.formatSize(game.format);
+  const guests = require('./line').liveGuests(liveGameId);
+  const onSide = (s) => rows.filter((r) => r.team === s).length + guests[s].length;
   const mine = rows.find((r) => r.player_id === playerId);
   if (mine) {
     if (mine.team === side) return { ok: true };
-    if (size && rows.filter((r) => r.team === side).length >= size) return fail(`Team ${side.toUpperCase()} is full.`);
+    if (size && onSide(side) >= size) return fail(`Team ${side.toUpperCase()} is full.`);
     db.prepare(
       "UPDATE live_game_players SET team = ? WHERE live_game_id = ? AND player_id = ? AND time_off IS NULL"
     ).run(side, liveGameId, playerId);
     return { ok: true };
   }
-  if (size && rows.filter((r) => r.team === side).length >= size) {
+  if (size && onSide(side) >= size) {
     return fail(`Team ${side.toUpperCase()} is full.`);
   }
   db.prepare(
     "INSERT INTO live_game_players (live_game_id, player_id, team, captain, time_on) VALUES (?, ?, ?, 0, datetime('now'))"
   ).run(liveGameId, playerId, side);
+  // On a team now: off the "I got next" line at this park.
+  require('./line').removeFromLines(playerId, game.park_id);
   return { ok: true };
 }
 
@@ -85,6 +119,19 @@ function reportDone(liveGameId, playerId, winningSide) {
      WHERE id = ?`
   ).run(winningSide === 'a' ? 1 : 0, team, playerId, team === 'a' ? 1 : 0, team === 'b' ? 1 : 0, liveGameId);
   q.logEvent(playerId, 'result_submitted', null, game.park_id);
+  // The other team is all guests (nobody with the app can confirm): the
+  // reported result locks now. Only app players' results are ever saved.
+  const otherTeam = team === 'a' ? 'b' : 'a';
+  const otherAppPlayers = db
+    .prepare('SELECT COUNT(*) AS n FROM live_game_players WHERE live_game_id = ? AND team = ?')
+    .get(liveGameId, otherTeam).n;
+  const otherGuests = db
+    .prepare('SELECT COUNT(*) AS n FROM live_game_guests WHERE live_game_id = ? AND team = ?')
+    .get(liveGameId, otherTeam).n;
+  if (otherAppPlayers === 0 && otherGuests > 0) {
+    q.lockResult(db.prepare('SELECT * FROM live_games WHERE id = ?').get(liveGameId));
+    return { ok: true, locked: true };
+  }
   return { ok: true };
 }
 
@@ -257,6 +304,8 @@ module.exports = {
   FORMATS,
   POLL_MINUTES,
   startGame,
+  liveGamesAtPark,
+  courtChoices,
   joinGame,
   rosterByTeam,
   reportDone,

@@ -1214,3 +1214,225 @@ a.here-now-player { text-decoration: none; color: inherit; }
 .map-layers.map-visibility { bottom: 140px; }
 .map-vis-title { font-size: 12px; font-weight: 700; color: #6B6B76; padding: 6px 10px 4px; }
 .map-vis-note { font-size: 12px; color: #6B6B76; padding: 6px 10px 4px; max-width: 200px; }
+/* Court page: "Join this run" / "Start the first run here" (orange) and
+   "Start your own game" (small, outlined). One card per game at the park. */
+.run-cta {
+  display: block; width: 100%; box-sizing: border-box; text-align: center; text-decoration: none;
+  background: #E8702A; color: #FFFFFF; border: 0; border-radius: 999px; padding: 14px;
+  font-family: inherit; font-size: 16px; font-weight: 700; cursor: pointer; margin: 12px 0 8px;
+}
+.run-cta-outline {
+  display: block; width: fit-content; margin: 8px auto 4px; padding: 7px 16px; text-decoration: none;
+  border: 1.5px solid #E8702A; color: #E8702A; background: #FFFFFF; border-radius: 999px;
+  font-size: 13px; font-weight: 700;
+}
+.live-run-meta { font-size: 13px; color: var(--text2); margin-top: 2px; }
+.live-run-other { display: block; text-decoration: none; color: inherit; }
+.live-run-open { font-size: 13px; font-weight: 700; color: var(--accent); margin-top: 6px; }
+
+/* "Start a game" confirm screen. */
+.start-game-note { background: #FFF4EC; color: #7A3A10; border-radius: 12px; padding: 12px 14px; font-size: 14px; margin: 12px 0; }
+.start-game-label { font-size: 13px; font-weight: 700; color: var(--text2); margin: 16px 0 8px; }
+.start-game-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.start-game-option { position: relative; }
+.start-game-option input { position: absolute; opacity: 0; pointer-events: none; }
+.start-game-option span {
+  display: inline-flex; flex-direction: column; align-items: center; min-width: 56px; padding: 10px 14px;
+  border: 1.5px solid var(--border); border-radius: 12px; background: var(--card); font-weight: 700; font-size: 15px; cursor: pointer;
+}
+.start-game-option span small { font-size: 11px; font-weight: 600; color: var(--muted); }
+.start-game-option input:checked + span { border-color: #E8702A; background: #FFF4EC; color: #B4501A; }
+.start-game-option input:focus-visible + span { outline: 2px solid #E8702A; outline-offset: 2px; }
+.start-game-option.is-busy span { opacity: 0.5; cursor: not-allowed; }
+.start-game-form .run-cta { margin-top: 18px; }
+.start-game-cancel { display: block; text-align: center; margin-top: 10px; color: var(--text2); font-size: 14px; }
+.start-game-form .winners-note { margin-top: 14px; }
+
+/* "On a Heater": a live streak tag, not a badge. */
+.heater-tag {
+  display: inline-block; margin: 4px 0; padding: 3px 9px; border-radius: 999px;
+  background: #FFF4EC; color: #B4501A; font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.heater-tag.hot { background: #E8702A; color: #FFFFFF; }
+.heater-tag-sm { margin: 0 0 0 6px; padding: 2px 7px; font-size: 11px; vertical-align: middle; }
+.heater-line { font-size: 13px; color: var(--text2); margin-top: 6px; }
+
+/* --- Court sheet (mockup: br_court_sheet_clean_layout.html) --- */
+.cs-title-row { align-items: flex-start; }
+.cs-title-tools { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.cs-sub { font-size: 12px; color: #5F5E5A; margin-top: 2px; }
+.cs-icons { display: flex; align-items: center; gap: 2px; color: #5F5E5A; }
+.cs-icon-form { margin: 0; }
+.cs-icon {
+  display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px;
+  border: 0; background: none; color: #5F5E5A; border-radius: 50%; cursor: pointer; padding: 0; list-style: none;
+}
+.cs-icon::-webkit-details-marker { display: none; }
+.cs-icon:hover { background: #F4F3EE; }
+.cs-icon.is-on { color: #E8662A; }
+.cs-menu { position: relative; }
+.cs-menu > summary { list-style: none; }
+.cs-menu-list {
+  position: absolute; right: 0; top: 38px; z-index: 50; min-width: 200px; background: #FFFFFF;
+  border-radius: 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16); padding: 6px; display: flex; flex-direction: column;
+}
+.cs-menu-item { display: block; padding: 10px; border-radius: 8px; font-size: 14px; color: #2C2C2A; text-decoration: none; }
+.cs-menu-item:hover { background: #F4F3EE; }
+.cs-cant-play > summary { cursor: pointer; list-style: none; }
+.cs-cant-play .cant-play-form { margin-top: 8px; }
+
+.cs-status { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; }
+.cs-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #1D9E75; display: inline-block; }
+.cs-status-in { color: #0F6E56; }
+.cs-status-sep { color: #888780; }
+.cs-inline-form { display: inline; margin: 0; }
+.cs-link { border: 0; background: none; padding: 0; font: inherit; font-size: 12px; color: #888780; text-decoration: underline; cursor: pointer; }
+
+.cs-live { display: block; text-decoration: none; color: #2C2C2A; border: 0.5px solid #D3D1C7; border-radius: 12px; padding: 10px 12px; margin-top: 12px; background: #FFFFFF; }
+.cs-live-top { display: flex; justify-content: space-between; font-size: 12px; color: #5F5E5A; }
+.cs-live-teams { margin-top: 4px; font-weight: 600; font-size: 14px; }
+
+.cs-next { margin-top: 12px; }
+.cs-next-title { font-size: 11px; color: #888780; letter-spacing: 0.5px; margin-bottom: 6px; }
+.cs-next-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 0.5px solid #F1EFE8; font-size: 14px; color: #2C2C2A; }
+.cs-next-row:last-child { border-bottom: 0; }
+.cs-next-row b { font-weight: 600; }
+.cs-tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+.cs-tag-ok { color: #0F6E56; background: #E1F5EE; }
+.cs-tag-picking { color: #854F0B; background: #FAEEDA; }
+.cs-tag-wait { font-size: 11px; color: #888780; }
+
+.cs-team { margin-top: 12px; background: #F4F3EE; border-radius: 12px; padding: 10px 12px; }
+.cs-team-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #2C2C2A; }
+.cs-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
+.cs-chip { display: inline-flex; align-items: center; gap: 2px; background: #FFFFFF; border: 0.5px solid #D3D1C7; border-radius: 10px; padding: 3px 8px; font-size: 12px; color: #2C2C2A; }
+.cs-chip-x { border: 0; background: none; padding: 0 0 0 4px; font-size: 14px; line-height: 1; color: #888780; cursor: pointer; }
+.cs-add > summary { list-style: none; cursor: pointer; }
+.cs-add > summary::-webkit-details-marker { display: none; }
+.cs-chip-add { background: transparent; border: 0.5px dashed #B4B2A9; color: #5F5E5A; }
+.cs-add { flex-basis: 100%; }
+.cs-add[open] .cs-chip-add { border-style: solid; }
+.cs-add-panel { margin-top: 8px; background: #FFFFFF; border-radius: 10px; padding: 8px; }
+.cs-add-label { font-size: 11px; color: #888780; margin: 2px 0 6px; }
+.cs-add-row { margin: 0 0 4px; }
+.cs-add-btn { width: 100%; text-align: left; border: 0.5px solid #D3D1C7; background: #FFFFFF; border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; color: #2C2C2A; cursor: pointer; }
+.cs-guest-form { display: flex; gap: 6px; margin-top: 8px; }
+.cs-guest-form input { flex: 1; min-width: 0; border: 0.5px solid #D3D1C7; border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; }
+.cs-guest-form .cs-add-btn { width: auto; flex: 0 0 auto; text-align: center; }
+.cs-add-note { font-size: 11px; color: #888780; margin-top: 6px; }
+.cs-confirm {
+  width: 100%; margin-top: 8px; border: 0.5px solid #2C2C2A; border-radius: 10px; padding: 7px 0;
+  background: transparent; font: inherit; font-size: 13px; color: #B4B2A9; cursor: default;
+}
+.cs-confirm.is-ready { background: #2C2C2A; color: #FFFFFF; cursor: pointer; }
+
+.cs-main { padding-top: 14px; }
+.cs-cta {
+  display: block; width: 100%; box-sizing: border-box; text-align: center; text-decoration: none;
+  background: #E8662A; color: #FFFFFF; border: 0; border-radius: 12px; padding: 13px 0;
+  font-family: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.cs-cta:disabled { opacity: 0.85; cursor: default; }
+.cs-cta.is-leave { background: #2C2C2A; }
+.cs-far-msg { font-size: 12px; color: #5F5E5A; text-align: center; margin-top: 8px; }
+.cs-how { display: block; margin-top: 8px; text-align: center; font-size: 11px; color: #888780; text-decoration: none; }
+.cs-secondary { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.cs-secondary .run-cta-outline { margin: 0; }
+.live-player-guest { color: #5F5E5A; font-style: italic; }
+
+/* Progress tracker: I'm coming → Checked in → Got next → On the court.
+   Reached steps orange, upcoming gray, the payoff in purple. */
+.cs-track { margin-top: 12px; }
+.cs-track-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); }
+.cs-step { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; }
+.cs-step-line { position: absolute; top: 15px; right: 50%; width: 100%; height: 3px; background: #E3E1D9; z-index: 0; }
+.cs-step-dot {
+  position: relative; z-index: 1; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: #F1EFE8; color: #B4B2A9; border: 2px solid #E3E1D9; box-sizing: border-box;
+}
+.cs-step-label { margin-top: 4px; font-size: 11px; line-height: 1.2; color: #888780; }
+
+
+
+.cs-step.is-done .cs-step-label, .cs-step.is-current .cs-step-label { color: #2C2C2A; font-weight: 600; }
+.cs-step.is-skipped .cs-step-dot { border-style: dashed; }
+.cs-track-msg { margin-top: 8px; font-size: 13px; color: #5F5E5A; text-align: center; }
+.cs-track-msg a { color: var(--accent); font-weight: 600; }
+.cs-track-payoff { margin-top: 8px; text-align: center; font-size: 14px; font-weight: 700; color: var(--accent); }
+
+/* Map credit: a small faded (i) in the bottom-left that opens the full credit. */
+.map-credit { display: flex; align-items: flex-end; gap: 6px; margin: 0 0 6px 6px !important; }
+.map-credit-btn {
+  width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(60, 60, 60, 0.35);
+  background: rgba(255, 255, 255, 0.45); color: rgba(60, 60, 60, 0.55); padding: 0;
+  font: italic 700 11px/16px Georgia, 'Times New Roman', serif; text-align: center; cursor: pointer;
+}
+.map-credit.is-open .map-credit-btn { background: #FFFFFF; color: #2C2C2A; border-color: #888780; }
+.map-credit-text {
+  max-width: 230px; background: rgba(255, 255, 255, 0.95); border-radius: 8px; padding: 6px 8px;
+  font-size: 10px; line-height: 1.4; color: #5F5E5A; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+.map-credit-text[hidden] { display: none; }
+.map-credit-text a { color: #5F5E5A; }
+
+/* Crown progress bar on the map page (same style as the court progress tracker). */
+.crown-bar { margin-top: 8px; }
+.crown-bar-text { font-size: 13px; color: #5F5E5A; }
+.crown-bar-text strong { color: #2C2C2A; }
+.crown-bar-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.crown-bar-track { flex: 1; height: 6px; border-radius: 3px; background: #E3E1D9; overflow: hidden; }
+.crown-bar-fill { height: 100%; border-radius: 3px; background: #E8662A; }
+.crown-bar-icon { flex: 0 0 auto; display: inline-flex; }
+/* Auto check-in toast: "You're checked in at [Court] · Undo". */
+.auto-check-in-toast {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 3000;
+  bottom: calc(110px + env(safe-area-inset-bottom, 0px));
+  width: calc(100% - 32px); max-width: 420px; box-sizing: border-box; display: flex; align-items: center; gap: 6px;
+  background: #17131F; color: #FFFFFF; border-radius: 12px; padding: 10px 14px;
+  font-size: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.auto-check-in-text { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.auto-check-in-toast button {
+  border: 0; background: none; color: #F5B97A; font: inherit; font-weight: 700; padding: 0 2px; cursor: pointer;
+}
+
+.cs-here-link { display: block; margin: 8px auto 0; }
+
+/* Line fairness: added-by names, Let them go ahead, add someone, untracked game, claims. */
+.cs-next-who small { color: #888780; font-size: 11px; }
+.cs-next-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.cs-let-ahead { font-size: 11px; }
+.cs-add-someone { margin-top: 8px; }
+.cs-add-someone > summary { list-style: none; cursor: pointer; display: inline-block; }
+.cs-add-someone > summary::-webkit-details-marker { display: none; }
+.cs-untracked { border-style: dashed; }
+.cs-done-btn { margin-top: 8px; width: 100%; border: 1px solid #2C2C2A; background: #FFFFFF; border-radius: 10px; padding: 7px 0; font: inherit; font-size: 13px; cursor: pointer; }
+.cs-untracked-form { text-align: center; margin-top: 6px; }
+.cs-drop-form { margin-top: 6px; text-align: center; }
+.cs-claims { margin-top: 12px; }
+.cs-claim { border-bottom: 0.5px solid #F1EFE8; padding: 6px 0; }
+.cs-claim > summary { list-style: none; display: flex; justify-content: space-between; cursor: pointer; font-size: 14px; }
+.cs-claim > summary::-webkit-details-marker { display: none; }
+.cs-claim-body { text-align: center; padding: 8px 0; }
+
+/* Each step a brighter orange as the player gets closer to playing:
+   I'm coming = light peach, Checked in = soft orange, Got next = orange,
+   On the court = bright BR orange with a soft glow ring while it's on. */
+.cs-track-steps { --peach: #F9C9A8; --soft: #F3A46E; --mid: #EE8540; --bright: #E8662A; }
+.cs-step:nth-child(1) { --tone: var(--peach); --ink: #7A3A10; }
+.cs-step:nth-child(2) { --tone: var(--soft); --ink: #5C2A08; }
+.cs-step:nth-child(3) { --tone: var(--mid); --ink: #FFFFFF; }
+.cs-step:nth-child(4) { --tone: var(--bright); --ink: #FFFFFF; }
+.cs-step.is-done .cs-step-dot, .cs-step.is-current .cs-step-dot { background: var(--tone); border-color: var(--tone); color: var(--ink); }
+.cs-step.is-done .cs-step-line, .cs-step.is-current .cs-step-line { background: var(--tone); }
+.cs-step.is-current:nth-child(4) .cs-step-dot { box-shadow: 0 0 0 5px rgba(232, 102, 42, 0.22), 0 0 14px rgba(232, 102, 42, 0.45); }
+
+/* The main button takes the color of the current step. */
+.cs-tone-coming .cs-cta { background: #F9C9A8; color: #5C2A08; }
+.cs-tone-here .cs-cta { background: #F3A46E; color: #3E1C05; }
+.cs-tone-next .cs-cta { background: #EE8540; color: #FFFFFF; }
+.cs-tone-court .cs-cta { background: #E8662A; color: #FFFFFF; }
+.cs-tone-coming .cs-cta:disabled, .cs-tone-here .cs-cta:disabled { opacity: 0.75; }
+.cs-cta.is-leave { background: #2C2C2A !important; color: #FFFFFF !important; }
+/* "Game now" (starting a game) is the brightest. */
+.start-game-form .run-cta, .run-cta { background: #E8662A; }
