@@ -1,3 +1,19 @@
+<% if (locals.isGuest) { %>
+<div class="guest-strip" id="guestStrip">
+  <a href="/signup" class="guest-strip-link">Sign up with your number to get on the board.</a>
+  <button type="button" class="guest-strip-close" aria-label="Hide for this visit">&times;</button>
+</div>
+<script>
+  (function () {
+    var strip = document.getElementById('guestStrip');
+    try { if (sessionStorage.getItem('royale_guest_strip_hidden')) strip.style.display = 'none'; } catch (e) {}
+    strip.querySelector('.guest-strip-close').addEventListener('click', function () {
+      strip.style.display = 'none';
+      try { sessionStorage.setItem('royale_guest_strip_hidden', '1'); } catch (e) {}
+    });
+  })();
+</script>
+<% } %>
 <div class="nav-utility">
   <button type="button" class="nav-util-btn" data-back data-back-fallback="/">&lsaquo; Back</button>
   <a class="nav-util-btn" href="/how-it-works">How it works</a>

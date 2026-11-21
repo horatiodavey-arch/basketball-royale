@@ -14,7 +14,7 @@
 <body class="kotc">
 <div class="page map-page">
 
-  <% if (pins.length === 0) { %><%- include('partials/royale-header', { trophyNote: true }) %><% } %>
+  <% if (pins.length === 0) { %><%- include('partials/royale-header') %><% } %>
 
   <% if (showIntro) { %><%- include('partials/how-it-works-card', { returnTo: '/' }) %><% } %>
   <% if (!anyLive) { %><div class="empty-state">No runs live right now. Follow a park to know when one starts.</div><% } %>
@@ -53,7 +53,13 @@
   <% } else { %>
     <div id="locationBanner" class="location-banner" style="display: none;"></div>
     <div class="map-wrap">
-      <div class="map-float-top"><%- include('partials/royale-header', { trophyNote: true }) %></div>
+      <div class="map-float-top">
+        <div class="map-header">
+          <a href="/" class="royale-brand map-header-brand" aria-label="ROYALE, back to the map"><span class="royale-dot"></span>ROYALE</a>
+          <span class="map-header-reset">Crowns reset in <%= season.daysLeft %>d</span>
+        </div>
+        <% if (locals.flash) { %><div class="flash-note map-flash" role="status"><%= flash %></div><% } %>
+      </div>
       <div id="map" class="leaflet-map"></div>
       <div class="map-layers">
         <button type="button" id="mapLayersBtn" class="map-layers-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Show courts">
