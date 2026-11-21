@@ -286,61 +286,30 @@
       return top ? top.id : null;
     }
 
-    // The mini hoop every court gets: backboard, rim and pole. Indoor is purple.
-    function hoopSvg(isIndoor) {
-      var c = isIndoor ? '#6D28D9' : '#E8702A';
-      return '<svg class="hoop-icon" width="26" height="30" viewBox="0 0 26 30" aria-hidden="true">' +
-        '<rect x="3" y="2" width="20" height="13" rx="2" fill="#FFFFFF" stroke="' + c + '" stroke-width="2"/>' +
-        '<rect x="9" y="6" width="8" height="5" fill="none" stroke="' + c + '" stroke-width="1.5"/>' +
-        '<ellipse cx="13" cy="16" rx="5" ry="1.6" fill="none" stroke="' + c + '" stroke-width="2"/>' +
-        '<path d="M9 16l1.5 4M13 17.5v3M17 16l-1.5 4" stroke="' + c + '" stroke-width="1" stroke-linecap="round"/>' +
-        '<rect x="12" y="20" width="2" height="9" rx="1" fill="' + c + '"/>' +
-        '</svg>';
+    // Every court is a hoop (white backboard, orange rim outdoor, blue rim
+    // indoor). A crown sits above it when the court has a King, and a status
+    // dot at its top-right: green when someone's checked in, yellow when
+    // someone's coming. Names and counts are in the park's sheet, not on the map.
+    function hoopPinHtml(title, isIndoor, isSelected, king, status) {
+      var dot = status ? '<span class="hoop-dot hoop-dot-' + status + '"></span>' : '';
+      return '<div class="kotc-marker-content kotc-marker-hoop" title="' + escapeHtml(title) + '">' +
+        '<div class="hoop-wrap' + (isIndoor ? ' hoop-indoor' : '') + (isSelected ? ' hoop-selected' : '') + '">' +
+        (king ? RoyaleMap.crownSvg() : '') + RoyaleMap.hoopSvg(isIndoor) + dot + '</div></div>';
     }
 
-    // Busy, selected and the app's own parks show the full pin (crown, status
-    // dots, name and counts) above the hoop. Quiet imported courts show the hoop.
+    // Busy, selected and the app's own parks stay out of the numbered clusters.
     function isBusy(pin, isSelected) {
       return isSelected || pin.source !== 'osm' || pin.activeCount > 0 || pin.live ||
         (pin.hereCount || 0) > 0 || (pin.comingCount || 0) > 0 || !!pin.king || !!pin.nextRun;
     }
 
-    function pinHtml(pin, isSelected, miles) {
-      var hoop = '<div class="hoop-wrap' + (pin.isIndoor ? ' hoop-indoor' : '') + (isSelected ? ' hoop-selected' : '') + '">' + hoopSvg(pin.isIndoor) + '</div>';
-      if (!isBusy(pin, isSelected)) {
-        return '<div class="kotc-marker-content kotc-marker-hoop" title="' + escapeHtml(pin.name) + '">' + hoop + '</div>';
-      }
-      var full = busyPinHtml(pin, isSelected, miles); // ends with the wrapper's closing </div>
-      return full.slice(0, -'</div>'.length) + hoop + '</div>';
+    function pinHtml(pin, isSelected) {
+      var status = (pin.hereCount || 0) > 0 || pin.activeCount > 0 ? 'here' : (pin.comingCount || 0) > 0 ? 'coming' : null;
+      return hoopPinHtml(pin.name, pin.isIndoor, isSelected, !!pin.king, status);
     }
 
-    function busyPinHtml(pin, isSelected, miles) {
-      var isTop = pin.id === topActivePinId();
-      var fill = (pin.king && pin.king.crown) ? pin.king.crown.fill : 'none';
-      var stroke = (pin.king && pin.king.crown) ? pin.king.crown.stroke : '#9C9A92';
-      if (isTop) { fill = '#D9A520'; stroke = '#8A6408'; }
-      var dotClass = pin.activeCount > 0 ? 'pin-dot-active' : 'pin-dot-idle';
-      // Nobody active: no crown, just "0" and a gray dot.
-      var crownHtml = pin.activeCount > 0 ? crownSvg(fill, stroke, 16) : '';
-      var label = pin.king ? pin.king.name : pin.name;
-      var distanceHtml = miles != null ? '<div class="pin-distance">' + RoyaleGeo.pinDistanceLabel(miles) + '</div>' : '';
-      // Both counts, as the lists on the park show them: "4 here · 3 coming".
-      var countsHtml = '<div class="pin-run">' + (pin.live ? '<span class="live-badge">Live</span> ' : '') +
-        '<span class="status-dot-inline status-dot-here"></span>' + (pin.hereCount || 0) + ' here · ' +
-        '<span class="status-dot-inline status-dot-coming"></span>' + (pin.comingCount || 0) + ' coming</div>';
-      var runHtml = countsHtml;
-      return '<div class="kotc-marker-content"><div class="pin' + (isSelected ? ' pin-selected' : '') + (isTop ? ' pin-top' : '') + '">' +
-        crownHtml +
-        '<span class="pin-count">' + pin.activeCount + '</span>' +
-        '<span class="pin-dot ' + dotClass + '"></span>' +
-        '</div><div class="pin-label">' + escapeHtml(label) + distanceHtml + runHtml + '</div></div>';
-    }
-
-    function openCourtPinHtml(court, miles) {
-      var distanceHtml = miles != null ? '<div class="pin-distance">' + RoyaleGeo.pinDistanceLabel(miles) + '</div>' : '';
-      return '<div class="kotc-marker-content"><div class="pin pin-open"><span class="pin-dot pin-dot-open"></span></div>' +
-        '<div class="pin-label pin-label-open">' + escapeHtml(court.name) +
-        '<span class="pin-sub-open">Open court &middot; No king yet</span>' + distanceHtml + '</div></div>';
+    function openCourtPinHtml(court) {
+      return hoopPinHtml(court.name + ' · Open court', false, false, false, null);
     }
 
     var haversineMiles = RoyaleGeo.haversineMiles;
