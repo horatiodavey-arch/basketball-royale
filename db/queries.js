@@ -581,7 +581,14 @@ function getNextCrownProgress(totalPoints) {
     .reverse()
     .find((level) => level.min > totalPoints);
   if (!next) return null;
-  return { name: next.name, pointsNeeded: roundTenth(next.min - totalPoints) };
+  return {
+    name: next.name,
+    pointsNeeded: roundTenth(next.min - totalPoints),
+    points: roundTenth(totalPoints),
+    min: next.min,
+    fill: next.fill,
+    stroke: next.stroke,
+  };
 }
 
 function nameInitials(name) {
@@ -648,6 +655,16 @@ function hereAtPark(parkId) {
 // Players who tapped I'm coming on a run at this park that hasn't ended or been
 // cancelled, minus anyone already checked in there (they're in "Here now") and
 // anyone who hides. Distinct players.
+// "I'm coming" to a park with no run scheduled lasts this long.
+const PARK_COMING_HOURS = 3;
+function comingToPark(playerId, parkId) {
+  db.prepare(
+    `INSERT INTO park_coming (player_id, park_id, created_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT (player_id, park_id) DO UPDATE SET created_at = excluded.created_at`
+  ).run(playerId, parkId);
+  return { ok: true };
+}
+
 function comingAtPark(parkId) {
   const now = appNowSql();
   const here = new Set(getCheckedInPlayers(parkId).map((p) => p.id));
@@ -659,9 +676,15 @@ function comingAtPark(parkId) {
        JOIN courts c ON c.id = r.court_id
        JOIN players pl ON pl.id = rr.player_id
        JOIN users u ON u.id = pl.user_id
-       WHERE c.park_id = ? AND r.cancelled_at IS NULL AND datetime(r.scheduled_at, '+${LIVE_AFTER_MINUTES} minutes') >= ?`
+       WHERE c.park_id = ? AND r.cancelled_at IS NULL AND datetime(r.scheduled_at, '+${LIVE_AFTER_MINUTES} minutes') >= ?
+       UNION
+       SELECT pl.id, ${DISPLAY_NAME} AS name, pl.hide_presence AS hidden
+       FROM park_coming pc
+       JOIN players pl ON pl.id = pc.player_id
+       JOIN users u ON u.id = pl.user_id
+       WHERE pc.park_id = ? AND pc.created_at >= datetime('now', '-${PARK_COMING_HOURS} hours')`
     )
-    .all(parkId, now)
+    .all(parkId, now, parkId)
     .filter((p) => !here.has(p.id) && !p.hidden)
     .map((p) => ({ id: p.id, name: p.name, initials: nameInitials(p.name) }));
 }
@@ -774,6 +797,24 @@ const CHECK_IN_FRESH_MINUTES = 5;
 // if their heartbeat itself is recent.
 const FRESH_SINCE_SQL = `datetime('now', '-${CHECK_IN_FRESH_MINUTES} minutes')`;
 
+// Who counts as checked in. Only a real location reading outside the park's
+// radius counts as leaving: a closed app or a locked phone sends nothing and
+// changes nothing. After 5 minutes of being outside, the player is out, except
+// while they're on a roster in a game at that park, and for 5 minutes after
+// that game's result is in. A check-in with no reading at all for
+// NO_SIGNAL_HOURS also ends, so nobody stays "here" after going home.
+const NO_SIGNAL_HOURS = 4;
+function presentSql(a) {
+  return `(${a}.last_seen >= datetime('now', '-${NO_SIGNAL_HOURS} hours') AND (
+    ${a}.outside_since IS NULL
+    OR ${a}.outside_since >= ${FRESH_SINCE_SQL}
+    OR EXISTS (
+      SELECT 1 FROM live_game_players lgp_p JOIN live_games lg_p ON lg_p.id = lgp_p.live_game_id
+      WHERE lgp_p.player_id = ${a}.player_id AND lg_p.park_id = ${a}.park_id AND lgp_p.time_off IS NULL
+        AND (lg_p.status IN ('countdown', 'in_progress', 'awaiting_confirmation')
+             OR (lg_p.status = 'done' AND lg_p.locked_at >= ${FRESH_SINCE_SQL})))))`;
+}
+
 function haversineMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
   const toRad = (d) => (d * Math.PI) / 180;
@@ -794,7 +835,7 @@ const POOR_GPS_ACCURACY_METERS = 100;
 // upserts check_ins (no DB-level UNIQUE on player+park, so check first).
 // `accuracy` is the phone's own estimate of how far off that position
 // could be, in meters — optional, and only used to explain a rejection.
-function checkIn(playerId, parkId, lat, lng, accuracy) {
+function checkIn(playerId, parkId, lat, lng, accuracy, source = 'manual') {
   const park = getParkById(parkId);
   if (!park) return { ok: false, error: 'Park not found.' };
   if (park.lat === null || park.lng === null) {
@@ -818,12 +859,12 @@ function checkIn(playerId, parkId, lat, lng, accuracy) {
     .get(playerId, parkId);
   if (existing) {
     db.prepare(
-      "UPDATE check_ins SET time_in = datetime('now'), last_seen = datetime('now'), last_inside = datetime('now') WHERE id = ?"
-    ).run(existing.id);
+      "UPDATE check_ins SET time_in = datetime('now'), last_seen = datetime('now'), last_inside = datetime('now'), outside_since = NULL, source = ? WHERE id = ?"
+    ).run(source, existing.id);
   } else {
     db.prepare(
-      "INSERT INTO check_ins (player_id, park_id, last_inside) VALUES (?, ?, datetime('now'))"
-    ).run(playerId, parkId);
+      "INSERT INTO check_ins (player_id, park_id, last_inside, source) VALUES (?, ?, datetime('now'), ?)"
+    ).run(playerId, parkId, source);
   }
   return { ok: true };
 }
@@ -858,20 +899,25 @@ function checkOut(playerId, parkId) {
 // leave_radius_meters — that's the clock that actually gates presence.
 // No position reported (geolocation failed client-side) counts the same
 // as being outside: the "inside" clock just doesn't get extended.
-function heartbeat(playerId, parkId, lat, lng) {
+function heartbeat(playerId, parkId, lat, lng, accuracy) {
   const park = getParkById(parkId);
   if (!park) return { ok: false };
 
   const hasPosition = typeof lat === 'number' && typeof lng === 'number' && park.lat !== null;
+  // A rough fix can't say the player left: only a good reading outside counts.
+  const trusted = hasPosition && !(typeof accuracy === 'number' && accuracy > POOR_GPS_ACCURACY_METERS);
   const inside = hasPosition && haversineMeters(lat, lng, park.lat, park.lng) <= park.leave_radius_meters;
+  const outside = trusted && !inside;
 
+  const set = inside
+    ? ", last_inside = datetime('now'), outside_since = NULL"
+    : outside
+      ? ", outside_since = COALESCE(outside_since, datetime('now'))"
+      : '';
   const result = db
-    .prepare(
-      `UPDATE check_ins SET last_seen = datetime('now')${inside ? ", last_inside = datetime('now')" : ''}
-       WHERE player_id = ? AND park_id = ?`
-    )
+    .prepare(`UPDATE check_ins SET last_seen = datetime('now')${set} WHERE player_id = ? AND park_id = ?`)
     .run(playerId, parkId);
-  return { ok: result.changes > 0, inside };
+  return { ok: result.changes > 0, inside, checkedIn: !!getCheckIn(playerId, parkId) };
 }
 
 // Fresh (within 5 min, and within the leave radius) check-in for this
@@ -879,7 +925,7 @@ function heartbeat(playerId, parkId, lat, lng) {
 function getCheckIn(playerId, parkId) {
   return db
     .prepare(
-      `SELECT * FROM check_ins WHERE player_id = ? AND park_id = ? AND last_inside >= ${FRESH_SINCE_SQL}`
+      `SELECT * FROM check_ins ci WHERE ci.player_id = ? AND ci.park_id = ? AND ${presentSql('ci')}`
     )
     .get(playerId, parkId);
 }
@@ -903,7 +949,7 @@ function getCheckedInPlayers(parkId) {
        FROM check_ins c
        JOIN players p ON p.id = c.player_id
        JOIN users u ON u.id = p.user_id
-       WHERE c.park_id = ? AND c.last_inside >= ${FRESH_SINCE_SQL}
+       WHERE c.park_id = ? AND ${presentSql('c')}
        ORDER BY u.name ASC`
     )
     .all(parkId);
@@ -970,7 +1016,7 @@ function tickQueueForCourt(courtId) {
         `SELECT 1 FROM check_ins ci
          JOIN next_line nl ON nl.id = ?
          WHERE ci.player_id = nl.captain_player_id AND ci.park_id = (SELECT park_id FROM courts WHERE id = nl.court_id)
-           AND ci.last_inside >= ${FRESH_SINCE_SQL}`
+           AND ${presentSql('ci')}`
       )
       .get(squad.id);
 
@@ -992,7 +1038,7 @@ function tickQueueForCourt(courtId) {
     const staleMembers = db
       .prepare(
         `SELECT nlm.player_id FROM next_line_members nlm
-         LEFT JOIN check_ins ci ON ci.player_id = nlm.player_id AND ci.park_id = ? AND ci.last_inside >= ${FRESH_SINCE_SQL}
+         LEFT JOIN check_ins ci ON ci.player_id = nlm.player_id AND ci.park_id = ? AND ${presentSql('ci')}
          WHERE nlm.next_line_id = ? AND ci.id IS NULL`
       )
       .all(parkId, squad.id);
@@ -1018,7 +1064,7 @@ function iGotNext(courtId, playerId) {
     .prepare(
       `SELECT 1 FROM next_line nl
        WHERE nl.court_id = ? AND nl.status = 'waiting'
-         AND (nl.captain_player_id = ? OR EXISTS (SELECT 1 FROM next_line_members WHERE next_line_id = nl.id AND player_id = ?))`
+         AND ((nl.captain_player_id = ? AND nl.guest_name IS NULL) OR EXISTS (SELECT 1 FROM next_line_members WHERE next_line_id = nl.id AND player_id = ?))`
     )
     .get(courtId, playerId, playerId);
   if (alreadyQueued) return { ok: false, error: "You're already in line on this court." };
@@ -1531,7 +1577,7 @@ function recordResultNotices(game, byPlayer, winningTeam, trophiesBefore, gameId
 // court in use, the queue, the game on it, and today's results there.
 function currentCheckInParkId(playerId) {
   const row = db
-    .prepare(`SELECT park_id FROM check_ins WHERE player_id = ? AND last_inside >= ${FRESH_SINCE_SQL} ORDER BY last_inside DESC LIMIT 1`)
+    .prepare(`SELECT ci.park_id FROM check_ins ci WHERE ci.player_id = ? AND ${presentSql('ci')} ORDER BY ci.last_inside DESC LIMIT 1`)
     .get(playerId);
   return row ? row.park_id : null;
 }
@@ -2707,7 +2753,7 @@ function getLiveCourtIds() {
   // Live needs at least one player checked in at the park. A run's time window,
   // or a game in progress, does not make it live on its own.
   const present = new Set(
-    db.prepare(`SELECT DISTINCT park_id FROM check_ins WHERE last_inside >= ${FRESH_SINCE_SQL}`).all().map((r) => r.park_id)
+    db.prepare(`SELECT DISTINCT ci.park_id FROM check_ins ci WHERE ${presentSql('ci')}`).all().map((r) => r.park_id)
   );
   if (present.size === 0) return new Set();
   const now = appNowSql();
@@ -2740,7 +2786,7 @@ function getLiveParkIds() {
 // be the first King of X" empty state) regardless of whether it has a run.
 // Parks with at least one player checked in right now.
 function parksWithCheckIns() {
-  return new Set(db.prepare(`SELECT DISTINCT park_id FROM check_ins WHERE last_inside >= ${FRESH_SINCE_SQL}`).all().map((r) => r.park_id));
+  return new Set(db.prepare(`SELECT DISTINCT ci.park_id FROM check_ins ci WHERE ${presentSql('ci')}`).all().map((r) => r.park_id));
 }
 
 function getNearbyUpcomingRuns(lat, lng, radiusMeters) {
@@ -2815,6 +2861,10 @@ module.exports = {
   createParkFromSpot,
   haversineMeters,
   checkOut,
+  presentSql,
+  applyGameResult,
+  recordMilestone,
+  comingToPark,
   getUnseenResultNotices,
   markResultNoticesSeen,
   getResultNoticeForGame,
